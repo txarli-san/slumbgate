@@ -56,15 +56,21 @@ func (ts TurnState) String() string {
 // --- Structs ---
 
 type Entity struct {
-	X           int
-	Y           int
-	HP          int
-	MaxHP       int
-	AC          int
-	AttackPower int
-	Sprite      *ebiten.Image
-	DrawOpts    ebiten.DrawImageOptions
-	Name        string
+	X     int
+	Y     int
+	HP    int
+	MaxHP int
+	AC    int
+	// AttackPower removed, damage derived from ability scores
+	Strength     int // Added Ability Scores
+	Dexterity    int
+	Constitution int
+	Intelligence int
+	Wisdom       int
+	Charisma     int
+	Sprite       *ebiten.Image
+	DrawOpts     ebiten.DrawImageOptions
+	Name         string
 }
 
 type Player struct {
@@ -94,6 +100,11 @@ type Game struct {
 
 // --- Game Logic ---
 
+// getModifier calculates the D&D ability modifier for a given score.
+func getModifier(score int) int {
+	return (score - 10) / 2 // Integer division handles floor
+}
+
 func NewGame() *Game {
 	g := &Game{}
 	g.Enemies = make([]*Enemy, 0)
@@ -104,9 +115,33 @@ func NewGame() *Game {
 
 	playerSprite := ebiten.NewImage(tileSize, tileSize)
 	vector.DrawFilledRect(playerSprite, 0, 0, float32(tileSize), float32(tileSize), color.RGBA{R: 0, G: 255, B: 0, A: 255}, false)
+
+	// Assign Player Stats (Example Fighter Array)
+	playerStr := 15
+	playerDex := 14
+	playerCon := 13
+	playerInt := 8
+	playerWis := 12
+	playerCha := 10
+
+	// Calculate initial HP based on Con
+	playerConMod := getModifier(playerCon)
+	playerMaxHP := 10 + playerConMod // Fighter L1 HP
+
 	g.Player = &Player{
 		Entity: Entity{
-			X: mapWidth / 2, Y: mapHeight / 2, HP: 20, MaxHP: 20, AC: 13, AttackPower: 4, Sprite: playerSprite, Name: "Player",
+			X: mapWidth / 2, Y: mapHeight / 2,
+			HP:           playerMaxHP,
+			MaxHP:        playerMaxHP,
+			AC:           13, // Base AC + Defense Style (hardcoded)
+			Strength:     playerStr,
+			Dexterity:    playerDex,
+			Constitution: playerCon,
+			Intelligence: playerInt,
+			Wisdom:       playerWis,
+			Charisma:     playerCha,
+			Sprite:       playerSprite,
+			Name:         "Player",
 		},
 		ProficiencyBonus:  2,
 		MaxMovementPoints: playerBaseMovement,
@@ -115,8 +150,10 @@ func NewGame() *Game {
 	g.EnemySprite = ebiten.NewImage(tileSize, tileSize)
 	vector.DrawFilledRect(g.EnemySprite, 0, 0, float32(tileSize), float32(tileSize), color.RGBA{R: 255, G: 0, B: 0, A: 255}, false)
 
-	g.spawnEnemy(2, 2, "Enemy 0", 8, 10, 3, enemyBaseMovement)
-	g.spawnEnemy(mapWidth-3, mapHeight-3, "Enemy 1", 8, 10, 3, enemyBaseMovement)
+	// Spawn enemies with basic stats
+	// Args: x, y, name, base_hp, ac, str, dex, con, int, wis, cha, move
+	g.spawnEnemy(2, 2, "Enemy 0", 6, 10, 12, 10, 11, 8, 8, 8, enemyBaseMovement) // Basic melee enemy stats
+	g.spawnEnemy(mapWidth-3, mapHeight-3, "Enemy 1", 6, 10, 12, 10, 11, 8, 8, 8, enemyBaseMovement)
 
 	g.CurrentTurn = PlayerTurn
 	g.resetPlayerTurnState()
@@ -129,11 +166,20 @@ func (g *Game) resetPlayerTurnState() {
 	g.Player.ActionTaken = false
 }
 
-// spawnEnemy creates a new enemy.
-func (g *Game) spawnEnemy(x, y int, name string, hp, ac, attackPower, move int) {
+// spawnEnemy creates a new enemy with specified ability scores.
+func (g *Game) spawnEnemy(x, y int, name string, baseHp, ac, str, dex, con, intel, wis, cha, move int) {
+	conMod := getModifier(con)
+	maxHp := baseHp + conMod // Adjust base HP by Con modifier
+	if maxHp < 1 {
+		maxHp = 1
+	} // Ensure minimum 1 HP
+
 	enemy := &Enemy{
 		Entity: Entity{
-			X: x, Y: y, HP: hp, MaxHP: hp, AC: ac, AttackPower: attackPower, Sprite: g.EnemySprite, Name: name,
+			X: x, Y: y, HP: maxHp, MaxHP: maxHp, AC: ac,
+			Strength: str, Dexterity: dex, Constitution: con,
+			Intelligence: intel, Wisdom: wis, Charisma: cha,
+			Sprite: g.EnemySprite, Name: name,
 		},
 		MaxMovementPoints: move,
 	}
@@ -181,22 +227,37 @@ func (g *Game) findAdjacentEnemy() *Enemy {
 	return nil
 }
 
-// resolveAttack handles attack logic. Returns true if defender died.
+// resolveAttack handles attack logic using Ability Modifiers + Proficiency Bonus.
+// Returns true if defender died.
 func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBonus int) bool {
+	// Determine attack ability modifier (Using Strength for melee for now)
+	// TODO: Implement logic for choosing Str/Dex based on weapon (Finesse)
+	attackAbilityMod := getModifier(attacker.Strength)
+
+	// Calculate attack roll: d20 + Proficiency + Ability Mod
 	roll := rand.Intn(20) + 1
-	attackRoll := roll + attackerProfBonus
+	attackRoll := roll + attackerProfBonus + attackAbilityMod
 	hit := attackRoll >= defender.AC
 
-	var rollString string
-	if attackerProfBonus != 0 {
-		rollString = fmt.Sprintf("Roll: %d + %d = %d", roll, attackerProfBonus, attackRoll)
+	// Log message showing calculation
+	var modString string
+	if attackAbilityMod >= 0 {
+		modString = fmt.Sprintf("+%d", attackAbilityMod)
 	} else {
-		rollString = fmt.Sprintf("Roll: %d", roll)
+		modString = fmt.Sprintf("%d", attackAbilityMod)
 	}
+	var profString string
+	if attackerProfBonus != 0 {
+		profString = fmt.Sprintf("+%d", attackerProfBonus)
+	}
+
+	rollString := fmt.Sprintf("Roll: %d%s%s = %d", roll, profString, modString, attackRoll)
 	logMsg := fmt.Sprintf("%s attacks %s (AC %d). %s.", attacker.Name, defender.Name, defender.AC, rollString)
 
 	if hit {
-		damage := attacker.AttackPower
+		// Calculate damage: Ability Mod (min 1)
+		// TODO: Add weapon damage dice later
+		damage := max(1, attackAbilityMod) // Ensure at least 1 damage
 		defender.HP -= damage
 		logMsg += fmt.Sprintf(" Hit! Deals %d damage.", damage)
 		if defender.HP <= 0 {
@@ -220,31 +281,28 @@ func isAdjacent(x1, y1, x2, y2 int) bool {
 
 // handlePlayerInput processes player actions (Wait, Attack, Move).
 func (g *Game) handlePlayerInput() {
-	// --- Action Input (Attack/Wait) ---
+	// Action Input
 	if !g.Player.ActionTaken {
 		if inpututil.IsKeyJustPressed(ebiten.KeyW) {
 			g.addCombatLog("Player waits.")
 			g.Player.ActionTaken = true
 		}
-		// Check attack only if Wait wasn't pressed
 		if !g.Player.ActionTaken && inpututil.IsKeyJustPressed(ebiten.KeySpace) {
 			targetEnemy := g.findAdjacentEnemy()
 			if targetEnemy != nil {
+				// Player uses Str mod (assumed melee) + Prof Bonus
 				g.resolveAttack(&g.Player.Entity, &targetEnemy.Entity, g.Player.ProficiencyBonus)
-				g.Player.ActionTaken = true // Mark action taken after successful attack
+				g.Player.ActionTaken = true
 			} else {
 				g.addCombatLog("Player attacks... nothing in range!")
 			}
 		}
 	}
-
-	// --- Movement Input (Arrow Keys) ---
-	// Allow movement as long as points remain (can happen before/after action in D&D)
+	// Movement Input
 	if g.Player.MovementPoints > 0 {
 		moved := false
 		startX, startY := g.Player.X, g.Player.Y
 		targetX, targetY := startX, startY
-
 		if inpututil.IsKeyJustPressed(ebiten.KeyArrowUp) {
 			targetY--
 			moved = true
@@ -258,11 +316,10 @@ func (g *Game) handlePlayerInput() {
 			targetX++
 			moved = true
 		}
-
 		if moved {
 			if targetX >= 0 && targetX < mapWidth && targetY >= 0 && targetY < mapHeight {
 				if !g.isTileBlocked(targetX, targetY, -1) {
-					// AoO Check before moving
+					// AoO Check
 					for _, enemy := range g.Enemies {
 						if enemy.HP <= 0 {
 							continue
@@ -274,7 +331,7 @@ func (g *Game) handlePlayerInput() {
 								g.addCombatLog(fmt.Sprintf("%s makes an Opportunity Attack!", enemy.Name))
 								g.resolveAttack(&enemy.Entity, &g.Player.Entity, 0)
 							}
-						}
+						} // Enemy uses 0 prof bonus for AoO for now
 					}
 					// Update Position & Movement if alive
 					if g.Player.HP > 0 {
@@ -282,7 +339,7 @@ func (g *Game) handlePlayerInput() {
 						g.Player.Y = targetY
 						g.Player.MovementPoints--
 					} else {
-						g.Player.MovementPoints-- // Consume point even if died from AoO
+						g.Player.MovementPoints--
 					}
 				}
 			}
@@ -300,7 +357,6 @@ func (g *Game) handleEnemyTurns() {
 		if g.Player.HP <= 0 {
 			continue
 		}
-
 		enemy.MovementPoints = enemy.MaxMovementPoints
 		enemy.ActionAvailable = true
 		fmt.Printf("Processing %s (HP: %d, Move: %d, Action: %t)\n", enemy.Name, enemy.HP, enemy.MovementPoints, enemy.ActionAvailable)
@@ -325,7 +381,6 @@ func (g *Game) handleEnemyTurns() {
 					targetY--
 				}
 			}
-
 			if targetX >= 0 && targetX < mapWidth && targetY >= 0 && targetY < mapHeight {
 				if !g.isTileBlocked(targetX, targetY, i) {
 					fmt.Printf("  %s moving to (%d, %d).\n", enemy.Name, targetX, targetY)
@@ -351,6 +406,7 @@ func (g *Game) handleEnemyTurns() {
 		// Action Phase
 		if isAdjacent(g.Player.X, g.Player.Y, enemy.X, enemy.Y) && enemy.ActionAvailable {
 			fmt.Printf("  %s is adjacent, attempting attack.\n", enemy.Name)
+			// Enemy uses Str mod (assumed melee) + 0 Prof Bonus for now
 			g.resolveAttack(&enemy.Entity, &g.Player.Entity, 0)
 			enemy.ActionAvailable = false
 		} else if enemy.ActionAvailable {
@@ -382,31 +438,25 @@ func (g *Game) Update() error {
 		return nil
 	}
 	previousTurn := g.CurrentTurn
-
 	switch g.CurrentTurn {
 	case PlayerTurn:
-		g.handlePlayerInput() // Process inputs
-		// Turn ends *only* if the player took their main Action
+		g.handlePlayerInput()
 		if g.Player.ActionTaken {
-			// fmt.Println("[INFO] Player action taken. Ending Player Turn.") // Removed debug print
 			g.CurrentTurn = EnemyTurn
 		}
 	case EnemyTurn:
 		g.handleEnemyTurns()
-		g.cleanupDeadEnemies() // Cleanup after enemy actions
-		if g.Player.HP <= 0 {  // Check player death
+		g.cleanupDeadEnemies()
+		if g.Player.HP <= 0 {
 			if g.CurrentTurn != GameOver {
 				g.addCombatLog("Player has died! Game Over.")
 				g.CurrentTurn = GameOver
 			}
 		} else {
-			// Switch back and reset player state for new turn
 			g.CurrentTurn = PlayerTurn
 			g.resetPlayerTurnState()
 		}
 	}
-
-	// Cleanup enemies killed by Player *after* Player turn ends
 	if previousTurn == PlayerTurn && g.CurrentTurn == EnemyTurn {
 		g.cleanupDeadEnemies()
 	}
@@ -418,7 +468,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	mapOffsetX := (screenWidth - (mapWidth * tileSize)) / 2
 	mapOffsetY := (screenHeight - (mapHeight * tileSize)) / 2
 
-	// --- Draw Map ---
+	// Draw Map
 	tileOpts := &ebiten.DrawImageOptions{}
 	for x := 0; x < mapWidth; x++ {
 		for y := 0; y < mapHeight; y++ {
@@ -429,7 +479,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		}
 	}
 
-	// --- Draw Enemies ---
+	// Draw Enemies
 	for _, enemy := range g.Enemies {
 		enemyScreenX, enemyScreenY := float64(mapOffsetX+enemy.X*tileSize), float64(mapOffsetY+enemy.Y*tileSize)
 		enemy.DrawOpts.GeoM.Reset()
@@ -439,7 +489,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		ebitenutil.DebugPrintAt(screen, hpText, int(enemyScreenX), int(enemyScreenY)-12)
 	}
 
-	// --- Draw Player ---
+	// Draw Player
 	playerScreenX, playerScreenY := float64(mapOffsetX+g.Player.X*tileSize), float64(mapOffsetY+g.Player.Y*tileSize)
 	g.Player.DrawOpts.GeoM.Reset()
 	g.Player.DrawOpts.GeoM.Translate(playerScreenX, playerScreenY)
@@ -448,8 +498,12 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	// --- Draw UI ---
 	uiStartY := 10
 	uiLineHeight := 15
+
+	// Turn state
 	turnText := fmt.Sprintf("Turn: %s", g.CurrentTurn.String())
 	ebitenutil.DebugPrintAt(screen, turnText, 10, uiStartY)
+
+	// Player Info Block
 	playerInfoText := "Lvl: 1 Fighter (Defense Style)"
 	ebitenutil.DebugPrintAt(screen, playerInfoText, 10, uiStartY+uiLineHeight)
 	playerHpVal := g.Player.HP
@@ -466,13 +520,20 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	}
 	ebitenutil.DebugPrintAt(screen, actionStatusText, 10, uiStartY+uiLineHeight*4)
 
+	// Player Ability Scores Display
+	p := g.Player.Entity // Shortcut for player entity stats
+	scoresText1 := fmt.Sprintf("STR:%d(%+d) DEX:%d(%+d) CON:%d(%+d)", p.Strength, getModifier(p.Strength), p.Dexterity, getModifier(p.Dexterity), p.Constitution, getModifier(p.Constitution))
+	scoresText2 := fmt.Sprintf("INT:%d(%+d) WIS:%d(%+d) CHA:%d(%+d)", p.Intelligence, getModifier(p.Intelligence), p.Wisdom, getModifier(p.Wisdom), p.Charisma, getModifier(p.Charisma))
+	ebitenutil.DebugPrintAt(screen, scoresText1, 10, uiStartY+uiLineHeight*5)
+	ebitenutil.DebugPrintAt(screen, scoresText2, 10, uiStartY+uiLineHeight*6)
+
 	// Combat Log (at bottom)
 	logStartY := screenHeight - (combatLogLength * 15) - 10
 	for i, msg := range g.CombatLog {
 		ebitenutil.DebugPrintAt(screen, msg, 10, logStartY+(i*15))
 	}
 
-	// --- Draw Game Over ---
+	// Draw Game Over
 	if g.CurrentTurn == GameOver {
 		gameOverMsg := "GAME OVER"
 		bounds := text.BoundString(basicfont.Face7x13, gameOverMsg)
@@ -492,9 +553,7 @@ func max(a, b int) int {
 }
 
 // Layout specifies the logical screen size.
-func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
-	return screenWidth, screenHeight
-}
+func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) { return screenWidth, screenHeight }
 
 // --- Main Function ---
 
@@ -502,7 +561,7 @@ func main() {
 	rand.Seed(time.Now().UnixNano())
 	game := NewGame()
 	ebiten.SetWindowSize(screenWidth, screenHeight)
-	ebiten.SetWindowTitle("Slumb Gate MVP - Action Economy Verified") // Updated title
+	ebiten.SetWindowTitle("Slumb Gate MVP - Ability Scores") // Updated title
 	if err := ebiten.RunGame(game); err != nil {
 		log.Fatal(err)
 	}
