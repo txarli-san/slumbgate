@@ -89,15 +89,16 @@ type Enemy struct {
 }
 
 type Game struct {
-	Player      *Player
-	Enemies     []*Enemy
-	GameMap     [mapWidth][mapHeight]int
-	TileImage   *ebiten.Image
-	EnemySprite *ebiten.Image
-	CurrentTurn TurnState
-	CombatLog   []string
-	MapOffsetX  int // Store map offset for coordinate conversion
-	MapOffsetY  int
+	Player           *Player
+	Enemies          []*Enemy
+	GameMap          [mapWidth][mapHeight]int
+	TileImage        *ebiten.Image
+	EnemySprite      *ebiten.Image
+	CurrentTurn      TurnState
+	CombatLog        []string
+	MapOffsetX       int
+	MapOffsetY       int
+	RangeOverlayTile *ebiten.Image // Added image for range indicator
 }
 
 // --- Game Logic ---
@@ -109,17 +110,21 @@ func NewGame() *Game {
 	g := &Game{}
 	g.Enemies = make([]*Enemy, 0)
 	g.CombatLog = make([]string, 0, combatLogLength)
-
-	// Calculate map offset once
 	g.MapOffsetX = (screenWidth - (mapWidth * tileSize)) / 2
 	g.MapOffsetY = (screenHeight - (mapHeight * tileSize)) / 2
 
+	// --- Create Tile Sprites ---
 	g.TileImage = ebiten.NewImage(tileSize, tileSize)
 	vector.DrawFilledRect(g.TileImage, 0, 0, float32(tileSize), float32(tileSize), color.RGBA{R: 50, G: 50, B: 50, A: 255}, false)
 
+	// Create range overlay tile (semi-transparent blue)
+	g.RangeOverlayTile = ebiten.NewImage(tileSize, tileSize)
+	overlayColor := color.NRGBA{R: 0, G: 100, B: 200, A: 80} // NRGBA for transparency (A=0-255)
+	vector.DrawFilledRect(g.RangeOverlayTile, 0, 0, float32(tileSize), float32(tileSize), overlayColor, false)
+
+	// --- Create Player ---
 	playerSprite := ebiten.NewImage(tileSize, tileSize)
 	vector.DrawFilledRect(playerSprite, 0, 0, float32(tileSize), float32(tileSize), color.RGBA{R: 0, G: 255, B: 0, A: 255}, false)
-
 	playerStr := 15
 	playerDex := 14
 	playerCon := 13
@@ -128,10 +133,9 @@ func NewGame() *Game {
 	playerCha := 10
 	playerConMod := getModifier(playerCon)
 	playerMaxHP := 10 + playerConMod
-
 	g.Player = &Player{
 		Entity: Entity{
-			X: mapWidth / 2, Y: mapHeight / 2, HP: playerMaxHP, MaxHP: playerMaxHP, AC: 13,
+			X: mapWidth / 2, Y: mapHeight / 2, HP: playerMaxHP, MaxHP: playerMaxHP, AC: 13, // Includes Defense Style
 			Strength: playerStr, Dexterity: playerDex, Constitution: playerCon,
 			Intelligence: playerInt, Wisdom: playerWis, Charisma: playerCha,
 			Sprite: playerSprite, Name: "Player",
@@ -140,9 +144,11 @@ func NewGame() *Game {
 		MaxMovementPoints: playerBaseMovement,
 	}
 
+	// --- Create Enemy Sprite ---
 	g.EnemySprite = ebiten.NewImage(tileSize, tileSize)
 	vector.DrawFilledRect(g.EnemySprite, 0, 0, float32(tileSize), float32(tileSize), color.RGBA{R: 255, G: 0, B: 0, A: 255}, false)
 
+	// --- Spawn Enemies ---
 	g.spawnEnemy(2, 2, "Enemy 0", 6, 10, 12, 10, 11, 8, 8, 8, enemyBaseMovement)
 	g.spawnEnemy(mapWidth-3, mapHeight-3, "Enemy 1", 6, 10, 12, 10, 11, 8, 8, 8, enemyBaseMovement)
 
@@ -519,6 +525,23 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		}
 	}
 
+	// Draw Range Overlay (If Player Turn and R is held)
+	if g.CurrentTurn == PlayerTurn && ebiten.IsKeyPressed(ebiten.KeyR) {
+		overlayOpts := &ebiten.DrawImageOptions{}
+		for x := 0; x < mapWidth; x++ {
+			for y := 0; y < mapHeight; y++ {
+				dist := distance(g.Player.X, g.Player.Y, x, y)
+				if dist > 0 && dist <= playerRangedRange {
+					screenX := float64(mapOffsetX + x*tileSize)
+					screenY := float64(mapOffsetY + y*tileSize)
+					overlayOpts.GeoM.Reset()
+					overlayOpts.GeoM.Translate(screenX, screenY)
+					screen.DrawImage(g.RangeOverlayTile, overlayOpts)
+				}
+			}
+		}
+	}
+
 	// Draw Enemies
 	for _, enemy := range g.Enemies {
 		enemyScreenX, enemyScreenY := float64(mapOffsetX+enemy.X*tileSize), float64(mapOffsetY+enemy.Y*tileSize)
@@ -590,12 +613,11 @@ func max(a, b int) int {
 func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) { return screenWidth, screenHeight }
 
 // --- Main Function ---
-
 func main() {
 	rand.Seed(time.Now().UnixNano())
 	game := NewGame()
 	ebiten.SetWindowSize(screenWidth, screenHeight)
-	ebiten.SetWindowTitle("Slumb Gate MVP - Ranged Attack") // Updated title
+	ebiten.SetWindowTitle("Slumb Gate MVP - Ranged Attack Indicator") // Updated title
 	if err := ebiten.RunGame(game); err != nil {
 		log.Fatal(err)
 	}
