@@ -26,7 +26,7 @@ const (
 	mapHeight          = 10
 	combatLogLength    = 7
 	playerBaseMovement = 5
-	enemyBaseMovement  = 4 // Enemies might be slightly slower
+	enemyBaseMovement  = 4
 )
 
 // --- Types ---
@@ -39,7 +39,7 @@ const (
 	GameOver
 )
 
-// String method for TurnState for easier debugging display
+// String method for TurnState
 func (ts TurnState) String() string {
 	switch ts {
 	case PlayerTurn:
@@ -70,16 +70,16 @@ type Entity struct {
 type Player struct {
 	Entity
 	ProficiencyBonus  int
-	MovementPoints    int  // Current movement points for the turn
-	MaxMovementPoints int  // Maximum movement points per turn
-	ActionTaken       bool // Has the player taken their main Action this turn?
+	MovementPoints    int
+	MaxMovementPoints int
+	ActionTaken       bool
 }
 
 type Enemy struct {
 	Entity
-	MovementPoints    int  // Current movement points for the turn
-	MaxMovementPoints int  // Maximum movement points per turn
-	ActionAvailable   bool // Has the enemy taken its main Action this turn?
+	MovementPoints    int
+	MaxMovementPoints int
+	ActionAvailable   bool
 }
 
 type Game struct {
@@ -106,9 +106,7 @@ func NewGame() *Game {
 	vector.DrawFilledRect(playerSprite, 0, 0, float32(tileSize), float32(tileSize), color.RGBA{R: 0, G: 255, B: 0, A: 255}, false)
 	g.Player = &Player{
 		Entity: Entity{
-			X:  mapWidth / 2,
-			Y:  mapHeight / 2,
-			HP: 20, MaxHP: 20, AC: 13, AttackPower: 4, Sprite: playerSprite, Name: "Player",
+			X: mapWidth / 2, Y: mapHeight / 2, HP: 20, MaxHP: 20, AC: 13, AttackPower: 4, Sprite: playerSprite, Name: "Player",
 		},
 		ProficiencyBonus:  2,
 		MaxMovementPoints: playerBaseMovement,
@@ -117,7 +115,6 @@ func NewGame() *Game {
 	g.EnemySprite = ebiten.NewImage(tileSize, tileSize)
 	vector.DrawFilledRect(g.EnemySprite, 0, 0, float32(tileSize), float32(tileSize), color.RGBA{R: 255, G: 0, B: 0, A: 255}, false)
 
-	// Spawn enemies with movement points
 	g.spawnEnemy(2, 2, "Enemy 0", 8, 10, 3, enemyBaseMovement)
 	g.spawnEnemy(mapWidth-3, mapHeight-3, "Enemy 1", 8, 10, 3, enemyBaseMovement)
 
@@ -126,34 +123,33 @@ func NewGame() *Game {
 	return g
 }
 
-// resetPlayerTurnState resets movement points and action status for the player's turn.
+// resetPlayerTurnState resets state for the start of the player's turn.
 func (g *Game) resetPlayerTurnState() {
 	g.Player.MovementPoints = g.Player.MaxMovementPoints
 	g.Player.ActionTaken = false
 }
 
-// spawnEnemy creates a new enemy and adds it to the game's enemy list
+// spawnEnemy creates a new enemy.
 func (g *Game) spawnEnemy(x, y int, name string, hp, ac, attackPower, move int) {
 	enemy := &Enemy{
 		Entity: Entity{
 			X: x, Y: y, HP: hp, MaxHP: hp, AC: ac, AttackPower: attackPower, Sprite: g.EnemySprite, Name: name,
 		},
 		MaxMovementPoints: move,
-		// Initial movement/action set at start of their turn processing
 	}
 	g.Enemies = append(g.Enemies, enemy)
 }
 
-// addCombatLog adds a message to the log, keeping it short
+// addCombatLog adds a message to the log.
 func (g *Game) addCombatLog(msg string) {
 	g.CombatLog = append(g.CombatLog, msg)
 	if len(g.CombatLog) > combatLogLength {
 		g.CombatLog = g.CombatLog[len(g.CombatLog)-combatLogLength:]
 	}
-	fmt.Println("CombatLog:", msg) // Keep console log for debugging
+	fmt.Println("CombatLog:", msg)
 }
 
-// isTileBlocked checks if a given tile coordinate is occupied by the player or another *living* enemy.
+// isTileBlocked checks if a tile is occupied by a living unit.
 func (g *Game) isTileBlocked(x, y, movingEnemyIndex int) bool {
 	if g.Player.HP > 0 && g.Player.X == x && g.Player.Y == y {
 		return true
@@ -172,7 +168,7 @@ func (g *Game) isTileBlocked(x, y, movingEnemyIndex int) bool {
 	return false
 }
 
-// findAdjacentEnemy checks if any *living* enemy is adjacent to the player. Returns the first one found or nil.
+// findAdjacentEnemy finds the first living adjacent enemy.
 func (g *Game) findAdjacentEnemy() *Enemy {
 	for _, enemy := range g.Enemies {
 		if enemy.HP <= 0 {
@@ -185,7 +181,7 @@ func (g *Game) findAdjacentEnemy() *Enemy {
 	return nil
 }
 
-// resolveAttack handles the logic for an attack attempt. Returns true if defender died.
+// resolveAttack handles attack logic. Returns true if defender died.
 func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBonus int) bool {
 	roll := rand.Intn(20) + 1
 	attackRoll := roll + attackerProfBonus
@@ -215,7 +211,7 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 	return false
 }
 
-// isAdjacent checks Manhattan distance between two points
+// isAdjacent checks Manhattan distance.
 func isAdjacent(x1, y1, x2, y2 int) bool {
 	dx := x1 - x2
 	dy := y1 - y2
@@ -230,11 +226,12 @@ func (g *Game) handlePlayerInput() {
 			g.addCombatLog("Player waits.")
 			g.Player.ActionTaken = true
 		}
+		// Check attack only if Wait wasn't pressed
 		if !g.Player.ActionTaken && inpututil.IsKeyJustPressed(ebiten.KeySpace) {
 			targetEnemy := g.findAdjacentEnemy()
 			if targetEnemy != nil {
 				g.resolveAttack(&g.Player.Entity, &targetEnemy.Entity, g.Player.ProficiencyBonus)
-				g.Player.ActionTaken = true
+				g.Player.ActionTaken = true // Mark action taken after successful attack
 			} else {
 				g.addCombatLog("Player attacks... nothing in range!")
 			}
@@ -242,6 +239,7 @@ func (g *Game) handlePlayerInput() {
 	}
 
 	// --- Movement Input (Arrow Keys) ---
+	// Allow movement as long as points remain (can happen before/after action in D&D)
 	if g.Player.MovementPoints > 0 {
 		moved := false
 		startX, startY := g.Player.X, g.Player.Y
@@ -264,7 +262,7 @@ func (g *Game) handlePlayerInput() {
 		if moved {
 			if targetX >= 0 && targetX < mapWidth && targetY >= 0 && targetY < mapHeight {
 				if !g.isTileBlocked(targetX, targetY, -1) {
-					// AoO Check BEFORE moving
+					// AoO Check before moving
 					for _, enemy := range g.Enemies {
 						if enemy.HP <= 0 {
 							continue
@@ -278,14 +276,13 @@ func (g *Game) handlePlayerInput() {
 							}
 						}
 					}
-					// Update Position & Movement Points if alive
+					// Update Position & Movement if alive
 					if g.Player.HP > 0 {
 						g.Player.X = targetX
 						g.Player.Y = targetY
 						g.Player.MovementPoints--
 					} else {
-						// Died from AoO, consume point but don't move
-						g.Player.MovementPoints--
+						g.Player.MovementPoints-- // Consume point even if died from AoO
 					}
 				}
 			}
@@ -293,40 +290,35 @@ func (g *Game) handlePlayerInput() {
 	}
 }
 
-// handleEnemyTurns processes actions for all *living* enemies using Move + Action economy.
+// handleEnemyTurns processes enemy actions using Move then Action logic.
 func (g *Game) handleEnemyTurns() {
-	fmt.Println("--- Start Enemy Turn Processing ---") // Overall Start
+	fmt.Println("--- Start Enemy Turn Processing ---")
 	for i, enemy := range g.Enemies {
-		// Skip dead enemies
 		if enemy.HP <= 0 {
 			continue
 		}
-		// Skip turn if player is already dead
 		if g.Player.HP <= 0 {
 			continue
 		}
 
-		// Reset enemy state for their turn
 		enemy.MovementPoints = enemy.MaxMovementPoints
 		enemy.ActionAvailable = true
 		fmt.Printf("Processing %s (HP: %d, Move: %d, Action: %t)\n", enemy.Name, enemy.HP, enemy.MovementPoints, enemy.ActionAvailable)
 
-		// --- Movement Phase ---
-		movedThisTurn := false // Track if any movement happened
+		// Movement Phase
+		movedThisTurn := false
 		for enemy.MovementPoints > 0 && !isAdjacent(g.Player.X, g.Player.Y, enemy.X, enemy.Y) {
 			fmt.Printf("  %s has %d move points, attempting step.\n", enemy.Name, enemy.MovementPoints)
 			targetX, targetY := enemy.X, enemy.Y
 			dx := g.Player.X - enemy.X
 			dy := g.Player.Y - enemy.Y
-
-			// Calculate one step closer
-			if math.Abs(float64(dx)) > math.Abs(float64(dy)) { // Move horizontally
+			if math.Abs(float64(dx)) > math.Abs(float64(dy)) {
 				if dx > 0 {
 					targetX++
 				} else {
 					targetX--
 				}
-			} else { // Move vertically
+			} else {
 				if dy > 0 {
 					targetY++
 				} else {
@@ -334,48 +326,42 @@ func (g *Game) handleEnemyTurns() {
 				}
 			}
 
-			// Check validity (bounds, blocked)
 			if targetX >= 0 && targetX < mapWidth && targetY >= 0 && targetY < mapHeight {
 				if !g.isTileBlocked(targetX, targetY, i) {
 					fmt.Printf("  %s moving to (%d, %d).\n", enemy.Name, targetX, targetY)
 					enemy.X = targetX
 					enemy.Y = targetY
-					enemy.MovementPoints-- // Consume point
+					enemy.MovementPoints--
 					movedThisTurn = true
 				} else {
 					fmt.Printf("  %s move to (%d, %d) blocked.\n", enemy.Name, targetX, targetY)
-					break // Stop moving if path is blocked
+					break
 				}
 			} else {
 				fmt.Printf("  %s move to (%d, %d) out of bounds.\n", enemy.Name, targetX, targetY)
-				break // Stop moving if trying to move out of bounds
+				break
 			}
-		} // End movement loop
-
-		// Log outcome of movement phase
+		}
 		if !movedThisTurn && !isAdjacent(g.Player.X, g.Player.Y, enemy.X, enemy.Y) {
 			fmt.Printf("  %s could not move (blocked or no path).\n", enemy.Name)
 		} else if enemy.MovementPoints == 0 && !isAdjacent(g.Player.X, g.Player.Y, enemy.X, enemy.Y) {
 			fmt.Printf("  %s ran out of movement points.\n", enemy.Name)
 		}
 
-		// --- Action Phase ---
-		// Check if adjacent (either started adjacent or moved adjacent) AND action is available
+		// Action Phase
 		if isAdjacent(g.Player.X, g.Player.Y, enemy.X, enemy.Y) && enemy.ActionAvailable {
 			fmt.Printf("  %s is adjacent, attempting attack.\n", enemy.Name)
-			g.resolveAttack(&enemy.Entity, &g.Player.Entity, 0) // Use Action
-			enemy.ActionAvailable = false                       // Mark action as used
+			g.resolveAttack(&enemy.Entity, &g.Player.Entity, 0)
+			enemy.ActionAvailable = false
 		} else if enemy.ActionAvailable {
 			fmt.Printf("  %s is not adjacent or has no target, action available but unused.\n", enemy.Name)
 		}
-
 		fmt.Printf("Finished processing %s (Move left: %d, Action Available: %t)\n", enemy.Name, enemy.MovementPoints, enemy.ActionAvailable)
-
-	} // End loop through enemies
-	fmt.Println("--- End Enemy Turn Processing ---") // Overall End
+	}
+	fmt.Println("--- End Enemy Turn Processing ---")
 }
 
-// cleanupDeadEnemies removes enemies with HP <= 0 from the game state.
+// cleanupDeadEnemies removes dead enemies.
 func (g *Game) cleanupDeadEnemies() {
 	initialCount := len(g.Enemies)
 	aliveEnemies := make([]*Enemy, 0, len(g.Enemies))
@@ -395,21 +381,20 @@ func (g *Game) Update() error {
 	if g.CurrentTurn == GameOver {
 		return nil
 	}
-
 	previousTurn := g.CurrentTurn
 
 	switch g.CurrentTurn {
 	case PlayerTurn:
 		g.handlePlayerInput() // Process inputs
-		// Turn ends if player took their Action
+		// Turn ends *only* if the player took their main Action
 		if g.Player.ActionTaken {
+			// fmt.Println("[INFO] Player action taken. Ending Player Turn.") // Removed debug print
 			g.CurrentTurn = EnemyTurn
 		}
 	case EnemyTurn:
 		g.handleEnemyTurns()
 		g.cleanupDeadEnemies() // Cleanup after enemy actions
-
-		if g.Player.HP <= 0 { // Check player death
+		if g.Player.HP <= 0 {  // Check player death
 			if g.CurrentTurn != GameOver {
 				g.addCombatLog("Player has died! Game Over.")
 				g.CurrentTurn = GameOver
@@ -425,7 +410,6 @@ func (g *Game) Update() error {
 	if previousTurn == PlayerTurn && g.CurrentTurn == EnemyTurn {
 		g.cleanupDeadEnemies()
 	}
-
 	return nil
 }
 
@@ -464,7 +448,6 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	// --- Draw UI ---
 	uiStartY := 10
 	uiLineHeight := 15
-
 	turnText := fmt.Sprintf("Turn: %s", g.CurrentTurn.String())
 	ebitenutil.DebugPrintAt(screen, turnText, 10, uiStartY)
 	playerInfoText := "Lvl: 1 Fighter (Defense Style)"
@@ -508,7 +491,7 @@ func max(a, b int) int {
 	return b
 }
 
-// Layout specifies the logical screen size. Ebitengine handles scaling.
+// Layout specifies the logical screen size.
 func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
 	return screenWidth, screenHeight
 }
@@ -516,13 +499,10 @@ func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
 // --- Main Function ---
 
 func main() {
-	// Seed the random number generator once at startup
 	rand.Seed(time.Now().UnixNano())
-
-	// Initialize and run the game
 	game := NewGame()
 	ebiten.SetWindowSize(screenWidth, screenHeight)
-	ebiten.SetWindowTitle("Slumb Gate MVP - Enemy Action Economy") // Updated title
+	ebiten.SetWindowTitle("Slumb Gate MVP - Action Economy Verified") // Updated title
 	if err := ebiten.RunGame(game); err != nil {
 		log.Fatal(err)
 	}
