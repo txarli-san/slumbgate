@@ -11,9 +11,9 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
-	"github.com/hajimehoshi/ebiten/v2/text"
+	"github.com/hajimehoshi/ebiten/v2/text" // Keep import for title/game over text
 	"github.com/hajimehoshi/ebiten/v2/vector"
-	"golang.org/x/image/font/basicfont"
+	"golang.org/x/image/font/basicfont" // Keep import for title/game over text
 )
 
 // --- Constants ---
@@ -27,7 +27,7 @@ const (
 	combatLogLength    = 7
 	playerBaseMovement = 5
 	enemyBaseMovement  = 4
-	playerRangedRange  = 5 // Max range for player's ranged attack in tiles
+	playerRangedRange  = 5
 )
 
 // --- Types ---
@@ -52,6 +52,21 @@ func (ts TurnState) String() string {
 	default:
 		return "Unknown Turn State"
 	}
+}
+
+// InputMode manages UI states like showing menus
+type InputMode int
+
+const (
+	InputModeMap InputMode = iota
+	InputModeActionSelect
+)
+
+// Action struct definition
+type Action struct {
+	ID   string // Internal identifier
+	Name string // Display name for UI
+	// TODO: Add IsAvailable func, Execute func, TargetType, Range etc. later
 }
 
 // --- Structs ---
@@ -98,7 +113,24 @@ type Game struct {
 	CombatLog        []string
 	MapOffsetX       int
 	MapOffsetY       int
-	RangeOverlayTile *ebiten.Image // Added image for range indicator
+	RangeOverlayTile *ebiten.Image
+	InputMode        InputMode
+	// Action Menu State
+	availableActions    []*Action
+	selectedActionIndex int
+	primedActionID      string // ID of the action selected, ready for execution
+}
+
+// --- Game Data ---
+
+// Define available player actions (static for now)
+// Defined once globally
+var playerActionList = []*Action{
+	{ID: "melee_attack", Name: "1. Melee Attack"},
+	{ID: "ranged_attack", Name: "2. Ranged Attack"},
+	{ID: "wait", Name: "3. Wait"},
+	{ID: "dash", Name: "4. Dash (N/A)"},           // Placeholder
+	{ID: "disengage", Name: "5. Disengage (N/A)"}, // Placeholder
 }
 
 // --- Game Logic ---
@@ -106,23 +138,24 @@ type Game struct {
 // getModifier calculates the D&D ability modifier.
 func getModifier(score int) int { return (score - 10) / 2 }
 
+// NewGame initializes the game state.
 func NewGame() *Game {
 	g := &Game{}
 	g.Enemies = make([]*Enemy, 0)
 	g.CombatLog = make([]string, 0, combatLogLength)
 	g.MapOffsetX = (screenWidth - (mapWidth * tileSize)) / 2
 	g.MapOffsetY = (screenHeight - (mapHeight * tileSize)) / 2
+	g.InputMode = InputModeMap              // Start in normal map mode
+	g.availableActions = make([]*Action, 0) // Initialize empty
 
-	// --- Create Tile Sprites ---
+	// Create Tile Sprites
 	g.TileImage = ebiten.NewImage(tileSize, tileSize)
 	vector.DrawFilledRect(g.TileImage, 0, 0, float32(tileSize), float32(tileSize), color.RGBA{R: 50, G: 50, B: 50, A: 255}, false)
-
-	// Create range overlay tile (semi-transparent blue)
 	g.RangeOverlayTile = ebiten.NewImage(tileSize, tileSize)
-	overlayColor := color.NRGBA{R: 0, G: 100, B: 200, A: 80} // NRGBA for transparency (A=0-255)
+	overlayColor := color.NRGBA{R: 0, G: 100, B: 200, A: 80}
 	vector.DrawFilledRect(g.RangeOverlayTile, 0, 0, float32(tileSize), float32(tileSize), overlayColor, false)
 
-	// --- Create Player ---
+	// Create Player
 	playerSprite := ebiten.NewImage(tileSize, tileSize)
 	vector.DrawFilledRect(playerSprite, 0, 0, float32(tileSize), float32(tileSize), color.RGBA{R: 0, G: 255, B: 0, A: 255}, false)
 	playerStr := 15
@@ -133,22 +166,11 @@ func NewGame() *Game {
 	playerCha := 10
 	playerConMod := getModifier(playerCon)
 	playerMaxHP := 10 + playerConMod
-	g.Player = &Player{
-		Entity: Entity{
-			X: mapWidth / 2, Y: mapHeight / 2, HP: playerMaxHP, MaxHP: playerMaxHP, AC: 13, // Includes Defense Style
-			Strength: playerStr, Dexterity: playerDex, Constitution: playerCon,
-			Intelligence: playerInt, Wisdom: playerWis, Charisma: playerCha,
-			Sprite: playerSprite, Name: "Player",
-		},
-		ProficiencyBonus:  2,
-		MaxMovementPoints: playerBaseMovement,
-	}
+	g.Player = &Player{Entity: Entity{X: mapWidth / 2, Y: mapHeight / 2, HP: playerMaxHP, MaxHP: playerMaxHP, AC: 13, Strength: playerStr, Dexterity: playerDex, Constitution: playerCon, Intelligence: playerInt, Wisdom: playerWis, Charisma: playerCha, Sprite: playerSprite, Name: "Player"}, ProficiencyBonus: 2, MaxMovementPoints: playerBaseMovement}
 
-	// --- Create Enemy Sprite ---
+	// Create Enemy Sprite & Spawn Enemies
 	g.EnemySprite = ebiten.NewImage(tileSize, tileSize)
 	vector.DrawFilledRect(g.EnemySprite, 0, 0, float32(tileSize), float32(tileSize), color.RGBA{R: 255, G: 0, B: 0, A: 255}, false)
-
-	// --- Spawn Enemies ---
 	g.spawnEnemy(2, 2, "Enemy 0", 6, 10, 12, 10, 11, 8, 8, 8, enemyBaseMovement)
 	g.spawnEnemy(mapWidth-3, mapHeight-3, "Enemy 1", 6, 10, 12, 10, 11, 8, 8, 8, enemyBaseMovement)
 
@@ -161,24 +183,18 @@ func NewGame() *Game {
 func (g *Game) resetPlayerTurnState() {
 	g.Player.MovementPoints = g.Player.MaxMovementPoints
 	g.Player.ActionTaken = false
+	g.InputMode = InputModeMap // Ensure player starts turn in map mode
+	g.primedActionID = ""      // Clear any primed action
 }
 
-// spawnEnemy creates a new enemy with specified ability scores.
+// spawnEnemy creates a new enemy.
 func (g *Game) spawnEnemy(x, y int, name string, baseHp, ac, str, dex, con, intel, wis, cha, move int) {
 	conMod := getModifier(con)
 	maxHp := baseHp + conMod
 	if maxHp < 1 {
 		maxHp = 1
 	}
-	enemy := &Enemy{
-		Entity: Entity{
-			X: x, Y: y, HP: maxHp, MaxHP: maxHp, AC: ac,
-			Strength: str, Dexterity: dex, Constitution: con,
-			Intelligence: intel, Wisdom: wis, Charisma: cha,
-			Sprite: g.EnemySprite, Name: name,
-		},
-		MaxMovementPoints: move,
-	}
+	enemy := &Enemy{Entity: Entity{X: x, Y: y, HP: maxHp, MaxHP: maxHp, AC: ac, Strength: str, Dexterity: dex, Constitution: con, Intelligence: intel, Wisdom: wis, Charisma: cha, Sprite: g.EnemySprite, Name: name}, MaxMovementPoints: move}
 	g.Enemies = append(g.Enemies, enemy)
 }
 
@@ -252,11 +268,9 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 		attackAbilityMod = getModifier(attacker.Strength)
 		abilityName = "STR"
 	}
-
 	roll := rand.Intn(20) + 1
 	attackRoll := roll + attackerProfBonus + attackAbilityMod
 	hit := attackRoll >= defender.AC
-
 	var modString string
 	if attackAbilityMod >= 0 {
 		modString = fmt.Sprintf("+%d", attackAbilityMod)
@@ -273,9 +287,8 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 		attackVerb = "shoots"
 	}
 	logMsg := fmt.Sprintf("%s %s %s (AC %d). %s.", attacker.Name, attackVerb, defender.Name, defender.AC, rollString)
-
 	if hit {
-		damage := max(1, attackAbilityMod) // Damage uses same mod as attack roll, min 1
+		damage := max(1, attackAbilityMod)
 		defender.HP -= damage
 		logMsg += fmt.Sprintf(" Hit! Deals %d damage.", damage)
 		if defender.HP <= 0 {
@@ -297,101 +310,183 @@ func isAdjacent(x1, y1, x2, y2 int) bool {
 	return math.Abs(float64(dx))+math.Abs(float64(dy)) == 1
 }
 
-// handlePlayerInput processes player actions (Wait, Attack, Ranged, Move).
+// handlePlayerInput processes player inputs based on the current InputMode.
 func (g *Game) handlePlayerInput() {
-	// --- Action Input ---
-	if !g.Player.ActionTaken {
-		// Wait Action (W Key)
-		if inpututil.IsKeyJustPressed(ebiten.KeyW) {
-			g.addCombatLog("Player waits.")
-			g.Player.ActionTaken = true
-		}
-
-		// Ranged Attack Action (R Key)
-		if !g.Player.ActionTaken && inpututil.IsKeyJustPressed(ebiten.KeyR) {
-			cursorX, cursorY := ebiten.CursorPosition()
-			gridX := (cursorX - g.MapOffsetX) / tileSize // Use stored offset
-			gridY := (cursorY - g.MapOffsetY) / tileSize
-
-			if gridX >= 0 && gridX < mapWidth && gridY >= 0 && gridY < mapHeight {
-				targetEnemy := g.getEnemyAt(gridX, gridY)
-				if targetEnemy != nil {
-					dist := distance(g.Player.X, g.Player.Y, targetEnemy.X, targetEnemy.Y)
-					if dist <= playerRangedRange {
-						// Player uses Dex mod + Prof Bonus for ranged
-						g.resolveAttack(&g.Player.Entity, &targetEnemy.Entity, g.Player.ProficiencyBonus, "ranged")
-						g.Player.ActionTaken = true
-					} else {
-						g.addCombatLog(fmt.Sprintf("Target %s out of range (%d > %d)", targetEnemy.Name, dist, playerRangedRange))
-					}
-				} else {
-					g.addCombatLog("No target selected at cursor.")
-				}
-			} else {
-				g.addCombatLog("Target location outside map.")
-			}
-		}
-
-		// Melee Attack Input (Spacebar)
-		if !g.Player.ActionTaken && inpututil.IsKeyJustPressed(ebiten.KeySpace) {
-			targetEnemy := g.findAdjacentEnemy()
-			if targetEnemy != nil {
-				// Player uses Str mod + Prof Bonus for melee
-				g.resolveAttack(&g.Player.Entity, &targetEnemy.Entity, g.Player.ProficiencyBonus, "melee")
-				g.Player.ActionTaken = true
-			} else {
-				g.addCombatLog("Player attacks... nothing adjacent!")
-			}
-		}
-	} // End Action check
-
-	// --- Movement Input (Arrow Keys) ---
-	if g.Player.MovementPoints > 0 {
-		moved := false
-		startX, startY := g.Player.X, g.Player.Y
-		targetX, targetY := startX, startY
+	switch g.InputMode {
+	case InputModeActionSelect:
+		// --- Input Handling when Action Select Menu is OPEN ---
+		// Navigate Menu (Up/Down Arrows)
 		if inpututil.IsKeyJustPressed(ebiten.KeyArrowUp) {
-			targetY--
-			moved = true
-		} else if inpututil.IsKeyJustPressed(ebiten.KeyArrowDown) {
-			targetY++
-			moved = true
-		} else if inpututil.IsKeyJustPressed(ebiten.KeyArrowLeft) {
-			targetX--
-			moved = true
-		} else if inpututil.IsKeyJustPressed(ebiten.KeyArrowRight) {
-			targetX++
-			moved = true
+			g.selectedActionIndex--
+			if g.selectedActionIndex < 0 {
+				g.selectedActionIndex = len(g.availableActions) - 1
+			}
+			fmt.Printf("[Input] Menu Up. Selected Index: %d\n", g.selectedActionIndex)
 		}
-		if moved {
-			if targetX >= 0 && targetX < mapWidth && targetY >= 0 && targetY < mapHeight {
-				if !g.isTileBlocked(targetX, targetY, -1) {
-					// AoO Check
-					for _, enemy := range g.Enemies {
-						if enemy.HP <= 0 {
-							continue
+		if inpututil.IsKeyJustPressed(ebiten.KeyArrowDown) {
+			g.selectedActionIndex++
+			if g.selectedActionIndex >= len(g.availableActions) {
+				g.selectedActionIndex = 0
+			}
+			fmt.Printf("[Input] Menu Down. Selected Index: %d\n", g.selectedActionIndex)
+		}
+
+		// Select Action (Enter Key)
+		if inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
+			if g.selectedActionIndex >= 0 && g.selectedActionIndex < len(g.availableActions) {
+				selectedAction := g.availableActions[g.selectedActionIndex]
+				// TODO: Add check here if action IsAvailable before priming
+
+				// Handle "Wait" action immediately
+				if selectedAction.ID == "wait" {
+					g.addCombatLog("Player ends turn (Wait).")
+					g.Player.ActionTaken = true // Wait consumes the action
+					g.primedActionID = ""       // No action needs to be primed
+					g.InputMode = InputModeMap  // Close menu
+					fmt.Println("[Input] Wait Action selected and executed.")
+				} else {
+					// Prime other actions for execution later
+					g.primedActionID = selectedAction.ID
+					fmt.Printf("[Input] Action Primed: %s\n", g.primedActionID)
+					g.InputMode = InputModeMap // Close menu after selection
+				}
+			}
+		} // End Enter Key Check
+
+		// Close menu without selection (Tab or Escape)
+		if inpututil.IsKeyJustPressed(ebiten.KeyTab) || inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+			fmt.Println("[Input] Closing Action Select Menu (No Selection).")
+			g.InputMode = InputModeMap
+			g.primedActionID = ""
+		}
+		return // Prevent other inputs while menu is open
+
+	case InputModeMap:
+		// --- Input Handling when in Normal Map Mode ---
+
+		// Open Action Select Menu with Tab
+		if inpututil.IsKeyJustPressed(ebiten.KeyTab) {
+			if !g.Player.ActionTaken {
+				fmt.Println("[Input] Opening Action Select Menu.")
+				g.availableActions = playerActionList // Use static list for now
+				g.selectedActionIndex = 0
+				g.InputMode = InputModeActionSelect
+				g.primedActionID = "" // Clear any previously primed action
+				return                // Stop processing other inputs for this frame
+			} else {
+				g.addCombatLog("Action already taken this turn.")
+			}
+		}
+
+		// --- Action Execution (via Left Mouse Click if action is primed) ---
+		actionExecuted := false // Flag to prevent movement processing if action taken
+		if g.primedActionID != "" && !g.Player.ActionTaken {
+			if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+				cursorX, cursorY := ebiten.CursorPosition()
+				gridX := (cursorX - g.MapOffsetX) / tileSize
+				gridY := (cursorY - g.MapOffsetY) / tileSize
+
+				if gridX >= 0 && gridX < mapWidth && gridY >= 0 && gridY < mapHeight { // Check if click is on the map
+					fmt.Printf("[Exec] Left Click at (%d, %d) while action '%s' is primed.\n", gridX, gridY, g.primedActionID)
+
+					switch g.primedActionID {
+					case "melee_attack":
+						targetEnemy := g.getEnemyAt(gridX, gridY)
+						if targetEnemy != nil && isAdjacent(g.Player.X, g.Player.Y, targetEnemy.X, targetEnemy.Y) {
+							fmt.Printf("[Exec] Executing Primed Melee Attack on %s\n", targetEnemy.Name)
+							g.resolveAttack(&g.Player.Entity, &targetEnemy.Entity, g.Player.ProficiencyBonus, "melee")
+							g.Player.ActionTaken = true
+							actionExecuted = true
+						} else {
+							g.addCombatLog("Invalid target for melee attack (must click adjacent enemy).")
 						}
-						wasAdj := isAdjacent(startX, startY, enemy.X, enemy.Y)
-						willBeAdj := isAdjacent(targetX, targetY, enemy.X, enemy.Y)
-						if wasAdj && !willBeAdj {
-							if g.Player.HP > 0 {
-								g.addCombatLog(fmt.Sprintf("%s makes an Opportunity Attack!", enemy.Name))
-								g.resolveAttack(&enemy.Entity, &g.Player.Entity, 0, "melee")
+						g.primedActionID = "" // Clear after attempt
+
+					case "ranged_attack":
+						targetEnemy := g.getEnemyAt(gridX, gridY)
+						if targetEnemy != nil {
+							dist := distance(g.Player.X, g.Player.Y, targetEnemy.X, targetEnemy.Y)
+							if dist <= playerRangedRange {
+								fmt.Printf("[Exec] Firing at %s\n", targetEnemy.Name)
+								g.resolveAttack(&g.Player.Entity, &targetEnemy.Entity, g.Player.ProficiencyBonus, "ranged")
+								g.Player.ActionTaken = true
+								actionExecuted = true
+							} else {
+								g.addCombatLog(fmt.Sprintf("Target %s out of range (%d > %d)", targetEnemy.Name, dist, playerRangedRange))
 							}
-						} // AoO is melee
-					}
-					// Update Position & Movement if alive
-					if g.Player.HP > 0 {
-						g.Player.X = targetX
-						g.Player.Y = targetY
-						g.Player.MovementPoints--
-					} else {
-						g.Player.MovementPoints--
+						} else {
+							g.addCombatLog("No target selected at cursor.")
+						}
+						g.primedActionID = "" // Clear after attempt
+
+					case "dash", "disengage":
+						g.addCombatLog(fmt.Sprintf("Action '%s' selected but not implemented yet.", g.primedActionID))
+						g.primedActionID = "" // Clear unimplemented action
+
+					default:
+						g.primedActionID = "" // Clear unknown primed action
+					} // End switch
+				} else {
+					g.addCombatLog("Clicked outside map.")
+					g.primedActionID = ""
+				} // Clear action if clicked outside map
+			} // End if Left Mouse Click
+		} // End if Primed Action
+
+		// If an action was just executed via click, stop processing input for this frame
+		if actionExecuted {
+			return
+		}
+
+		// --- Movement Input (Arrow Keys) ---
+		// Allow movement only if action hasn't been taken this turn
+		if !g.Player.ActionTaken && g.Player.MovementPoints > 0 {
+			moved := false
+			startX, startY := g.Player.X, g.Player.Y
+			targetX, targetY := startX, startY
+			if inpututil.IsKeyJustPressed(ebiten.KeyArrowUp) {
+				targetY--
+				moved = true
+			} else if inpututil.IsKeyJustPressed(ebiten.KeyArrowDown) {
+				targetY++
+				moved = true
+			} else if inpututil.IsKeyJustPressed(ebiten.KeyArrowLeft) {
+				targetX--
+				moved = true
+			} else if inpututil.IsKeyJustPressed(ebiten.KeyArrowRight) {
+				targetX++
+				moved = true
+			}
+			if moved {
+				if targetX >= 0 && targetX < mapWidth && targetY >= 0 && targetY < mapHeight {
+					if !g.isTileBlocked(targetX, targetY, -1) {
+						// AoO Check
+						for _, enemy := range g.Enemies {
+							if enemy.HP <= 0 {
+								continue
+							}
+							wasAdj := isAdjacent(startX, startY, enemy.X, enemy.Y)
+							willBeAdj := isAdjacent(targetX, targetY, enemy.X, enemy.Y)
+							if wasAdj && !willBeAdj {
+								if g.Player.HP > 0 {
+									g.addCombatLog(fmt.Sprintf("%s makes an Opportunity Attack!", enemy.Name))
+									g.resolveAttack(&enemy.Entity, &g.Player.Entity, 0, "melee")
+								}
+							}
+						}
+						// Update Position & Movement if alive
+						if g.Player.HP > 0 {
+							g.Player.X = targetX
+							g.Player.Y = targetY
+							g.Player.MovementPoints--
+						} else {
+							g.Player.MovementPoints--
+						}
 					}
 				}
 			}
-		}
-	} // End Movement check
+		} // End Movement check
+	} // End InputModeMap case
 }
 
 // handleEnemyTurns processes enemy actions using Move then Action logic.
@@ -480,38 +575,49 @@ func (g *Game) cleanupDeadEnemies() {
 
 // Update proceeds the game state by one tick.
 func (g *Game) Update() error {
-	if g.CurrentTurn == GameOver {
-		return nil
-	}
-	previousTurn := g.CurrentTurn
-	switch g.CurrentTurn {
-	case PlayerTurn:
-		g.handlePlayerInput()
-		if g.Player.ActionTaken {
-			g.CurrentTurn = EnemyTurn
+	// Handle input only during Player's turn OR if menu is open (to allow closing it)
+	// Also skip input processing if game is over
+	if g.CurrentTurn == PlayerTurn || g.InputMode == InputModeActionSelect {
+		if g.CurrentTurn != GameOver { // Don't process input if game is over
+			g.handlePlayerInput()
 		}
-	case EnemyTurn:
-		g.handleEnemyTurns()
-		g.cleanupDeadEnemies()
-		if g.Player.HP <= 0 {
-			if g.CurrentTurn != GameOver {
-				g.addCombatLog("Player has died! Game Over.")
-				g.CurrentTurn = GameOver
+	}
+
+	// --- Turn Logic ---
+	// Only advance turns if not in a menu and not game over
+	if g.InputMode == InputModeMap && g.CurrentTurn != GameOver {
+		previousTurn := g.CurrentTurn
+		switch g.CurrentTurn {
+		case PlayerTurn:
+			// Turn ends *only* if the player took their main Action
+			if g.Player.ActionTaken {
+				g.CurrentTurn = EnemyTurn
 			}
-		} else {
-			g.CurrentTurn = PlayerTurn
-			g.resetPlayerTurnState()
+		case EnemyTurn:
+			g.handleEnemyTurns()
+			g.cleanupDeadEnemies() // Cleanup after enemy actions
+			if g.Player.HP <= 0 {  // Check player death
+				if g.CurrentTurn != GameOver {
+					g.addCombatLog("Player has died! Game Over.")
+					g.CurrentTurn = GameOver
+				}
+			} else {
+				// Switch back and reset player state for new turn
+				g.CurrentTurn = PlayerTurn
+				g.resetPlayerTurnState()
+			}
 		}
-	}
-	if previousTurn == PlayerTurn && g.CurrentTurn == EnemyTurn {
-		g.cleanupDeadEnemies()
-	}
+		// Cleanup enemies killed by Player *after* Player turn ends
+		if previousTurn == PlayerTurn && g.CurrentTurn == EnemyTurn {
+			g.cleanupDeadEnemies()
+		}
+	} // End turn logic block
+
 	return nil
 }
 
 // Draw draws the game screen.
 func (g *Game) Draw(screen *ebiten.Image) {
-	// Use stored map offset
 	mapOffsetX, mapOffsetY := g.MapOffsetX, g.MapOffsetY
 
 	// Draw Map
@@ -525,8 +631,8 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		}
 	}
 
-	// Draw Range Overlay (If Player Turn and R is held)
-	if g.CurrentTurn == PlayerTurn && ebiten.IsKeyPressed(ebiten.KeyR) {
+	// Draw Range Overlay (If Ranged Attack is Primed)
+	if g.CurrentTurn == PlayerTurn && g.primedActionID == "ranged_attack" {
 		overlayOpts := &ebiten.DrawImageOptions{}
 		for x := 0; x < mapWidth; x++ {
 			for y := 0; y < mapHeight; y++ {
@@ -583,6 +689,35 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	scoresText2 := fmt.Sprintf("INT:%d(%+d) WIS:%d(%+d) CHA:%d(%+d)", p.Intelligence, getModifier(p.Intelligence), p.Wisdom, getModifier(p.Wisdom), p.Charisma, getModifier(p.Charisma))
 	ebitenutil.DebugPrintAt(screen, scoresText1, 10, uiStartY+uiLineHeight*5)
 	ebitenutil.DebugPrintAt(screen, scoresText2, 10, uiStartY+uiLineHeight*6)
+	primedActionText := fmt.Sprintf("Action: %s", g.primedActionID)
+	if g.primedActionID == "" {
+		primedActionText = "Action: None"
+	}
+	ebitenutil.DebugPrintAt(screen, primedActionText, 10, uiStartY+uiLineHeight*7)
+
+	// --- Draw Action Select Menu ---
+	if g.InputMode == InputModeActionSelect {
+		menuX, menuY := screenWidth/4, screenHeight/4
+		menuW, menuH := screenWidth/2, screenHeight/2
+		vector.DrawFilledRect(screen, float32(menuX), float32(menuY), float32(menuW), float32(menuH), color.NRGBA{R: 20, G: 20, B: 30, A: 200}, false)
+		vector.StrokeRect(screen, float32(menuX), float32(menuY), float32(menuW), float32(menuH), 1, color.White, false)
+
+		// Draw Title using text.Draw (less likely to panic)
+		title := "Select Action ([Tab]/[Esc] Close, [Enter] Select)"
+		text.Draw(screen, title, basicfont.Face7x13, menuX+10, menuY+20, color.White)
+
+		// Draw Action List using ebitenutil.DebugPrintAt
+		itemY := menuY + 40
+		itemLineHeight := 15 // Approximate line height for DebugPrint
+		for i, action := range g.availableActions {
+			actionText := action.Name
+			if i == g.selectedActionIndex {
+				actionText = "> " + actionText // Simple highlight prefix
+			}
+			// Use DebugPrintAt instead of text.Draw to avoid potential panic
+			ebitenutil.DebugPrintAt(screen, actionText, menuX+10, itemY+(i*itemLineHeight))
+		}
+	} // End Action Select Menu Draw
 
 	// Combat Log
 	logStartY := screenHeight - (combatLogLength * 15) - 10
@@ -617,7 +752,7 @@ func main() {
 	rand.Seed(time.Now().UnixNano())
 	game := NewGame()
 	ebiten.SetWindowSize(screenWidth, screenHeight)
-	ebiten.SetWindowTitle("Slumb Gate MVP - Ranged Attack Indicator") // Updated title
+	ebiten.SetWindowTitle("Slumb Gate MVP - Debug Action Menu") // Title reflects debug state
 	if err := ebiten.RunGame(game); err != nil {
 		log.Fatal(err)
 	}
