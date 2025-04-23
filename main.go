@@ -23,7 +23,7 @@ const (
 	screenWidth         = 640
 	screenHeight        = 480
 	tileSize            = 32
-	spriteSize          = 32 // Assuming 16x16 sprites
+	spriteSize          = 32
 	spriteScale         = float64(tileSize) / float64(spriteSize)
 	mapWidth            = 10
 	mapHeight           = 10
@@ -33,7 +33,7 @@ const (
 	playerRangedRange   = 5
 	hpBarHeight         = 4
 	hpBarOffsetY        = 2
-	sheetWidthInSprites = 16 // Example value, adjust to your sheet width
+	sheetWidthInSprites = 32
 )
 
 type TurnState int
@@ -137,7 +137,6 @@ type ActionDefinition struct {
 	Execute        ActionExecuteFunc
 }
 
-// loadImage loads an image from the specified path.
 func loadImage(path string) (*ebiten.Image, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -152,7 +151,7 @@ func loadImage(path string) (*ebiten.Image, error) {
 	return ebiten.NewImageFromImage(img), nil
 }
 
-// getSpriteFromSheet extracts a specific sprite from a sheet based on its grid index (sx=col, sy=row).
+// (sx=col, sy=row).
 func getSpriteFromSheet(sheet *ebiten.Image, sx, sy int) *ebiten.Image {
 	if sheet == nil {
 		log.Println("Warning: Sprite sheet not loaded.")
@@ -186,10 +185,9 @@ func NewGame() *Game {
 	g.lastExecutedActionID = ""
 
 	var err error
-	// !! User needs to replace these paths !!
-	rogueSheetPath := "rogues.png"
-	monsterSheetPath := "monsters.png"
-	tilePath := "tiles.png"
+	rogueSheetPath := "assets/rogues.png"
+	monsterSheetPath := "assets/monsters.png"
+	tilePath := "assets/tiles.png"
 
 	g.rogueSheet, err = loadImage(rogueSheetPath)
 	if err != nil {
@@ -212,7 +210,7 @@ func NewGame() *Game {
 		vector.DrawFilledRect(g.TileImage, 0, 0, float32(tileSize), float32(tileSize), color.RGBA{R: 50, G: 50, B: 50, A: 255}, false)
 		vector.StrokeRect(g.TileImage, 0, 0, float32(tileSize), float32(tileSize), 1, color.RGBA{R: 80, G: 80, B: 80, A: 255}, false)
 	} else {
-		// Assuming floor tile is at (0, 0) on the tile sheet
+		// basic floor tile is at (0, 0) on the tile sheet
 		floorSprite := getSpriteFromSheet(tileSheet, 0, 0)
 		g.TileImage = ebiten.NewImage(tileSize, tileSize)
 		opts := &ebiten.DrawImageOptions{}
@@ -224,7 +222,7 @@ func NewGame() *Game {
 	overlayColor := color.NRGBA{R: 0, G: 100, B: 200, A: 80}
 	vector.DrawFilledRect(g.RangeOverlayTile, 0, 0, float32(tileSize), float32(tileSize), overlayColor, false)
 
-	// Player: "2.b. male fighter" -> Assume coords (1, 1)
+	// Player: "2.b. male fighter" -> on coords (1, 1)
 	playerSprite := getSpriteFromSheet(g.rogueSheet, 1, 1)
 	playerStr, playerDex, playerCon := 15, 14, 13
 	playerInt, playerWis, playerCha := 8, 12, 10
@@ -241,7 +239,7 @@ func NewGame() *Game {
 		MaxMovementPoints: playerBaseMovement,
 	}
 
-	// Enemies: "3.a. small slime" -> Assume coords (0, 2)
+	// Enemies: "3.a. small slime" -> on coords (0, 2)
 	slimeSprite := getSpriteFromSheet(g.monsterSheet, 0, 2)
 	g.spawnEnemy(2, 2, "Slime 1", 6, 10, 12, 10, 11, 8, 8, 8, enemyBaseMovement, slimeSprite)
 	g.spawnEnemy(mapWidth-3, mapHeight-3, "Slime 2", 6, 10, 12, 10, 11, 8, 8, 8, enemyBaseMovement, slimeSprite)
@@ -925,7 +923,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		menuW, menuH := screenWidth/2, screenHeight/2
 		vector.DrawFilledRect(screen, float32(menuX), float32(menuY), float32(menuW), float32(menuH), color.NRGBA{R: 20, G: 20, B: 30, A: 220}, false)
 		vector.StrokeRect(screen, float32(menuX), float32(menuY), float32(menuW), float32(menuH), 2, color.White, false)
-		title := "Select Action ([Up/Down], [Enter], [Esc]/[Tab])"
+		title := "Select Action"
 		titleX := menuX + 10
 		titleY := menuY + 20
 		text.Draw(screen, title, basicfont.Face7x13, titleX, titleY, color.White)
