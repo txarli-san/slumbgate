@@ -2,10 +2,13 @@ package main
 
 import (
 	"fmt"
+	"image"
 	"image/color"
+	_ "image/png" // Import for loading PNG files
 	"log"
 	"math"
 	"math/rand"
+	"os"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -17,15 +20,20 @@ import (
 )
 
 const (
-	screenWidth        = 640
-	screenHeight       = 480
-	tileSize           = 32
-	mapWidth           = 10
-	mapHeight          = 10
-	combatLogLength    = 7
-	playerBaseMovement = 5
-	enemyBaseMovement  = 4
-	playerRangedRange  = 5
+	screenWidth         = 640
+	screenHeight        = 480
+	tileSize            = 32
+	spriteSize          = 32 // Assuming 16x16 sprites
+	spriteScale         = float64(tileSize) / float64(spriteSize)
+	mapWidth            = 10
+	mapHeight           = 10
+	combatLogLength     = 7
+	playerBaseMovement  = 5
+	enemyBaseMovement   = 4
+	playerRangedRange   = 5
+	hpBarHeight         = 4
+	hpBarOffsetY        = 2
+	sheetWidthInSprites = 16 // Example value, adjust to your sheet width
 )
 
 type TurnState int
@@ -90,18 +98,18 @@ type Enemy struct {
 }
 
 type Game struct {
-	Player           *Player
-	Enemies          []*Enemy
-	GameMap          [mapWidth][mapHeight]int
-	TileImage        *ebiten.Image
-	EnemySprite      *ebiten.Image
-	CurrentTurn      TurnState
-	CombatLog        []string
-	MapOffsetX       int
-	MapOffsetY       int
-	RangeOverlayTile *ebiten.Image
-	InputMode        InputMode
-	// Action Menu State
+	Player               *Player
+	Enemies              []*Enemy
+	GameMap              [mapWidth][mapHeight]int
+	TileImage            *ebiten.Image
+	CurrentTurn          TurnState
+	CombatLog            []string
+	MapOffsetX           int
+	MapOffsetY           int
+	RangeOverlayTile     *ebiten.Image
+	InputMode            InputMode
+	rogueSheet           *ebiten.Image
+	monsterSheet         *ebiten.Image
 	availableActions     []*ActionDefinition
 	selectedActionIndex  int
 	primedActionID       string
@@ -129,6 +137,42 @@ type ActionDefinition struct {
 	Execute        ActionExecuteFunc
 }
 
+// loadImage loads an image from the specified path.
+func loadImage(path string) (*ebiten.Image, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open image %s: %w", path, err)
+	}
+	defer file.Close()
+
+	img, _, err := image.Decode(file)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode image %s: %w", path, err)
+	}
+	return ebiten.NewImageFromImage(img), nil
+}
+
+// getSpriteFromSheet extracts a specific sprite from a sheet based on its grid index (sx=col, sy=row).
+func getSpriteFromSheet(sheet *ebiten.Image, sx, sy int) *ebiten.Image {
+	if sheet == nil {
+		log.Println("Warning: Sprite sheet not loaded.")
+		img := ebiten.NewImage(spriteSize, spriteSize)
+		img.Fill(color.White)
+		return img
+	}
+	x := sx * spriteSize
+	y := sy * spriteSize
+	rect := image.Rect(x, y, x+spriteSize, y+spriteSize)
+	bounds := sheet.Bounds()
+	if !rect.In(bounds) {
+		log.Printf("Warning: Sprite index (%d, %d) out of sheet bounds (%v).", sx, sy, bounds)
+		img := ebiten.NewImage(spriteSize, spriteSize)
+		img.Fill(color.White)
+		return img
+	}
+	return sheet.SubImage(rect).(*ebiten.Image)
+}
+
 func getModifier(score int) int { return (score - 10) / 2 }
 
 func NewGame() *Game {
@@ -141,14 +185,47 @@ func NewGame() *Game {
 	g.availableActions = make([]*ActionDefinition, 0)
 	g.lastExecutedActionID = ""
 
-	g.TileImage = ebiten.NewImage(tileSize, tileSize)
-	vector.DrawFilledRect(g.TileImage, 0, 0, float32(tileSize), float32(tileSize), color.RGBA{R: 50, G: 50, B: 50, A: 255}, false)
+	var err error
+	// !! User needs to replace these paths !!
+	rogueSheetPath := "rogues.png"
+	monsterSheetPath := "monsters.png"
+	tilePath := "tiles.png"
+
+	g.rogueSheet, err = loadImage(rogueSheetPath)
+	if err != nil {
+		log.Printf("Error loading rogue sheet: %v. Using fallback.", err)
+		g.rogueSheet = ebiten.NewImage(spriteSize*sheetWidthInSprites, spriteSize*10)
+		g.rogueSheet.Fill(color.Gray{Y: 50})
+	}
+
+	g.monsterSheet, err = loadImage(monsterSheetPath)
+	if err != nil {
+		log.Printf("Error loading monster sheet: %v. Using fallback.", err)
+		g.monsterSheet = ebiten.NewImage(spriteSize*sheetWidthInSprites, spriteSize*15)
+		g.monsterSheet.Fill(color.Gray{Y: 100})
+	}
+
+	tileSheet, err := loadImage(tilePath)
+	if err != nil {
+		log.Printf("Error loading tile sheet: %v. Creating fallback tile.", err)
+		g.TileImage = ebiten.NewImage(tileSize, tileSize)
+		vector.DrawFilledRect(g.TileImage, 0, 0, float32(tileSize), float32(tileSize), color.RGBA{R: 50, G: 50, B: 50, A: 255}, false)
+		vector.StrokeRect(g.TileImage, 0, 0, float32(tileSize), float32(tileSize), 1, color.RGBA{R: 80, G: 80, B: 80, A: 255}, false)
+	} else {
+		// Assuming floor tile is at (0, 0) on the tile sheet
+		floorSprite := getSpriteFromSheet(tileSheet, 0, 0)
+		g.TileImage = ebiten.NewImage(tileSize, tileSize)
+		opts := &ebiten.DrawImageOptions{}
+		opts.GeoM.Scale(spriteScale, spriteScale)
+		g.TileImage.DrawImage(floorSprite, opts)
+	}
+
 	g.RangeOverlayTile = ebiten.NewImage(tileSize, tileSize)
 	overlayColor := color.NRGBA{R: 0, G: 100, B: 200, A: 80}
 	vector.DrawFilledRect(g.RangeOverlayTile, 0, 0, float32(tileSize), float32(tileSize), overlayColor, false)
 
-	playerSprite := ebiten.NewImage(tileSize, tileSize)
-	vector.DrawFilledRect(playerSprite, 0, 0, float32(tileSize), float32(tileSize), color.RGBA{R: 0, G: 255, B: 0, A: 255}, false)
+	// Player: "2.b. male fighter" -> Assume coords (1, 1)
+	playerSprite := getSpriteFromSheet(g.rogueSheet, 1, 1)
 	playerStr, playerDex, playerCon := 15, 14, 13
 	playerInt, playerWis, playerCha := 8, 12, 10
 	playerConMod := getModifier(playerCon)
@@ -164,17 +241,15 @@ func NewGame() *Game {
 		MaxMovementPoints: playerBaseMovement,
 	}
 
-	g.EnemySprite = ebiten.NewImage(tileSize, tileSize)
-	vector.DrawFilledRect(g.EnemySprite, 0, 0, float32(tileSize), float32(tileSize), color.RGBA{R: 255, G: 0, B: 0, A: 255}, false)
-	g.spawnEnemy(2, 2, "Slime 1", 6, 10, 12, 10, 11, 8, 8, 8, enemyBaseMovement)
-	g.spawnEnemy(mapWidth-3, mapHeight-3, "Slime 2", 6, 10, 12, 10, 11, 8, 8, 8, enemyBaseMovement)
+	// Enemies: "3.a. small slime" -> Assume coords (0, 2)
+	slimeSprite := getSpriteFromSheet(g.monsterSheet, 0, 2)
+	g.spawnEnemy(2, 2, "Slime 1", 6, 10, 12, 10, 11, 8, 8, 8, enemyBaseMovement, slimeSprite)
+	g.spawnEnemy(mapWidth-3, mapHeight-3, "Slime 2", 6, 10, 12, 10, 11, 8, 8, 8, enemyBaseMovement, slimeSprite)
 
 	g.CurrentTurn = PlayerTurn
-	g.startPlayerTurn() // Start the first player turn
+	g.startPlayerTurn()
 	return g
 }
-
-// --- Turn Management ---
 
 func (g *Game) startPlayerTurn() {
 	g.CurrentTurn = PlayerTurn
@@ -183,57 +258,44 @@ func (g *Game) startPlayerTurn() {
 	g.Player.IsDisengaging = false
 	g.InputMode = InputModeMap
 	g.primedActionID = ""
-	// TODO: Apply start-of-turn effects (regen, status checks, etc.)
-	// fmt.Println("Player turn started.")
 }
 
 func (g *Game) endPlayerTurn() {
-	// fmt.Println("Ending player turn...")
-	// Player turn cleanup (ensure action marked used even if ending manually/waiting)
 	g.Player.ActionTaken = true
-	g.cleanupDeadEnemies() // Clean up any enemies killed during the turn
+	g.cleanupDeadEnemies()
 
-	// Check win condition *after* cleanup
 	if len(g.Enemies) == 0 {
 		if g.CurrentTurn != GameOver {
 			g.addCombatLog("All enemies defeated! VICTORY!")
 			g.CurrentTurn = GameOver
 		}
 	} else {
-		// Transition to enemy turn
 		g.startEnemyTurn()
 	}
-	g.primedActionID = ""      // Clear any primed action
-	g.InputMode = InputModeMap // Ensure back to map mode if not game over
+	g.primedActionID = ""
+	if g.CurrentTurn != GameOver { // Avoid resetting mode if game just ended
+		g.InputMode = InputModeMap
+	}
 }
 
 func (g *Game) startEnemyTurn() {
 	g.CurrentTurn = EnemyTurn
-	// fmt.Println("Enemy turn started.")
-	// TODO: Apply enemy start-of-turn effects
-	// Reset enemy states (movement, action availability) - handled within handleEnemyTurns for now
 }
 
 func (g *Game) endEnemyTurn() {
-	// fmt.Println("Ending enemy turn...")
-	// Enemy turn cleanup (status effect durations, etc.)
-	g.cleanupDeadEnemies() // Clean up just in case (e.g., damage-over-time effects kill)
+	g.cleanupDeadEnemies()
 
-	// Check player death *after* all enemies have acted and cleanup
 	if g.Player.HP <= 0 {
 		if g.CurrentTurn != GameOver {
 			g.addCombatLog("Player has died! Game Over.")
 			g.CurrentTurn = GameOver
 		}
 	} else {
-		// If player survived, transition back to player turn
 		g.startPlayerTurn()
 	}
 }
 
-// --- End Turn Management ---
-
-func (g *Game) spawnEnemy(x, y int, name string, baseHp, ac, str, dex, con, intel, wis, cha, move int) {
+func (g *Game) spawnEnemy(x, y int, name string, baseHp, ac, str, dex, con, intel, wis, cha, move int, sprite *ebiten.Image) {
 	conMod := getModifier(con)
 	maxHp := baseHp + conMod
 	if maxHp < 1 {
@@ -244,7 +306,7 @@ func (g *Game) spawnEnemy(x, y int, name string, baseHp, ac, str, dex, con, inte
 			X: x, Y: y, HP: maxHp, MaxHP: maxHp, AC: ac,
 			Strength: str, Dexterity: dex, Constitution: con,
 			Intelligence: intel, Wisdom: wis, Charisma: cha,
-			Sprite: g.EnemySprite, Name: name,
+			Sprite: sprite, Name: name,
 		},
 		MaxMovementPoints: move,
 	}
@@ -258,8 +320,6 @@ func (g *Game) addCombatLog(msg string) {
 	}
 }
 
-// isTileBlocked checks if a tile is occupied by a living entity.
-// movingEnemyIndex allows an enemy to check its own starting square as unblocked. Use -1 for player checks.
 func (g *Game) isTileBlocked(x, y, movingEnemyIndex int) bool {
 	if g.Player.HP > 0 && g.Player.X == x && g.Player.Y == y {
 		return true
@@ -307,8 +367,6 @@ func isPlayerAdjacentToEnemy(g *Game) bool {
 	return false
 }
 
-// resolveAttack processes an attack roll and damage application.
-// Returns true if the attack killed the defender.
 func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBonus int, attackType string) bool {
 	if attacker.HP <= 0 || defender.HP <= 0 {
 		return false
@@ -343,8 +401,7 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 	logMsg := fmt.Sprintf("%s %s %s (AC %d). %s.", attacker.Name, attackVerb, defender.Name, defender.AC, rollString)
 
 	if hit {
-		// Basic damage calculation. Needs weapon dice later.
-		damage := max(1, attackAbilityMod)
+		damage := max(1, attackAbilityMod) // Basic damage
 		defender.HP -= damage
 		logMsg += fmt.Sprintf(" Hit! Deals %d damage.", damage)
 		if defender.HP <= 0 {
@@ -364,7 +421,6 @@ func executeMeleeAttack(g *Game, targetX, targetY int) bool {
 	if targetEnemy != nil && isAdjacent(g.Player.X, g.Player.Y, targetEnemy.X, targetEnemy.Y) {
 		killed := g.resolveAttack(&g.Player.Entity, &targetEnemy.Entity, g.Player.ProficiencyBonus, "melee")
 		g.lastExecutedActionID = "melee_attack"
-
 		if killed {
 			g.cleanupDeadEnemies()
 			if len(g.Enemies) == 0 {
@@ -386,7 +442,6 @@ func executeRangedAttack(g *Game, targetX, targetY int) bool {
 		if dist <= playerRangedRange {
 			killed := g.resolveAttack(&g.Player.Entity, &targetEnemy.Entity, g.Player.ProficiencyBonus, "ranged")
 			g.lastExecutedActionID = "ranged_attack"
-
 			if killed {
 				g.cleanupDeadEnemies()
 				if len(g.Enemies) == 0 {
@@ -425,7 +480,7 @@ func executeDisengage(g *Game, targetX, targetY int) bool {
 func executeWait(g *Game, targetX, targetY int) bool {
 	g.addCombatLog("Player ends turn (Wait).")
 	g.lastExecutedActionID = "wait"
-	g.endPlayerTurn() // This function now handles the transition
+	g.endPlayerTurn()
 	return true
 }
 
@@ -494,12 +549,13 @@ func (g *Game) handlePlayerInput() {
 
 				if !selectedActionDef.RequiresTarget {
 					success := selectedActionDef.Execute(g, -1, -1)
-					if success && selectedActionDef.ID != "wait" { // Wait action calls endPlayerTurn which sets ActionTaken
+					// Wait action calls endPlayerTurn which sets ActionTaken
+					if success && selectedActionDef.ID != "wait" {
 						// TODO: Differentiate action types (Main, Bonus, Reaction) - currently all consume the single 'ActionTaken' flag
 						g.Player.ActionTaken = true
 					}
 					// Mode is handled by Execute for Wait/endPlayerTurn, otherwise reset here
-					if selectedActionDef.ID != "wait" {
+					if selectedActionDef.ID != "wait" && g.CurrentTurn != GameOver {
 						g.InputMode = InputModeMap
 						g.primedActionID = ""
 					}
@@ -593,10 +649,10 @@ func (g *Game) handlePlayerInput() {
 		if g.primedActionID == "" && inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
 			waitAction, exists := ActionTable["wait"]
 			if exists {
-				waitAction.Execute(g, -1, -1) // Let executeWait handle the turn end
+				waitAction.Execute(g, -1, -1)
 			} else {
 				g.addCombatLog("Player ends turn (Manual - Wait action missing!).")
-				g.endPlayerTurn() // Fallback
+				g.endPlayerTurn()
 			}
 			return
 		}
@@ -638,9 +694,8 @@ func (g *Game) handlePlayerInput() {
 										g.addCombatLog(fmt.Sprintf("%s makes an Opportunity Attack!", enemy.Name))
 										killedByAoO := g.resolveAttack(&enemy.Entity, &g.Player.Entity, 0, "melee")
 										if killedByAoO {
-											// Player death is handled in main Update loop
-											g.Player.MovementPoints-- // Consume point even if killed by AoO
-											return                    // Stop processing input if player died
+											g.Player.MovementPoints--
+											return
 										}
 									}
 								}
@@ -673,11 +728,9 @@ func (g *Game) handleEnemyTurns() {
 			continue
 		}
 
-		// Reset state for this enemy's turn phase
 		enemy.MovementPoints = enemy.MaxMovementPoints
 		enemy.ActionAvailable = true
 
-		// Simple Enemy AI: Move towards player, attack if adjacent
 		for enemy.MovementPoints > 0 && !isAdjacent(g.Player.X, g.Player.Y, enemy.X, enemy.Y) {
 			targetX, targetY := enemy.X, enemy.Y
 			dx := g.Player.X - enemy.X
@@ -716,21 +769,19 @@ func (g *Game) handleEnemyTurns() {
 				enemy.Y = targetY
 				enemy.MovementPoints--
 			} else {
-				break // Cannot move closer
+				break
 			}
 		}
 
-		// Action Phase
 		if isAdjacent(g.Player.X, g.Player.Y, enemy.X, enemy.Y) && enemy.ActionAvailable {
 			if g.Player.HP > 0 {
 				g.resolveAttack(&enemy.Entity, &g.Player.Entity, 0, "melee")
 				enemy.ActionAvailable = false
-				// Player death check happens in endEnemyTurn / Update loop
 			} else {
-				enemy.ActionAvailable = false // Player already dead
+				enemy.ActionAvailable = false
 			}
 		} else if enemy.ActionAvailable {
-			enemy.ActionAvailable = false // Consume action even if not used
+			enemy.ActionAvailable = false
 		}
 	}
 }
@@ -753,24 +804,16 @@ func (g *Game) Update() error {
 		return nil
 	}
 
-	// Store current turn before input handling, as input might change it
 	turnBeforeInput := g.CurrentTurn
 
 	if turnBeforeInput == PlayerTurn || g.InputMode == InputModeActionSelect {
 		g.handlePlayerInput()
-		// If handlePlayerInput changed the turn to EnemyTurn (e.g., via Wait action -> endPlayerTurn -> startEnemyTurn)
-		// or GameOver, the state is now updated.
 	}
 
-	// Only run enemy logic if the turn is currently EnemyTurn
 	if g.CurrentTurn == EnemyTurn {
-		g.handleEnemyTurns() // Process all enemy actions
-		g.endEnemyTurn()     // Perform end-of-enemy-turn checks and transition state
+		g.handleEnemyTurns()
+		g.endEnemyTurn()
 	}
-
-	// Note: Transitions Player->Enemy and Enemy->Player are now handled
-	// within endPlayerTurn() and endEnemyTurn() respectively.
-
 	return nil
 }
 
@@ -807,25 +850,46 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		}
 	}
 
+	entitiesToDraw := make([]*Entity, 0, len(g.Enemies)+1)
 	for _, enemy := range g.Enemies {
-		if enemy.HP <= 0 {
-			continue
+		if enemy.HP > 0 {
+			entitiesToDraw = append(entitiesToDraw, &enemy.Entity)
 		}
-		enemyScreenX := float64(mapOffsetX + enemy.X*tileSize)
-		enemyScreenY := float64(mapOffsetY + enemy.Y*tileSize)
-		enemy.DrawOpts.GeoM.Reset()
-		enemy.DrawOpts.GeoM.Translate(enemyScreenX, enemyScreenY)
-		screen.DrawImage(enemy.Sprite, &enemy.DrawOpts)
-		hpText := fmt.Sprintf("%d/%d", enemy.HP, enemy.MaxHP)
-		ebitenutil.DebugPrintAt(screen, hpText, int(enemyScreenX)+4, int(enemyScreenY)+tileSize+2)
+	}
+	if g.Player.HP > 0 {
+		entitiesToDraw = append(entitiesToDraw, &g.Player.Entity)
 	}
 
-	if g.Player.HP > 0 {
-		playerScreenX := float64(mapOffsetX + g.Player.X*tileSize)
-		playerScreenY := float64(mapOffsetY + g.Player.Y*tileSize)
-		g.Player.DrawOpts.GeoM.Reset()
-		g.Player.DrawOpts.GeoM.Translate(playerScreenX, playerScreenY)
-		screen.DrawImage(g.Player.Sprite, &g.Player.DrawOpts)
+	entityOpts := &ebiten.DrawImageOptions{}
+
+	for _, entity := range entitiesToDraw {
+		if entity.Sprite == nil {
+			continue
+		}
+
+		entityScreenX := float64(mapOffsetX + entity.X*tileSize)
+		entityScreenY := float64(mapOffsetY + entity.Y*tileSize)
+
+		entityOpts.GeoM.Reset()
+		entityOpts.GeoM.Scale(spriteScale, spriteScale)
+		entityOpts.GeoM.Translate(entityScreenX, entityScreenY)
+		screen.DrawImage(entity.Sprite, entityOpts)
+
+		hpBarX := float32(entityScreenX)
+		hpBarY := float32(entityScreenY + tileSize + hpBarOffsetY)
+		hpBarWidth := float32(tileSize)
+
+		hpRatio := float32(entity.HP) / float32(entity.MaxHP)
+		if hpRatio < 0 {
+			hpRatio = 0
+		}
+		if hpRatio > 1 {
+			hpRatio = 1
+		}
+
+		vector.DrawFilledRect(screen, hpBarX, hpBarY, hpBarWidth, hpBarHeight, color.RGBA{R: 80, G: 0, B: 0, A: 255}, false)
+		vector.DrawFilledRect(screen, hpBarX, hpBarY, hpBarWidth*hpRatio, hpBarHeight, color.RGBA{R: 0, G: 200, B: 0, A: 255}, false)
+		vector.StrokeRect(screen, hpBarX, hpBarY, hpBarWidth, hpBarHeight, 1, color.Black, false)
 	}
 
 	uiStartY := 10
@@ -920,7 +984,7 @@ func main() {
 	rand.Seed(time.Now().UnixNano())
 	game := NewGame()
 	ebiten.SetWindowSize(screenWidth*2, screenHeight*2)
-	ebiten.SetWindowTitle("Slumb Gate - Action Refactor")
+	ebiten.SetWindowTitle("Slumb Gate - Visual Polish")
 	if err := ebiten.RunGame(game); err != nil {
 		log.Fatal(err)
 	}
