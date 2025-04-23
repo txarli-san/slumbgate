@@ -102,6 +102,7 @@ type Enemy struct {
 	MovementPoints    int
 	MaxMovementPoints int
 	ActionAvailable   bool
+	// TODO: Add AttackType string ("melee", "ranged") and MaxRange int later
 }
 
 type Game struct {
@@ -421,6 +422,7 @@ func (g *Game) SpawnNextWave() {
 }
 
 // spawnEnemy includes width and height parameters.
+// TODO: Add attackType and maxRange parameters later.
 func (g *Game) spawnEnemy(x, y int, name string, baseHp, ac, str, dex, con, intel, wis, cha, move, w, h int, sprite *ebiten.Image) {
 	conMod := getModifier(con)
 	maxHp := baseHp + conMod
@@ -436,6 +438,8 @@ func (g *Game) spawnEnemy(x, y int, name string, baseHp, ac, str, dex, con, inte
 			Sprite: sprite, Name: name,
 		},
 		MaxMovementPoints: move,
+		// AttackType: attackType, // Add later
+		// MaxRange: maxRange,     // Add later
 	}
 	g.Enemies = append(g.Enemies, enemy)
 }
@@ -449,22 +453,44 @@ func (g *Game) addCombatLog(msg string) {
 
 // isTileBlocked checks all tiles occupied by entities.
 func (g *Game) isTileBlocked(checkX, checkY, movingEnemyIndex int) bool {
+	// Check player collision (player is 1x1)
 	if g.Player.HP > 0 && g.Player.X == checkX && g.Player.Y == checkY {
 		return true
 	}
+	// Check enemy collision
 	for i, enemy := range g.Enemies {
-		if enemy.HP <= 0 {
+		if enemy.HP <= 0 { // Ignore dead enemies
 			continue
 		}
-		if i == movingEnemyIndex {
+		if i == movingEnemyIndex { // Ignore the enemy that is currently moving
 			continue
 		}
+		// Check if the target tile falls within the bounds of this enemy
 		if checkX >= enemy.X && checkX < enemy.X+enemy.Width &&
 			checkY >= enemy.Y && checkY < enemy.Y+enemy.Height {
 			return true
 		}
 	}
 	return false
+}
+
+// isTileFullyBlocked checks if the entire area an entity would occupy starting at (checkX, checkY) is blocked.
+// Used for checking multi-tile entity movement validity.
+func (g *Game) isTileFullyBlocked(checkX, checkY, entityWidth, entityHeight, movingEnemyIndex int) bool {
+	for w := 0; w < entityWidth; w++ {
+		for h := 0; h < entityHeight; h++ {
+			tileX, tileY := checkX+w, checkY+h
+			// Check map bounds first
+			if tileX < 0 || tileX >= mapWidth || tileY < 0 || tileY >= mapHeight {
+				return true // Part of the entity would be off map
+			}
+			// Check if this specific tile is blocked by player or another enemy
+			if g.isTileBlocked(tileX, tileY, movingEnemyIndex) {
+				return true // One of the tiles is blocked
+			}
+		}
+	}
+	return false // None of the tiles are blocked
 }
 
 // getEnemyAt returns the enemy occupying the tile (x, y).
@@ -547,7 +573,8 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 	}
 	logMsg := fmt.Sprintf("%s %s %s (AC %d). %s.", attacker.Name, attackVerb, defender.Name, defender.AC, rollString)
 	if hit {
-		damage := max(1, attackAbilityMod)
+		// TODO: Implement weapon damage dice (e.g., 1d6 + mod)
+		damage := max(1, attackAbilityMod) // Simple damage: ability mod (min 1)
 		defender.HP -= damage
 		logMsg += fmt.Sprintf(" Hit! Deals %d damage.", damage)
 		if defender.HP <= 0 {
@@ -579,8 +606,11 @@ func executeMeleeAttack(g *Game, targetX, targetY int) bool {
 func executeRangedAttack(g *Game, targetX, targetY int) bool {
 	targetEnemy := g.getEnemyAt(targetX, targetY)
 	if targetEnemy != nil {
+		// Use top-left corner for distance check (simplification)
 		dist := distance(g.Player.X, g.Player.Y, targetEnemy.X, targetEnemy.Y)
 		if dist <= playerRangedRange {
+			// TODO: Add check for line of sight?
+			// TODO: Disadvantage if adjacent to an enemy?
 			killed := g.resolveAttack(&g.Player.Entity, &targetEnemy.Entity, g.Player.ProficiencyBonus, "ranged")
 			g.lastExecutedActionID = "ranged_attack"
 			if killed {
@@ -686,6 +716,7 @@ func (g *Game) handlePlayerInput() {
 							isAvailable = false
 						}
 					}
+					// Add other availability checks here...
 
 					if isAvailable {
 						g.availableActions = append(g.availableActions, actionDef)
@@ -784,6 +815,7 @@ func (g *Game) handlePlayerInput() {
 
 			if moved {
 				if targetX >= 0 && targetX < mapWidth && targetY >= 0 && targetY < mapHeight {
+					// Player is 1x1, so use simpler isTileBlocked check
 					if !g.isTileBlocked(targetX, targetY, -1) {
 						performAoOCheck := !g.Player.IsDisengaging
 						if performAoOCheck {
@@ -792,25 +824,28 @@ func (g *Game) handlePlayerInput() {
 									continue
 								}
 								wasAdj := isAdjacentToEntity(startX, startY, &enemy.Entity)
-								isStillAdj := isAdjacentToEntity(targetX, targetY, &enemy.Entity)
+								isStillAdj := isAdjacentToEntity(targetX, targetY, &enemy.Entity) // Check potential new position
 
 								if wasAdj && !isStillAdj {
 									if g.Player.HP > 0 {
 										g.addCombatLog(fmt.Sprintf("%s makes an Opportunity Attack!", enemy.Name))
 										killedByAoO := g.resolveAttack(&enemy.Entity, &g.Player.Entity, 0, "melee")
 										if killedByAoO {
-											g.Player.MovementPoints--
-											return
+											g.Player.MovementPoints-- // Consume move point even if killed
+											return                    // Stop processing input if player died
 										}
 									}
 								}
 							}
 						}
 
+						// If player survived AoO (or none occurred)
 						if g.Player.HP > 0 {
 							g.Player.X = targetX
 							g.Player.Y = targetY
 							g.Player.MovementPoints--
+							// Reset Disengage after moving? Or at start of turn?
+							// g.Player.IsDisengaging = false
 						}
 					} else {
 						g.addCombatLog("Movement blocked.")
@@ -825,127 +860,142 @@ func (g *Game) handlePlayerInput() {
 
 func (g *Game) handleEnemyTurns() {
 	if g.Player.HP <= 0 {
-		return
+		return // Skip enemy turns if player is dead
 	}
+
+	// Define potential move offsets (Up, Down, Left, Right)
+	moveOffsets := []image.Point{{X: 0, Y: -1}, {X: 0, Y: 1}, {X: -1, Y: 0}, {X: 1, Y: 0}}
 
 	for i, enemy := range g.Enemies {
 		if enemy.HP <= 0 {
-			continue
+			continue // Skip dead enemies
 		}
 
 		enemy.MovementPoints = enemy.MaxMovementPoints
 		enemy.ActionAvailable = true
 
-		isAdj := isAdjacentToEntity(g.Player.X, g.Player.Y, &enemy.Entity)
+		// --- AI Logic ---
+		// TODO: Add logic for Ranged Kiting here later
 
+		// --- Movement Phase ---
+		isAdj := isAdjacentToEntity(g.Player.X, g.Player.Y, &enemy.Entity)
 		if !isAdj {
 			for enemy.MovementPoints > 0 {
 				currentX, currentY := enemy.X, enemy.Y
-				targetX, targetY := currentX, currentY
-				dx := g.Player.X - enemy.X
-				dy := g.Player.Y - enemy.Y
+				currentDist := distance(currentX, currentY, g.Player.X, g.Player.Y)
+				bestMoveX, bestMoveY := currentX, currentY // Start assuming no move is best
+				minDist := currentDist                     // Minimum distance found so far
 
-				movedStep := false
-				tempTargetX := targetX
-				tempTargetY := targetY
+				potentialMoves := []image.Point{} // Store all valid potential moves
+				bestMoves := []image.Point{}      // Store moves that achieve the minimum distance
 
-				tryXFirst := math.Abs(float64(dx)) > math.Abs(float64(dy))
+				// 1. Evaluate all potential moves and find the minimum possible distance
+				for _, offset := range moveOffsets {
+					nextX, nextY := currentX+offset.X, currentY+offset.Y
 
-				if tryXFirst {
-					if dx > 0 {
-						tempTargetX++
-					} else if dx < 0 {
-						tempTargetX--
+					// Check if the potential move is valid
+					if !g.isTileFullyBlocked(nextX, nextY, enemy.Width, enemy.Height, i) {
+						potentialMoves = append(potentialMoves, image.Point{X: nextX, Y: nextY}) // Add to list of valid moves
+						distToPlayer := distance(nextX, nextY, g.Player.X, g.Player.Y)
+
+						if distToPlayer < minDist {
+							minDist = distToPlayer // Found a new closer distance
+						}
 					}
-				} else {
-					if dy > 0 {
-						tempTargetY++
-					} else if dy < 0 {
-						tempTargetY--
+				} // End checking potential moves
+
+				// 2. Collect all moves that achieve the minimum distance
+				for _, move := range potentialMoves {
+					if distance(move.X, move.Y, g.Player.X, g.Player.Y) == minDist {
+						bestMoves = append(bestMoves, move)
 					}
 				}
 
-				canMove := true
-				for w := 0; w < enemy.Width; w++ {
-					for h := 0; h < enemy.Height; h++ {
-						checkX, checkY := tempTargetX+w, tempTargetY+h
-						if checkX < 0 || checkX >= mapWidth || checkY < 0 || checkY >= mapHeight || g.isTileBlocked(checkX, checkY, i) {
-							canMove = false
-							break
-						}
-					}
-					if !canMove {
-						break
-					}
-				}
-
-				if canMove && (tempTargetX != currentX || tempTargetY != currentY) {
-					targetX = tempTargetX
-					targetY = tempTargetY
-					movedStep = true
-				} else {
-					tempTargetX = currentX
-					tempTargetY = currentY
-					if !tryXFirst {
-						if dx > 0 {
-							tempTargetX++
-						} else if dx < 0 {
-							tempTargetX--
-						}
+				// 3. Choose the best move from the bestMoves list
+				chosenMove := false
+				if len(bestMoves) > 0 {
+					if len(bestMoves) == 1 {
+						// Only one best move, take it
+						bestMoveX = bestMoves[0].X
+						bestMoveY = bestMoves[0].Y
+						chosenMove = true
 					} else {
-						if dy > 0 {
-							tempTargetY++
-						} else if dy < 0 {
-							tempTargetY--
-						}
-					}
+						// Tie-breaker: prioritize move along the axis with greater distance to player
+						dx := g.Player.X - currentX
+						dy := g.Player.Y - currentY
+						preferredMoveFound := false
 
-					canMove = true
-					for w := 0; w < enemy.Width; w++ {
-						for h := 0; h < enemy.Height; h++ {
-							checkX, checkY := tempTargetX+w, tempTargetY+h
-							if checkX < 0 || checkX >= mapWidth || checkY < 0 || checkY >= mapHeight || g.isTileBlocked(checkX, checkY, i) {
-								canMove = false
-								break
+						if math.Abs(float64(dx)) > math.Abs(float64(dy)) {
+							// Prefer horizontal movement
+							for _, move := range bestMoves {
+								if move.X != currentX { // Check if it's a horizontal move
+									bestMoveX = move.X
+									bestMoveY = move.Y
+									chosenMove = true
+									preferredMoveFound = true
+									break
+								}
+							}
+						} else {
+							// Prefer vertical movement (includes diagonal tie where abs(dx)==abs(dy))
+							for _, move := range bestMoves {
+								if move.Y != currentY { // Check if it's a vertical move
+									bestMoveX = move.X
+									bestMoveY = move.Y
+									chosenMove = true
+									preferredMoveFound = true
+									break
+								}
 							}
 						}
-						if !canMove {
-							break
+
+						// If no preferred move was found among the best, just take the first one
+						if !preferredMoveFound {
+							bestMoveX = bestMoves[0].X
+							bestMoveY = bestMoves[0].Y
+							chosenMove = true
 						}
 					}
-
-					if canMove && (tempTargetX != currentX || tempTargetY != currentY) {
-						targetX = tempTargetX
-						targetY = tempTargetY
-						movedStep = true
-					}
 				}
 
-				if movedStep {
-					enemy.X = targetX
-					enemy.Y = targetY
+				// 4. Execute the chosen move (if any)
+				if chosenMove {
+					enemy.X = bestMoveX
+					enemy.Y = bestMoveY
 					enemy.MovementPoints--
+					// Re-check adjacency after moving
 					isAdj = isAdjacentToEntity(g.Player.X, g.Player.Y, &enemy.Entity)
 					if isAdj {
-						break
+						break // Stop moving if now adjacent
 					}
 				} else {
+					// No valid move found (or all valid moves increase distance), stop trying to move
 					break
 				}
-			}
-		}
 
+			} // End of movement loop (while movement points > 0)
+		} // End of movement phase (if !isAdj)
+
+		// --- Action Phase ---
+		// TODO: Modify this later for Ranged attacks based on MaxRange
 		if isAdj && enemy.ActionAvailable {
 			if g.Player.HP > 0 {
-				g.resolveAttack(&enemy.Entity, &g.Player.Entity, 0, "melee")
+				g.resolveAttack(&enemy.Entity, &g.Player.Entity, 0, "melee") // Assuming melee for now
 				enemy.ActionAvailable = false
 			} else {
-				enemy.ActionAvailable = false
+				enemy.ActionAvailable = false // Player already dead
 			}
 		} else if enemy.ActionAvailable {
+			// If not adjacent or couldn't attack, action is still used up (effectively 'Wait')
 			enemy.ActionAvailable = false
 		}
-	}
+		// --- End Action Phase ---
+
+		// Check if player died during this enemy's turn
+		if g.Player.HP <= 0 {
+			return // Stop processing further enemies if player died
+		}
+	} // End of enemy loop
 }
 
 func (g *Game) cleanupDeadEnemies() {
@@ -963,6 +1013,7 @@ func (g *Game) cleanupDeadEnemies() {
 
 func (g *Game) Update() error {
 	if g.CurrentTurn == GameOver {
+		// TODO: Handle restart input?
 		return nil
 	}
 
@@ -972,9 +1023,10 @@ func (g *Game) Update() error {
 		g.handlePlayerInput()
 	}
 
+	// Only process enemy turn if the state *is* EnemyTurn after player input might have changed it.
 	if g.CurrentTurn == EnemyTurn {
 		g.handleEnemyTurns()
-		g.endEnemyTurn()
+		g.endEnemyTurn() // Handles state transitions (Enemy->Player or Enemy->GameOver)
 	}
 
 	return nil
@@ -1001,6 +1053,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 				for y := 0; y < mapHeight; y++ {
 					dist := distance(g.Player.X, g.Player.Y, x, y)
 					if dist > 0 && dist <= actionDef.Range {
+						// TODO: Add line-of-sight check here?
 						screenX := float64(mapOffsetX + x*tileSize)
 						screenY := float64(mapOffsetY + y*tileSize)
 						overlayOpts.GeoM.Reset()
@@ -1022,6 +1075,11 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		entitiesToDraw = append(entitiesToDraw, &g.Player.Entity)
 	}
 
+	// TODO: Sort entities by Y-coordinate for pseudo-3D layering?
+	// sort.Slice(entitiesToDraw, func(i, j int) bool {
+	//     return entitiesToDraw[i].Y < entitiesToDraw[j].Y
+	// })
+
 	entityOpts := &ebiten.DrawImageOptions{}
 
 	for _, entity := range entitiesToDraw {
@@ -1033,16 +1091,18 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 		entityOpts.GeoM.Reset()
 		if entity.Width > 1 || entity.Height > 1 {
+			// Scale sprite to cover the entity's tile area
 			entityOpts.GeoM.Scale(float64(entity.Width), float64(entity.Height))
 		}
 		entityOpts.GeoM.Translate(entityScreenX, entityScreenY)
 		screen.DrawImage(entity.Sprite, entityOpts)
 
+		// Draw HP Bar
 		hpBarBaseX := float64(mapOffsetX + entity.X*tileSize)
 		hpBarBaseY := float64(mapOffsetY + entity.Y*tileSize)
 		hpBarX := float32(hpBarBaseX)
-		hpBarY := float32(hpBarBaseY + float64(entity.Height*tileSize) + hpBarOffsetY)
-		hpBarWidth := float32(tileSize * entity.Width)
+		hpBarY := float32(hpBarBaseY + float64(entity.Height*tileSize) + hpBarOffsetY) // Position below entity
+		hpBarWidth := float32(tileSize * entity.Width)                                 // Span entity width
 		hpRatio := float32(entity.HP) / float32(entity.MaxHP)
 		if hpRatio < 0 {
 			hpRatio = 0
@@ -1050,11 +1110,12 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		if hpRatio > 1 {
 			hpRatio = 1
 		}
-		vector.DrawFilledRect(screen, hpBarX, hpBarY, hpBarWidth, hpBarHeight, color.RGBA{R: 80, G: 0, B: 0, A: 255}, false)
-		vector.DrawFilledRect(screen, hpBarX, hpBarY, hpBarWidth*hpRatio, hpBarHeight, color.RGBA{R: 0, G: 200, B: 0, A: 255}, false)
-		vector.StrokeRect(screen, hpBarX, hpBarY, hpBarWidth, hpBarHeight, 1, color.Black, false)
+		vector.DrawFilledRect(screen, hpBarX, hpBarY, hpBarWidth, hpBarHeight, color.RGBA{R: 80, G: 0, B: 0, A: 255}, false)          // Background
+		vector.DrawFilledRect(screen, hpBarX, hpBarY, hpBarWidth*hpRatio, hpBarHeight, color.RGBA{R: 0, G: 200, B: 0, A: 255}, false) // Foreground
+		vector.StrokeRect(screen, hpBarX, hpBarY, hpBarWidth, hpBarHeight, 1, color.Black, false)                                     // Border
 	}
 
+	// --- Draw UI ---
 	uiStartY := 10
 	uiLineHeight := 15
 	statusStartY := 10
@@ -1086,10 +1147,12 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	if g.Player.IsDisengaging {
 		statusText = "Status: Disengaging"
 	}
+	// Add other statuses here
 	if statusText != "" {
 		ebitenutil.DebugPrintAt(screen, statusText, 10, uiStartY+uiLineHeight*5)
 	}
 
+	// Draw Action Selection Menu
 	if g.InputMode == InputModeActionSelect {
 		menuX, menuY := screenWidth/4, screenHeight/4
 		menuW, menuH := screenWidth/2, screenHeight/2
@@ -1105,12 +1168,11 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		itemLineHeight := 18
 		for i, actionDef := range g.availableActions {
 			actionText := actionDef.Name
-			// Declare itemColor with the color.Color interface type
 			var itemColor color.Color = color.Gray{Y: 180} // Default color
 
 			if i == g.selectedActionIndex {
 				actionText = "> " + actionText
-				itemColor = color.White
+				itemColor = color.White // Highlight selected
 			}
 
 			itemX := menuX + 15
@@ -1124,6 +1186,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		text.Draw(screen, closeMsg, basicfont.Face7x13, int(closeX), int(closeY), color.Gray{Y: 150})
 	}
 
+	// Draw Character Sheet
 	if g.InputMode == InputModeCharacterSheet {
 		menuX, menuY := screenWidth/4, screenHeight/4
 		menuW, menuH := screenWidth/2, screenHeight/2
@@ -1138,12 +1201,12 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		infoStartY := titleY + 25
 		infoLineHeight := 15
 		infoX := menuX + 15
-		lineNum := 0 // Reset lineNum for this panel
+		lineNum := 0
 
 		// Stats
 		healthStr := fmt.Sprintf("HP: %d / %d", max(0, g.Player.HP), g.Player.MaxHP)
 		acStr := fmt.Sprintf("AC: %d", g.Player.AC)
-		moveStr := fmt.Sprintf("Movement: %d", g.Player.MaxMovementPoints) // Show base movement
+		moveStr := fmt.Sprintf("Movement: %d", g.Player.MaxMovementPoints)
 		profStr := fmt.Sprintf("Proficiency Bonus: +%d", g.Player.ProficiencyBonus)
 		text.Draw(screen, healthStr, basicfont.Face7x13, infoX, infoStartY+(lineNum*infoLineHeight), color.White)
 		lineNum++
@@ -1153,7 +1216,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		lineNum++
 		text.Draw(screen, profStr, basicfont.Face7x13, infoX, infoStartY+(lineNum*infoLineHeight), color.White)
 		lineNum++
-		lineNum++ // Add a gap
+		lineNum++ // Gap
 
 		// Attributes
 		text.Draw(screen, "Attributes:", basicfont.Face7x13, infoX, infoStartY+(lineNum*infoLineHeight), color.Gray{Y: 200})
@@ -1176,7 +1239,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		attrCha := fmt.Sprintf("  CHA: %d (%+d)", g.Player.Charisma, getModifier(g.Player.Charisma))
 		text.Draw(screen, attrCha, basicfont.Face7x13, infoX, infoStartY+(lineNum*infoLineHeight), color.White)
 		lineNum++
-		lineNum++ // Add a gap
+		lineNum++ // Gap
 
 		// Close instruction
 		closeMsg := "Press [C] or [Esc] to close"
@@ -1185,12 +1248,14 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		text.Draw(screen, closeMsg, basicfont.Face7x13, int(closeX), int(closeY), color.Gray{Y: 150})
 	}
 
+	// Draw Combat Log
 	logStartY := screenHeight - (combatLogLength * 15) - 10
 	logX := 10
 	for i, msg := range g.CombatLog {
 		text.Draw(screen, msg, basicfont.Face7x13, logX, logStartY+(i*15), color.White)
 	}
 
+	// Draw Game Over / Victory Message
 	if g.CurrentTurn == GameOver {
 		gameOverMsg := "GAME OVER"
 		if g.Player.HP > 0 && len(g.Enemies) == 0 {
@@ -1202,8 +1267,8 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		msgX := (screenWidth - bounds.Dx()) / 2
 		msgY := (screenHeight - bounds.Dy()) / 2
 
-		text.Draw(screen, gameOverMsg, msgFont, msgX+1, msgY+1, color.Black)
-		text.Draw(screen, gameOverMsg, msgFont, msgX, msgY, color.White)
+		text.Draw(screen, gameOverMsg, msgFont, msgX+1, msgY+1, color.Black) // Shadow
+		text.Draw(screen, gameOverMsg, msgFont, msgX, msgY, color.White)     // Text
 
 		restartMsg := "Press [R] to Restart (Not Implemented)"
 		restartBounds := text.BoundString(basicfont.Face7x13, restartMsg)
