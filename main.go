@@ -27,7 +27,7 @@ const (
 	spriteScale         = float64(tileSize) / float64(spriteSize)
 	mapWidth            = 10
 	mapHeight           = 10
-	combatLogLength     = 7
+	combatLogLength     = 5 // Reduced from 7
 	playerBaseMovement  = 5
 	enemyBaseMovement   = 4
 	playerRangedRange   = 5
@@ -95,6 +95,7 @@ type Player struct {
 	MaxMovementPoints int
 	ActionTaken       bool
 	IsDisengaging     bool
+	// TODO: Add Equipment later
 }
 
 type Enemy struct {
@@ -285,16 +286,16 @@ func NewGame() *Game {
 	playerStr, playerDex, playerCon := 15, 14, 13
 	playerInt, playerWis, playerCha := 8, 12, 10
 	playerConMod := getModifier(playerCon)
-	playerMaxHP := 10 + playerConMod
+	playerMaxHP := 10 + playerConMod // Fighter L1 HP = 10 + CON mod
 	g.Player = &Player{
 		Entity: Entity{
 			X: mapWidth / 2, Y: mapHeight / 2, Width: 1, Height: 1, // Player is 1x1
-			HP: playerMaxHP, MaxHP: playerMaxHP, AC: 13,
+			HP: playerMaxHP, MaxHP: playerMaxHP, AC: 13, // Example AC, could be based on armor later
 			Strength: playerStr, Dexterity: playerDex, Constitution: playerCon,
 			Intelligence: playerInt, Wisdom: playerWis, Charisma: playerCha,
 			Sprite: playerSprite, Name: "Player",
 		},
-		ProficiencyBonus:  2,
+		ProficiencyBonus:  2, // L1 proficiency bonus
 		MaxMovementPoints: playerBaseMovement,
 	}
 
@@ -566,27 +567,60 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 	if attackerProfBonus != 0 {
 		profString = fmt.Sprintf("+%d", attackerProfBonus)
 	}
-	rollString := fmt.Sprintf("Roll: %d%s%s(%s) = %d", roll, profString, modString, abilityName, attackRoll)
+	// Shortened roll string
+	rollString := fmt.Sprintf("%d%s%s(%s) = %d", roll, profString, modString, abilityName, attackRoll)
 	attackVerb := "attacks"
 	if attackType == "ranged" {
 		attackVerb = "shoots"
 	}
 	logMsg := fmt.Sprintf("%s %s %s (AC %d). %s.", attacker.Name, attackVerb, defender.Name, defender.AC, rollString)
+
 	if hit {
-		// TODO: Implement weapon damage dice (e.g., 1d6 + mod)
-		damage := max(1, attackAbilityMod) // Simple damage: ability mod (min 1)
+		var damage int
+		var damageRoll int = 0 // Initialize damage roll
+		damageLog := ""        // String for logging damage breakdown
+
+		// Check if the attacker is the player by comparing pointers
+		isPlayer := attacker == &g.Player.Entity
+
+		if isPlayer {
+			// Player damage calculation (5e SRD style)
+			switch attackType {
+			case "ranged":
+				damageRoll = rand.Intn(6) + 1 // 1d6 for shortbow (example)
+				damage = damageRoll + attackAbilityMod
+				// Shortened damage log
+				damageLog = fmt.Sprintf(" (%d %+d)", damageRoll, attackAbilityMod)
+			default: // Melee
+				damageRoll = rand.Intn(8) + 1 // 1d8 for longsword (example)
+				damage = damageRoll + attackAbilityMod
+				// Shortened damage log
+				damageLog = fmt.Sprintf(" (%d %+d)", damageRoll, attackAbilityMod)
+			}
+		} else {
+			// Enemy damage calculation (remains simple modifier for now)
+			// TODO: Implement enemy damage dice later
+			damage = attackAbilityMod
+			// Shortened damage log
+			damageLog = fmt.Sprintf(" (%+d)", attackAbilityMod)
+		}
+
+		// Ensure minimum damage of 1, regardless of attacker
+		damage = max(1, damage)
+
 		defender.HP -= damage
-		logMsg += fmt.Sprintf(" Hit! Deals %d damage.", damage)
+		// Add damage and breakdown (if applicable) to log message
+		logMsg += fmt.Sprintf(" Hit! %d%s dmg.", damage, damageLog) // Shortened "Deals" and "damage"
 		if defender.HP <= 0 {
 			logMsg += fmt.Sprintf(" %s dies!", defender.Name)
 			g.addCombatLog(logMsg)
-			return true
+			return true // Target killed
 		}
 	} else {
 		logMsg += " Miss!"
 	}
 	g.addCombatLog(logMsg)
-	return false
+	return false // Target not killed (or missed)
 }
 
 func executeMeleeAttack(g *Game, targetX, targetY int) bool {
@@ -1188,8 +1222,8 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	// Draw Character Sheet
 	if g.InputMode == InputModeCharacterSheet {
-		menuX, menuY := screenWidth/4, screenHeight/4
 		menuW, menuH := screenWidth/2, screenHeight/2
+		menuX, menuY := (screenWidth-menuW)/2, (screenHeight-menuH)/2
 		vector.DrawFilledRect(screen, float32(menuX), float32(menuY), float32(menuW), float32(menuH), color.NRGBA{R: 30, G: 20, B: 20, A: 220}, false) // Slightly different color
 		vector.StrokeRect(screen, float32(menuX), float32(menuY), float32(menuW), float32(menuH), 2, color.White, false)
 
@@ -1199,7 +1233,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		text.Draw(screen, title, basicfont.Face7x13, titleX, titleY, color.White)
 
 		infoStartY := titleY + 25
-		infoLineHeight := 15
+		infoLineHeight := 14 // Reduced from 15
 		infoX := menuX + 15
 		lineNum := 0
 
@@ -1216,7 +1250,15 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		lineNum++
 		text.Draw(screen, profStr, basicfont.Face7x13, infoX, infoStartY+(lineNum*infoLineHeight), color.White)
 		lineNum++
-		lineNum++ // Gap
+
+		// Assumed Weapon Damage Display
+		meleeDmgStr := fmt.Sprintf("Melee Damage: 1d8 %+d", getModifier(g.Player.Strength))
+		rangedDmgStr := fmt.Sprintf("Ranged Damage: 1d6 %+d", getModifier(g.Player.Dexterity))
+		text.Draw(screen, meleeDmgStr, basicfont.Face7x13, infoX, infoStartY+(lineNum*infoLineHeight), color.White)
+		lineNum++
+		text.Draw(screen, rangedDmgStr, basicfont.Face7x13, infoX, infoStartY+(lineNum*infoLineHeight), color.White)
+		lineNum++
+		lineNum++ // Add a gap
 
 		// Attributes
 		text.Draw(screen, "Attributes:", basicfont.Face7x13, infoX, infoStartY+(lineNum*infoLineHeight), color.Gray{Y: 200})
@@ -1239,7 +1281,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		attrCha := fmt.Sprintf("  CHA: %d (%+d)", g.Player.Charisma, getModifier(g.Player.Charisma))
 		text.Draw(screen, attrCha, basicfont.Face7x13, infoX, infoStartY+(lineNum*infoLineHeight), color.White)
 		lineNum++
-		lineNum++ // Gap
+		lineNum++ // Add a gap
 
 		// Close instruction
 		closeMsg := "Press [C] or [Esc] to close"
@@ -1249,10 +1291,11 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	}
 
 	// Draw Combat Log
-	logStartY := screenHeight - (combatLogLength * 15) - 10
+	logLineHeight := 13                                                // Reduced line height for combat log as well
+	logStartY := screenHeight - (combatLogLength * logLineHeight) - 10 // Adjust start Y based on new height
 	logX := 10
 	for i, msg := range g.CombatLog {
-		text.Draw(screen, msg, basicfont.Face7x13, logX, logStartY+(i*15), color.White)
+		text.Draw(screen, msg, basicfont.Face7x13, logX, logStartY+(i*logLineHeight), color.White)
 	}
 
 	// Draw Game Over / Victory Message
