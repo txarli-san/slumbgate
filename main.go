@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
-	_ "image/png" // Import for loading PNG files
+	_ "image/png"
 	"log"
 	"math"
 	"math/rand"
@@ -27,7 +27,7 @@ const (
 	spriteScale         = float64(tileSize) / float64(spriteSize)
 	mapWidth            = 10
 	mapHeight           = 10
-	combatLogLength     = 5 // Reduced from 7
+	combatLogLength     = 7
 	playerBaseMovement  = 5
 	enemyBaseMovement   = 4
 	playerRangedRange   = 5
@@ -67,13 +67,15 @@ const (
 	InputModeActionSelect
 	InputModeCharacterSheet
 	// InputModeRest // Future mode
+	// InputModeLevelUpChoice // Future mode
 )
 
+// --- Entity & Character Structs ---
 type Entity struct {
 	X            int
 	Y            int
-	Width        int // Width in tiles
-	Height       int // Height in tiles
+	Width        int
+	Height       int
 	HP           int
 	MaxHP        int
 	AC           int
@@ -90,12 +92,14 @@ type Entity struct {
 
 type Player struct {
 	Entity
+	Level             int
 	ProficiencyBonus  int
 	MovementPoints    int
 	MaxMovementPoints int
-	ActionTaken       bool
+	ActionTaken       bool // TODO: Replace with ActionsAvailable for Action Surge
 	IsDisengaging     bool
 	// TODO: Add Equipment later
+	// TODO: Add HitDiceAvailable, HitDiceMax, ShortRestsAvailable later
 }
 
 type Enemy struct {
@@ -103,16 +107,18 @@ type Enemy struct {
 	MovementPoints    int
 	MaxMovementPoints int
 	ActionAvailable   bool
-	// TODO: Add AttackType string ("melee", "ranged") and MaxRange int later
+	AttackType        string
+	MaxRange          int
 }
 
+// --- Game State & Actions ---
 type Game struct {
 	Player               *Player
 	Enemies              []*Enemy
 	GameMap              [mapWidth][mapHeight]int
 	TileImage            *ebiten.Image
 	CurrentTurn          TurnState
-	CurrentWave          int // Tracks wave number
+	CurrentWaveIndex     int
 	CombatLog            []string
 	MapOffsetX           int
 	MapOffsetY           int
@@ -124,6 +130,7 @@ type Game struct {
 	selectedActionIndex  int
 	primedActionID       string
 	lastExecutedActionID string
+	WaveDefinitions      []WaveDefinition
 }
 
 type ActionExecuteFunc func(g *Game, targetX, targetY int) bool
@@ -145,6 +152,59 @@ type ActionDefinition struct {
 	Range          int
 	RequiresTarget bool
 	Execute        ActionExecuteFunc
+}
+
+// --- Wave & Enemy Definitions ---
+type EnemyDefinition struct {
+	Name         string
+	SpriteSheetX int
+	SpriteSheetY int
+	BaseHP       int
+	AC           int
+	Str          int
+	Dex          int
+	Con          int
+	Int          int
+	Wis          int
+	Cha          int
+	Move         int
+	Width        int
+	Height       int
+	AttackType   string
+	MaxRange     int
+}
+
+type EnemySpawnInfo struct {
+	TypeName      string
+	SpawnPointIdx int
+}
+
+type WaveDefinition struct {
+	EnemiesToSpawn []EnemySpawnInfo
+	IsBossWave     bool
+}
+
+var EnemyDefinitions = map[string]EnemyDefinition{
+	"Small Slime": {
+		Name: "Small Slime", SpriteSheetX: 0, SpriteSheetY: 2,
+		BaseHP: 6, AC: 10, Str: 12, Dex: 10, Con: 11, Int: 8, Wis: 8, Cha: 8, Move: enemyBaseMovement,
+		Width: 1, Height: 1, AttackType: "melee", MaxRange: 1,
+	},
+	"Tough Slime": {
+		Name: "Tough Slime", SpriteSheetX: 1, SpriteSheetY: 2,
+		BaseHP: 7, AC: 10, Str: 12, Dex: 10, Con: 11, Int: 8, Wis: 8, Cha: 8, Move: enemyBaseMovement,
+		Width: 1, Height: 1, AttackType: "melee", MaxRange: 1,
+	},
+	"Goo Spitter": {
+		Name: "Goo Spitter", SpriteSheetX: 2, SpriteSheetY: 2,
+		BaseHP: 5, AC: 11, Str: 8, Dex: 14, Con: 10, Int: 8, Wis: 8, Cha: 8, Move: enemyBaseMovement,
+		Width: 1, Height: 1, AttackType: "ranged", MaxRange: 4,
+	},
+	"Big Slime Boss": {
+		Name: "Big Slime Boss", SpriteSheetX: 1, SpriteSheetY: 2,
+		BaseHP: 25, AC: 12, Str: 14, Dex: 8, Con: 15, Int: 6, Wis: 6, Cha: 6, Move: enemyBaseMovement - 1,
+		Width: 2, Height: 2, AttackType: "melee", MaxRange: 1,
+	},
 }
 
 // --- Action Table Definition ---
@@ -189,6 +249,7 @@ var ActionTable = map[string]*ActionDefinition{
 		RequiresTarget: false,
 		Execute:        executeWait,
 	},
+	// TODO: Add Short Rest action later
 }
 
 // --- Initialization Check ---
@@ -214,7 +275,6 @@ func loadImage(path string) (*ebiten.Image, error) {
 	return ebiten.NewImageFromImage(img), nil
 }
 
-// (sx=col, sy=row).
 func getSpriteFromSheet(sheet *ebiten.Image, sx, sy int) *ebiten.Image {
 	if sheet == nil {
 		log.Println("Warning: Sprite sheet not loaded.")
@@ -246,7 +306,38 @@ func NewGame() *Game {
 	g.InputMode = InputModeMap
 	g.availableActions = make([]*ActionDefinition, 0)
 	g.lastExecutedActionID = ""
-	g.CurrentWave = 0 // Start at 0, SpawnNextWave increments before spawning
+	g.CurrentWaveIndex = -1
+
+	g.WaveDefinitions = []WaveDefinition{
+		{
+			EnemiesToSpawn: []EnemySpawnInfo{
+				{TypeName: "Small Slime", SpawnPointIdx: 0},
+				{TypeName: "Small Slime", SpawnPointIdx: 1},
+			},
+			IsBossWave: false,
+		},
+		{
+			EnemiesToSpawn: []EnemySpawnInfo{
+				{TypeName: "Tough Slime", SpawnPointIdx: 2},
+				{TypeName: "Tough Slime", SpawnPointIdx: 3},
+			},
+			IsBossWave: false,
+		},
+		{
+			EnemiesToSpawn: []EnemySpawnInfo{
+				{TypeName: "Tough Slime", SpawnPointIdx: 0},
+				{TypeName: "Goo Spitter", SpawnPointIdx: 4},
+				{TypeName: "Tough Slime", SpawnPointIdx: 1},
+			},
+			IsBossWave: false,
+		},
+		{
+			EnemiesToSpawn: []EnemySpawnInfo{
+				{TypeName: "Big Slime Boss", SpawnPointIdx: 4},
+			},
+			IsBossWave: true,
+		},
+	}
 
 	var err error
 	rogueSheetPath := "assets/rogues.png"
@@ -275,27 +366,28 @@ func NewGame() *Game {
 		vector.StrokeRect(g.TileImage, 0, 0, float32(tileSize), float32(tileSize), 1, color.RGBA{R: 80, G: 80, B: 80, A: 255}, false)
 	} else {
 		floorSprite := getSpriteFromSheet(tileSheet, 0, 0)
-		g.TileImage = floorSprite // 32x32 tile sprite
+		g.TileImage = floorSprite
 	}
 
 	g.RangeOverlayTile = ebiten.NewImage(tileSize, tileSize)
 	overlayColor := color.NRGBA{R: 0, G: 100, B: 200, A: 80}
 	vector.DrawFilledRect(g.RangeOverlayTile, 0, 0, float32(tileSize), float32(tileSize), overlayColor, false)
 
-	playerSprite := getSpriteFromSheet(g.rogueSheet, 1, 1) // Male fighter
+	playerSprite := getSpriteFromSheet(g.rogueSheet, 1, 1)
 	playerStr, playerDex, playerCon := 15, 14, 13
 	playerInt, playerWis, playerCha := 8, 12, 10
 	playerConMod := getModifier(playerCon)
-	playerMaxHP := 10 + playerConMod // Fighter L1 HP = 10 + CON mod
+	playerMaxHP := 10 + playerConMod
 	g.Player = &Player{
 		Entity: Entity{
-			X: mapWidth / 2, Y: mapHeight / 2, Width: 1, Height: 1, // Player is 1x1
-			HP: playerMaxHP, MaxHP: playerMaxHP, AC: 13, // Example AC, could be based on armor later
+			X: mapWidth / 2, Y: mapHeight / 2, Width: 1, Height: 1,
+			HP: playerMaxHP, MaxHP: playerMaxHP, AC: 13,
 			Strength: playerStr, Dexterity: playerDex, Constitution: playerCon,
 			Intelligence: playerInt, Wisdom: playerWis, Charisma: playerCha,
 			Sprite: playerSprite, Name: "Player",
 		},
-		ProficiencyBonus:  2, // L1 proficiency bonus
+		Level:             1,
+		ProficiencyBonus:  2,
 		MaxMovementPoints: playerBaseMovement,
 	}
 
@@ -312,6 +404,7 @@ func (g *Game) startPlayerTurn() {
 	g.Player.IsDisengaging = false
 	g.InputMode = InputModeMap
 	g.primedActionID = ""
+	// TODO: Reset Action Surge availability based on rest mechanic later
 }
 
 func (g *Game) endPlayerTurn() {
@@ -319,10 +412,23 @@ func (g *Game) endPlayerTurn() {
 	g.cleanupDeadEnemies()
 
 	if len(g.Enemies) == 0 {
-		g.SpawnNextWave()
-		if len(g.Enemies) > 0 {
-			g.startEnemyTurn()
-		} else if g.CurrentTurn != GameOver {
+		currentWaveDef := g.WaveDefinitions[g.CurrentWaveIndex]
+		isFinalWave := g.CurrentWaveIndex+1 >= len(g.WaveDefinitions)
+
+		if currentWaveDef.IsBossWave && isFinalWave {
+			// TODO: Initiate Long Rest / Level Up sequence here
+			g.addCombatLog("Final Boss Defeated! Long Rest...")
+			g.addCombatLog("VICTORY!")
+			g.CurrentTurn = GameOver
+		} else if !isFinalWave {
+			g.SpawnNextWave()
+			if len(g.Enemies) > 0 {
+				g.startEnemyTurn()
+			} else {
+				g.addCombatLog("Error spawning next wave or wave empty.")
+				g.CurrentTurn = GameOver
+			}
+		} else {
 			g.addCombatLog("All defined waves cleared! VICTORY!")
 			g.CurrentTurn = GameOver
 		}
@@ -352,10 +458,23 @@ func (g *Game) endEnemyTurn() {
 	}
 
 	if len(g.Enemies) == 0 {
-		g.SpawnNextWave()
-		if len(g.Enemies) > 0 {
-			g.startPlayerTurn()
-		} else if g.CurrentTurn != GameOver {
+		currentWaveDef := g.WaveDefinitions[g.CurrentWaveIndex]
+		isFinalWave := g.CurrentWaveIndex+1 >= len(g.WaveDefinitions)
+
+		if currentWaveDef.IsBossWave && isFinalWave {
+			// TODO: Initiate Long Rest / Level Up sequence here
+			g.addCombatLog("Final Boss Defeated! Long Rest...")
+			g.addCombatLog("VICTORY!")
+			g.CurrentTurn = GameOver
+		} else if !isFinalWave {
+			g.SpawnNextWave()
+			if len(g.Enemies) > 0 {
+				g.startPlayerTurn()
+			} else {
+				g.addCombatLog("Error spawning next wave or wave empty.")
+				g.CurrentTurn = GameOver
+			}
+		} else {
 			g.addCombatLog("All defined waves cleared! VICTORY!")
 			g.CurrentTurn = GameOver
 		}
@@ -364,10 +483,20 @@ func (g *Game) endEnemyTurn() {
 	}
 }
 
-// SpawnNextWave handles wave progression and enemy spawning.
 func (g *Game) SpawnNextWave() {
-	g.CurrentWave++
-	g.addCombatLog(fmt.Sprintf("--- Starting Wave %d ---", g.CurrentWave))
+	g.CurrentWaveIndex++
+
+	if g.CurrentWaveIndex >= len(g.WaveDefinitions) {
+		log.Printf("Attempted to spawn wave index %d, but only %d waves are defined.", g.CurrentWaveIndex, len(g.WaveDefinitions))
+		g.addCombatLog("No more waves defined.")
+		if g.CurrentTurn != GameOver {
+			g.CurrentTurn = GameOver
+		}
+		return
+	}
+
+	waveDef := g.WaveDefinitions[g.CurrentWaveIndex]
+	g.addCombatLog(fmt.Sprintf("--- Starting Wave %d ---", g.CurrentWaveIndex+1))
 	g.Enemies = make([]*Enemy, 0)
 
 	spawnPoints := []image.Point{
@@ -377,53 +506,70 @@ func (g *Game) SpawnNextWave() {
 		{X: mapWidth - 3, Y: 2},
 		{X: mapWidth / 2, Y: 1},
 	}
-	spawnIndex := 0
 
-	smallSlimeSprite := getSpriteFromSheet(g.monsterSheet, 0, 2) // 3.a
-	bigSlimeSprite := getSpriteFromSheet(g.monsterSheet, 1, 2)   // 3.b
+	for _, spawnInfo := range waveDef.EnemiesToSpawn {
+		enemyDef, exists := EnemyDefinitions[spawnInfo.TypeName]
+		if !exists {
+			log.Printf("Warning: Enemy type '%s' not found in definitions.", spawnInfo.TypeName)
+			continue
+		}
 
-	switch g.CurrentWave {
-	case 1:
-		if spawnIndex < len(spawnPoints) {
-			g.spawnEnemy(spawnPoints[spawnIndex].X, spawnPoints[spawnIndex].Y, "Slime A", 6, 10, 12, 10, 11, 8, 8, 8, enemyBaseMovement, 1, 1, smallSlimeSprite)
-			spawnIndex++
-		}
-		if spawnIndex < len(spawnPoints) {
-			g.spawnEnemy(spawnPoints[spawnIndex].X, spawnPoints[spawnIndex].Y, "Slime B", 6, 10, 12, 10, 11, 8, 8, 8, enemyBaseMovement, 1, 1, smallSlimeSprite)
-			spawnIndex++
-		}
-	case 2:
-		if spawnIndex < len(spawnPoints) {
-			g.spawnEnemy(spawnPoints[spawnIndex].X, spawnPoints[spawnIndex].Y, "Slime C", 7, 10, 12, 10, 11, 8, 8, 8, enemyBaseMovement, 1, 1, smallSlimeSprite)
-			spawnIndex++
-		}
-		if spawnIndex < len(spawnPoints) {
-			g.spawnEnemy(spawnPoints[spawnIndex].X, spawnPoints[spawnIndex].Y, "Slime D", 7, 10, 12, 10, 11, 8, 8, 8, enemyBaseMovement, 1, 1, smallSlimeSprite)
-			spawnIndex++
-		}
-	case 3:
-		bossX, bossY := mapWidth/2-1, 1
-		if bossX+1 >= mapWidth {
-			bossX = mapWidth - 2
-		}
-		if bossY+1 >= mapHeight {
-			bossY = mapHeight - 2
-		}
-		if bossX < 0 {
-			bossX = 0
-		}
-		if bossY < 0 {
-			bossY = 0
-		}
-		g.spawnEnemy(bossX, bossY, "Big Slime Boss", 25, 12, 14, 8, 15, 6, 6, 6, enemyBaseMovement-1, 2, 2, bigSlimeSprite)
+		spawnX, spawnY := -1, -1
+		if spawnInfo.SpawnPointIdx >= 0 && spawnInfo.SpawnPointIdx < len(spawnPoints) {
+			spawnPoint := spawnPoints[spawnInfo.SpawnPointIdx]
+			spawnX = spawnPoint.X
+			spawnY = spawnPoint.Y
+			if enemyDef.Width > 1 {
+				spawnX -= (enemyDef.Width - 1) / 2
+			}
+			if enemyDef.Height > 1 {
+				spawnY -= (enemyDef.Height - 1) / 2
+			}
+			if spawnX < 0 {
+				spawnX = 0
+			}
+			if spawnY < 0 {
+				spawnY = 0
+			}
+			if spawnX+enemyDef.Width > mapWidth {
+				spawnX = mapWidth - enemyDef.Width
+			}
+			if spawnY+enemyDef.Height > mapHeight {
+				spawnY = mapHeight - enemyDef.Height
+			}
 
-	default:
-		g.addCombatLog(fmt.Sprintf("No definition for wave %d. Ending.", g.CurrentWave))
+		} else {
+			log.Printf("Warning: Invalid spawn point index %d for enemy '%s'. Skipping.", spawnInfo.SpawnPointIdx, enemyDef.Name)
+			continue
+		}
+
+		sprite := getSpriteFromSheet(g.monsterSheet, enemyDef.SpriteSheetX, enemyDef.SpriteSheetY)
+
+		g.spawnEnemyFromDef(spawnX, spawnY, enemyDef, sprite)
 	}
 }
 
-// spawnEnemy includes width and height parameters.
-// TODO: Add attackType and maxRange parameters later.
+func (g *Game) spawnEnemyFromDef(x, y int, def EnemyDefinition, sprite *ebiten.Image) {
+	conMod := getModifier(def.Con)
+	maxHp := def.BaseHP + conMod
+	if maxHp < 1 {
+		maxHp = 1
+	}
+	enemy := &Enemy{
+		Entity: Entity{
+			X: x, Y: y, Width: def.Width, Height: def.Height,
+			HP: maxHp, MaxHP: maxHp, AC: def.AC,
+			Strength: def.Str, Dexterity: def.Dex, Constitution: def.Con,
+			Intelligence: def.Int, Wisdom: def.Wis, Charisma: def.Cha,
+			Sprite: sprite, Name: def.Name,
+		},
+		MaxMovementPoints: def.Move,
+		AttackType:        def.AttackType,
+		MaxRange:          def.MaxRange,
+	}
+	g.Enemies = append(g.Enemies, enemy)
+}
+
 func (g *Game) spawnEnemy(x, y int, name string, baseHp, ac, str, dex, con, intel, wis, cha, move, w, h int, sprite *ebiten.Image) {
 	conMod := getModifier(con)
 	maxHp := baseHp + conMod
@@ -432,15 +578,13 @@ func (g *Game) spawnEnemy(x, y int, name string, baseHp, ac, str, dex, con, inte
 	}
 	enemy := &Enemy{
 		Entity: Entity{
-			X: x, Y: y, Width: w, Height: h, // Assign size
+			X: x, Y: y, Width: w, Height: h,
 			HP: maxHp, MaxHP: maxHp, AC: ac,
 			Strength: str, Dexterity: dex, Constitution: con,
 			Intelligence: intel, Wisdom: wis, Charisma: cha,
 			Sprite: sprite, Name: name,
 		},
 		MaxMovementPoints: move,
-		// AttackType: attackType, // Add later
-		// MaxRange: maxRange,     // Add later
 	}
 	g.Enemies = append(g.Enemies, enemy)
 }
@@ -452,21 +596,17 @@ func (g *Game) addCombatLog(msg string) {
 	}
 }
 
-// isTileBlocked checks all tiles occupied by entities.
 func (g *Game) isTileBlocked(checkX, checkY, movingEnemyIndex int) bool {
-	// Check player collision (player is 1x1)
 	if g.Player.HP > 0 && g.Player.X == checkX && g.Player.Y == checkY {
 		return true
 	}
-	// Check enemy collision
 	for i, enemy := range g.Enemies {
-		if enemy.HP <= 0 { // Ignore dead enemies
+		if enemy.HP <= 0 {
 			continue
 		}
-		if i == movingEnemyIndex { // Ignore the enemy that is currently moving
+		if i == movingEnemyIndex {
 			continue
 		}
-		// Check if the target tile falls within the bounds of this enemy
 		if checkX >= enemy.X && checkX < enemy.X+enemy.Width &&
 			checkY >= enemy.Y && checkY < enemy.Y+enemy.Height {
 			return true
@@ -475,26 +615,21 @@ func (g *Game) isTileBlocked(checkX, checkY, movingEnemyIndex int) bool {
 	return false
 }
 
-// isTileFullyBlocked checks if the entire area an entity would occupy starting at (checkX, checkY) is blocked.
-// Used for checking multi-tile entity movement validity.
 func (g *Game) isTileFullyBlocked(checkX, checkY, entityWidth, entityHeight, movingEnemyIndex int) bool {
 	for w := 0; w < entityWidth; w++ {
 		for h := 0; h < entityHeight; h++ {
 			tileX, tileY := checkX+w, checkY+h
-			// Check map bounds first
 			if tileX < 0 || tileX >= mapWidth || tileY < 0 || tileY >= mapHeight {
-				return true // Part of the entity would be off map
+				return true
 			}
-			// Check if this specific tile is blocked by player or another enemy
 			if g.isTileBlocked(tileX, tileY, movingEnemyIndex) {
-				return true // One of the tiles is blocked
+				return true
 			}
 		}
 	}
-	return false // None of the tiles are blocked
+	return false
 }
 
-// getEnemyAt returns the enemy occupying the tile (x, y).
 func (g *Game) getEnemyAt(x, y int) *Enemy {
 	for _, enemy := range g.Enemies {
 		if enemy.HP <= 0 {
@@ -512,12 +647,10 @@ func distance(x1, y1, x2, y2 int) int {
 	return int(math.Abs(float64(x1-x2)) + math.Abs(float64(y1-y2)))
 }
 
-// isAdjacentSimple checks Manhattan distance == 1 between two points.
 func isAdjacentSimple(x1, y1, x2, y2 int) bool {
 	return distance(x1, y1, x2, y2) == 1
 }
 
-// isAdjacentToEntity checks if point (px, py) is adjacent to any tile of the entity.
 func isAdjacentToEntity(px, py int, entity *Entity) bool {
 	if entity == nil {
 		return false
@@ -532,7 +665,6 @@ func isAdjacentToEntity(px, py int, entity *Entity) bool {
 	return false
 }
 
-// isPlayerAdjacentToEnemy checks if player is adjacent to any part of any living enemy.
 func isPlayerAdjacentToEnemy(g *Game) bool {
 	for _, enemy := range g.Enemies {
 		if enemy.HP <= 0 {
@@ -567,60 +699,51 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 	if attackerProfBonus != 0 {
 		profString = fmt.Sprintf("+%d", attackerProfBonus)
 	}
-	// Shortened roll string
-	rollString := fmt.Sprintf("%d%s%s(%s) = %d", roll, profString, modString, abilityName, attackRoll)
+	rollString := fmt.Sprintf("%d%s%s(%s)=%d", roll, profString, modString, abilityName, attackRoll)
 	attackVerb := "attacks"
 	if attackType == "ranged" {
 		attackVerb = "shoots"
 	}
-	logMsg := fmt.Sprintf("%s %s %s (AC %d). %s.", attacker.Name, attackVerb, defender.Name, defender.AC, rollString)
+	logMsg := fmt.Sprintf("%s %s %s(AC%d). %s.", attacker.Name, attackVerb, defender.Name, defender.AC, rollString)
 
 	if hit {
 		var damage int
-		var damageRoll int = 0 // Initialize damage roll
-		damageLog := ""        // String for logging damage breakdown
+		var damageRoll int = 0
+		damageLog := ""
 
-		// Check if the attacker is the player by comparing pointers
 		isPlayer := attacker == &g.Player.Entity
 
 		if isPlayer {
-			// Player damage calculation (5e SRD style)
 			switch attackType {
 			case "ranged":
-				damageRoll = rand.Intn(6) + 1 // 1d6 for shortbow (example)
+				damageRoll = rand.Intn(6) + 1
 				damage = damageRoll + attackAbilityMod
-				// Shortened damage log
-				damageLog = fmt.Sprintf(" (%d %+d)", damageRoll, attackAbilityMod)
+				damageLog = fmt.Sprintf(" (%d%+d)", damageRoll, attackAbilityMod)
 			default: // Melee
-				damageRoll = rand.Intn(8) + 1 // 1d8 for longsword (example)
+				damageRoll = rand.Intn(8) + 1
 				damage = damageRoll + attackAbilityMod
-				// Shortened damage log
-				damageLog = fmt.Sprintf(" (%d %+d)", damageRoll, attackAbilityMod)
+				damageLog = fmt.Sprintf(" (%d%+d)", damageRoll, attackAbilityMod)
 			}
 		} else {
-			// Enemy damage calculation (remains simple modifier for now)
 			// TODO: Implement enemy damage dice later
 			damage = attackAbilityMod
-			// Shortened damage log
 			damageLog = fmt.Sprintf(" (%+d)", attackAbilityMod)
 		}
 
-		// Ensure minimum damage of 1, regardless of attacker
 		damage = max(1, damage)
 
 		defender.HP -= damage
-		// Add damage and breakdown (if applicable) to log message
-		logMsg += fmt.Sprintf(" Hit! %d%s dmg.", damage, damageLog) // Shortened "Deals" and "damage"
+		logMsg += fmt.Sprintf(" Hit! %d%s dmg.", damage, damageLog)
 		if defender.HP <= 0 {
 			logMsg += fmt.Sprintf(" %s dies!", defender.Name)
 			g.addCombatLog(logMsg)
-			return true // Target killed
+			return true
 		}
 	} else {
 		logMsg += " Miss!"
 	}
 	g.addCombatLog(logMsg)
-	return false // Target not killed (or missed)
+	return false
 }
 
 func executeMeleeAttack(g *Game, targetX, targetY int) bool {
@@ -640,7 +763,6 @@ func executeMeleeAttack(g *Game, targetX, targetY int) bool {
 func executeRangedAttack(g *Game, targetX, targetY int) bool {
 	targetEnemy := g.getEnemyAt(targetX, targetY)
 	if targetEnemy != nil {
-		// Use top-left corner for distance check (simplification)
 		dist := distance(g.Player.X, g.Player.Y, targetEnemy.X, targetEnemy.Y)
 		if dist <= playerRangedRange {
 			// TODO: Add check for line of sight?
@@ -750,7 +872,6 @@ func (g *Game) handlePlayerInput() {
 							isAvailable = false
 						}
 					}
-					// Add other availability checks here...
 
 					if isAvailable {
 						g.availableActions = append(g.availableActions, actionDef)
@@ -849,7 +970,6 @@ func (g *Game) handlePlayerInput() {
 
 			if moved {
 				if targetX >= 0 && targetX < mapWidth && targetY >= 0 && targetY < mapHeight {
-					// Player is 1x1, so use simpler isTileBlocked check
 					if !g.isTileBlocked(targetX, targetY, -1) {
 						performAoOCheck := !g.Player.IsDisengaging
 						if performAoOCheck {
@@ -858,28 +978,25 @@ func (g *Game) handlePlayerInput() {
 									continue
 								}
 								wasAdj := isAdjacentToEntity(startX, startY, &enemy.Entity)
-								isStillAdj := isAdjacentToEntity(targetX, targetY, &enemy.Entity) // Check potential new position
+								isStillAdj := isAdjacentToEntity(targetX, targetY, &enemy.Entity)
 
 								if wasAdj && !isStillAdj {
 									if g.Player.HP > 0 {
 										g.addCombatLog(fmt.Sprintf("%s makes an Opportunity Attack!", enemy.Name))
 										killedByAoO := g.resolveAttack(&enemy.Entity, &g.Player.Entity, 0, "melee")
 										if killedByAoO {
-											g.Player.MovementPoints-- // Consume move point even if killed
-											return                    // Stop processing input if player died
+											g.Player.MovementPoints--
+											return
 										}
 									}
 								}
 							}
 						}
 
-						// If player survived AoO (or none occurred)
 						if g.Player.HP > 0 {
 							g.Player.X = targetX
 							g.Player.Y = targetY
 							g.Player.MovementPoints--
-							// Reset Disengage after moving? Or at start of turn?
-							// g.Player.IsDisengaging = false
 						}
 					} else {
 						g.addCombatLog("Movement blocked.")
@@ -894,142 +1011,168 @@ func (g *Game) handlePlayerInput() {
 
 func (g *Game) handleEnemyTurns() {
 	if g.Player.HP <= 0 {
-		return // Skip enemy turns if player is dead
+		return
 	}
 
-	// Define potential move offsets (Up, Down, Left, Right)
 	moveOffsets := []image.Point{{X: 0, Y: -1}, {X: 0, Y: 1}, {X: -1, Y: 0}, {X: 1, Y: 0}}
 
 	for i, enemy := range g.Enemies {
 		if enemy.HP <= 0 {
-			continue // Skip dead enemies
+			continue
 		}
 
 		enemy.MovementPoints = enemy.MaxMovementPoints
 		enemy.ActionAvailable = true
+		distToPlayer := distance(enemy.X, enemy.Y, g.Player.X, g.Player.Y)
+		isAdj := isAdjacentToEntity(g.Player.X, g.Player.Y, &enemy.Entity)
 
-		// --- AI Logic ---
-		// TODO: Add logic for Ranged Kiting here later
+		// --- Action Phase ---
+		if enemy.ActionAvailable {
+			if enemy.AttackType == "ranged" {
+				// TODO: Add Line of Sight check
+				if distToPlayer <= enemy.MaxRange && distToPlayer > 1 {
+					g.resolveAttack(&enemy.Entity, &g.Player.Entity, 0, "ranged")
+					enemy.ActionAvailable = false
+				} else if isAdj {
+				}
+			} else {
+				if isAdj {
+					g.resolveAttack(&enemy.Entity, &g.Player.Entity, 0, "melee")
+					enemy.ActionAvailable = false
+				}
+			}
+		}
 
 		// --- Movement Phase ---
-		isAdj := isAdjacentToEntity(g.Player.X, g.Player.Y, &enemy.Entity)
-		if !isAdj {
+		needsToMove := enemy.ActionAvailable || (enemy.AttackType == "ranged" && (distToPlayer < 2 || distToPlayer > enemy.MaxRange))
+
+		if needsToMove {
 			for enemy.MovementPoints > 0 {
 				currentX, currentY := enemy.X, enemy.Y
 				currentDist := distance(currentX, currentY, g.Player.X, g.Player.Y)
-				bestMoveX, bestMoveY := currentX, currentY // Start assuming no move is best
-				minDist := currentDist                     // Minimum distance found so far
+				bestMoveX, bestMoveY := currentX, currentY
 
-				potentialMoves := []image.Point{} // Store all valid potential moves
-				bestMoves := []image.Point{}      // Store moves that achieve the minimum distance
+				potentialMoves := []image.Point{}
 
-				// 1. Evaluate all potential moves and find the minimum possible distance
 				for _, offset := range moveOffsets {
 					nextX, nextY := currentX+offset.X, currentY+offset.Y
-
-					// Check if the potential move is valid
 					if !g.isTileFullyBlocked(nextX, nextY, enemy.Width, enemy.Height, i) {
-						potentialMoves = append(potentialMoves, image.Point{X: nextX, Y: nextY}) // Add to list of valid moves
-						distToPlayer := distance(nextX, nextY, g.Player.X, g.Player.Y)
-
-						if distToPlayer < minDist {
-							minDist = distToPlayer // Found a new closer distance
-						}
-					}
-				} // End checking potential moves
-
-				// 2. Collect all moves that achieve the minimum distance
-				for _, move := range potentialMoves {
-					if distance(move.X, move.Y, g.Player.X, g.Player.Y) == minDist {
-						bestMoves = append(bestMoves, move)
+						potentialMoves = append(potentialMoves, image.Point{X: nextX, Y: nextY})
 					}
 				}
 
-				// 3. Choose the best move from the bestMoves list
-				chosenMove := false
-				if len(bestMoves) > 0 {
-					if len(bestMoves) == 1 {
-						// Only one best move, take it
-						bestMoveX = bestMoves[0].X
-						bestMoveY = bestMoves[0].Y
-						chosenMove = true
-					} else {
-						// Tie-breaker: prioritize move along the axis with greater distance to player
-						dx := g.Player.X - currentX
-						dy := g.Player.Y - currentY
-						preferredMoveFound := false
+				if len(potentialMoves) == 0 {
+					break
+				}
 
-						if math.Abs(float64(dx)) > math.Abs(float64(dy)) {
-							// Prefer horizontal movement
-							for _, move := range bestMoves {
-								if move.X != currentX { // Check if it's a horizontal move
-									bestMoveX = move.X
-									bestMoveY = move.Y
-									chosenMove = true
-									preferredMoveFound = true
-									break
-								}
-							}
-						} else {
-							// Prefer vertical movement (includes diagonal tie where abs(dx)==abs(dy))
-							for _, move := range bestMoves {
-								if move.Y != currentY { // Check if it's a vertical move
-									bestMoveX = move.X
-									bestMoveY = move.Y
-									chosenMove = true
-									preferredMoveFound = true
-									break
-								}
-							}
+				chosenMove := false
+				if enemy.AttackType == "ranged" {
+					targetDist := enemy.MaxRange
+					bestScore := -1.0
+
+					for _, move := range potentialMoves {
+						dist := distance(move.X, move.Y, g.Player.X, g.Player.Y)
+						score := math.Abs(float64(dist - targetDist))
+						if dist <= 1 {
+							score += 1000
 						}
 
-						// If no preferred move was found among the best, just take the first one
-						if !preferredMoveFound {
-							bestMoveX = bestMoves[0].X
-							bestMoveY = bestMoves[0].Y
+						if bestScore < 0 || score < bestScore {
+							bestScore = score
+							bestMoveX = move.X
+							bestMoveY = move.Y
 							chosenMove = true
 						}
 					}
+					if bestMoveX == currentX && bestMoveY == currentY {
+						chosenMove = false
+					}
+
+				} else {
+					minDist := currentDist
+					bestMoves := []image.Point{}
+
+					for _, move := range potentialMoves {
+						dist := distance(move.X, move.Y, g.Player.X, g.Player.Y)
+						if dist < minDist {
+							minDist = dist
+						}
+					}
+					for _, move := range potentialMoves {
+						if distance(move.X, move.Y, g.Player.X, g.Player.Y) == minDist {
+							bestMoves = append(bestMoves, move)
+						}
+					}
+					if len(bestMoves) > 0 {
+						if len(bestMoves) == 1 {
+							bestMoveX = bestMoves[0].X
+							bestMoveY = bestMoves[0].Y
+							chosenMove = true
+						} else {
+							dx := g.Player.X - currentX
+							dy := g.Player.Y - currentY
+							preferredMoveFound := false
+							if math.Abs(float64(dx)) > math.Abs(float64(dy)) {
+								for _, move := range bestMoves {
+									if move.X != currentX {
+										bestMoveX, bestMoveY, chosenMove, preferredMoveFound = move.X, move.Y, true, true
+										break
+									}
+								}
+							} else {
+								for _, move := range bestMoves {
+									if move.Y != currentY {
+										bestMoveX, bestMoveY, chosenMove, preferredMoveFound = move.X, move.Y, true, true
+										break
+									}
+								}
+							}
+							if !preferredMoveFound {
+								bestMoveX, bestMoveY, chosenMove = bestMoves[0].X, bestMoves[0].Y, true
+							}
+						}
+					}
+					if bestMoveX == currentX && bestMoveY == currentY {
+						chosenMove = false
+					}
 				}
 
-				// 4. Execute the chosen move (if any)
 				if chosenMove {
 					enemy.X = bestMoveX
 					enemy.Y = bestMoveY
 					enemy.MovementPoints--
-					// Re-check adjacency after moving
 					isAdj = isAdjacentToEntity(g.Player.X, g.Player.Y, &enemy.Entity)
-					if isAdj {
-						break // Stop moving if now adjacent
+					distToPlayer = distance(enemy.X, enemy.Y, g.Player.X, g.Player.Y)
+
+					if enemy.AttackType == "melee" && isAdj {
+						break
+					}
+					if enemy.AttackType == "ranged" && distToPlayer == enemy.MaxRange {
 					}
 				} else {
-					// No valid move found (or all valid moves increase distance), stop trying to move
 					break
 				}
-
-			} // End of movement loop (while movement points > 0)
-		} // End of movement phase (if !isAdj)
-
-		// --- Action Phase ---
-		// TODO: Modify this later for Ranged attacks based on MaxRange
-		if isAdj && enemy.ActionAvailable {
-			if g.Player.HP > 0 {
-				g.resolveAttack(&enemy.Entity, &g.Player.Entity, 0, "melee") // Assuming melee for now
-				enemy.ActionAvailable = false
-			} else {
-				enemy.ActionAvailable = false // Player already dead
 			}
-		} else if enemy.ActionAvailable {
-			// If not adjacent or couldn't attack, action is still used up (effectively 'Wait')
-			enemy.ActionAvailable = false
 		}
-		// --- End Action Phase ---
 
-		// Check if player died during this enemy's turn
-		if g.Player.HP <= 0 {
-			return // Stop processing further enemies if player died
+		if enemy.ActionAvailable {
+			if enemy.AttackType == "ranged" {
+				distToPlayer = distance(enemy.X, enemy.Y, g.Player.X, g.Player.Y)
+				if distToPlayer <= enemy.MaxRange && distToPlayer > 1 {
+					// TODO: Add Line of Sight check
+					g.resolveAttack(&enemy.Entity, &g.Player.Entity, 0, "ranged")
+					enemy.ActionAvailable = false
+				}
+			}
+			if enemy.ActionAvailable {
+				enemy.ActionAvailable = false
+			}
 		}
-	} // End of enemy loop
+
+		if g.Player.HP <= 0 {
+			return
+		}
+	}
 }
 
 func (g *Game) cleanupDeadEnemies() {
@@ -1057,10 +1200,9 @@ func (g *Game) Update() error {
 		g.handlePlayerInput()
 	}
 
-	// Only process enemy turn if the state *is* EnemyTurn after player input might have changed it.
 	if g.CurrentTurn == EnemyTurn {
 		g.handleEnemyTurns()
-		g.endEnemyTurn() // Handles state transitions (Enemy->Player or Enemy->GameOver)
+		g.endEnemyTurn()
 	}
 
 	return nil
@@ -1125,18 +1267,16 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 		entityOpts.GeoM.Reset()
 		if entity.Width > 1 || entity.Height > 1 {
-			// Scale sprite to cover the entity's tile area
 			entityOpts.GeoM.Scale(float64(entity.Width), float64(entity.Height))
 		}
 		entityOpts.GeoM.Translate(entityScreenX, entityScreenY)
 		screen.DrawImage(entity.Sprite, entityOpts)
 
-		// Draw HP Bar
 		hpBarBaseX := float64(mapOffsetX + entity.X*tileSize)
 		hpBarBaseY := float64(mapOffsetY + entity.Y*tileSize)
 		hpBarX := float32(hpBarBaseX)
-		hpBarY := float32(hpBarBaseY + float64(entity.Height*tileSize) + hpBarOffsetY) // Position below entity
-		hpBarWidth := float32(tileSize * entity.Width)                                 // Span entity width
+		hpBarY := float32(hpBarBaseY + float64(entity.Height*tileSize) + hpBarOffsetY)
+		hpBarWidth := float32(tileSize * entity.Width)
 		hpRatio := float32(entity.HP) / float32(entity.MaxHP)
 		if hpRatio < 0 {
 			hpRatio = 0
@@ -1144,9 +1284,9 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		if hpRatio > 1 {
 			hpRatio = 1
 		}
-		vector.DrawFilledRect(screen, hpBarX, hpBarY, hpBarWidth, hpBarHeight, color.RGBA{R: 80, G: 0, B: 0, A: 255}, false)          // Background
-		vector.DrawFilledRect(screen, hpBarX, hpBarY, hpBarWidth*hpRatio, hpBarHeight, color.RGBA{R: 0, G: 200, B: 0, A: 255}, false) // Foreground
-		vector.StrokeRect(screen, hpBarX, hpBarY, hpBarWidth, hpBarHeight, 1, color.Black, false)                                     // Border
+		vector.DrawFilledRect(screen, hpBarX, hpBarY, hpBarWidth, hpBarHeight, color.RGBA{R: 80, G: 0, B: 0, A: 255}, false)
+		vector.DrawFilledRect(screen, hpBarX, hpBarY, hpBarWidth*hpRatio, hpBarHeight, color.RGBA{R: 0, G: 200, B: 0, A: 255}, false)
+		vector.StrokeRect(screen, hpBarX, hpBarY, hpBarWidth, hpBarHeight, 1, color.Black, false)
 	}
 
 	// --- Draw UI ---
@@ -1154,7 +1294,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	uiLineHeight := 15
 	statusStartY := 10
 
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Wave: %d", g.CurrentWave), screenWidth-100, statusStartY)
+	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Wave: %d", g.CurrentWaveIndex+1), screenWidth-100, statusStartY)
 
 	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Turn: %s", g.CurrentTurn.String()), 10, uiStartY)
 	playerHpVal := max(0, g.Player.HP)
@@ -1181,12 +1321,10 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	if g.Player.IsDisengaging {
 		statusText = "Status: Disengaging"
 	}
-	// Add other statuses here
 	if statusText != "" {
 		ebitenutil.DebugPrintAt(screen, statusText, 10, uiStartY+uiLineHeight*5)
 	}
 
-	// Draw Action Selection Menu
 	if g.InputMode == InputModeActionSelect {
 		menuX, menuY := screenWidth/4, screenHeight/4
 		menuW, menuH := screenWidth/2, screenHeight/2
@@ -1202,11 +1340,11 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		itemLineHeight := 18
 		for i, actionDef := range g.availableActions {
 			actionText := actionDef.Name
-			var itemColor color.Color = color.Gray{Y: 180} // Default color
+			var itemColor color.Color = color.Gray{Y: 180}
 
 			if i == g.selectedActionIndex {
 				actionText = "> " + actionText
-				itemColor = color.White // Highlight selected
+				itemColor = color.White
 			}
 
 			itemX := menuX + 15
@@ -1220,11 +1358,10 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		text.Draw(screen, closeMsg, basicfont.Face7x13, int(closeX), int(closeY), color.Gray{Y: 150})
 	}
 
-	// Draw Character Sheet
 	if g.InputMode == InputModeCharacterSheet {
 		menuW, menuH := screenWidth/2, screenHeight/2
 		menuX, menuY := (screenWidth-menuW)/2, (screenHeight-menuH)/2
-		vector.DrawFilledRect(screen, float32(menuX), float32(menuY), float32(menuW), float32(menuH), color.NRGBA{R: 30, G: 20, B: 20, A: 220}, false) // Slightly different color
+		vector.DrawFilledRect(screen, float32(menuX), float32(menuY), float32(menuW), float32(menuH), color.NRGBA{R: 30, G: 20, B: 20, A: 220}, false)
 		vector.StrokeRect(screen, float32(menuX), float32(menuY), float32(menuW), float32(menuH), 2, color.White, false)
 
 		title := fmt.Sprintf("%s - Character Sheet", g.Player.Name)
@@ -1233,15 +1370,17 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		text.Draw(screen, title, basicfont.Face7x13, titleX, titleY, color.White)
 
 		infoStartY := titleY + 25
-		infoLineHeight := 14 // Reduced from 15
+		infoLineHeight := 14
 		infoX := menuX + 15
 		lineNum := 0
 
-		// Stats
 		healthStr := fmt.Sprintf("HP: %d / %d", max(0, g.Player.HP), g.Player.MaxHP)
 		acStr := fmt.Sprintf("AC: %d", g.Player.AC)
 		moveStr := fmt.Sprintf("Movement: %d", g.Player.MaxMovementPoints)
 		profStr := fmt.Sprintf("Proficiency Bonus: +%d", g.Player.ProficiencyBonus)
+		levelStr := fmt.Sprintf("Level: %d", g.Player.Level)
+		text.Draw(screen, levelStr, basicfont.Face7x13, infoX, infoStartY+(lineNum*infoLineHeight), color.White)
+		lineNum++
 		text.Draw(screen, healthStr, basicfont.Face7x13, infoX, infoStartY+(lineNum*infoLineHeight), color.White)
 		lineNum++
 		text.Draw(screen, acStr, basicfont.Face7x13, infoX, infoStartY+(lineNum*infoLineHeight), color.White)
@@ -1251,16 +1390,14 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		text.Draw(screen, profStr, basicfont.Face7x13, infoX, infoStartY+(lineNum*infoLineHeight), color.White)
 		lineNum++
 
-		// Assumed Weapon Damage Display
 		meleeDmgStr := fmt.Sprintf("Melee Damage: 1d8 %+d", getModifier(g.Player.Strength))
 		rangedDmgStr := fmt.Sprintf("Ranged Damage: 1d6 %+d", getModifier(g.Player.Dexterity))
 		text.Draw(screen, meleeDmgStr, basicfont.Face7x13, infoX, infoStartY+(lineNum*infoLineHeight), color.White)
 		lineNum++
 		text.Draw(screen, rangedDmgStr, basicfont.Face7x13, infoX, infoStartY+(lineNum*infoLineHeight), color.White)
 		lineNum++
-		lineNum++ // Add a gap
+		lineNum++
 
-		// Attributes
 		text.Draw(screen, "Attributes:", basicfont.Face7x13, infoX, infoStartY+(lineNum*infoLineHeight), color.Gray{Y: 200})
 		lineNum++
 		attrStr := fmt.Sprintf("  STR: %d (%+d)", g.Player.Strength, getModifier(g.Player.Strength))
@@ -1281,28 +1418,40 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		attrCha := fmt.Sprintf("  CHA: %d (%+d)", g.Player.Charisma, getModifier(g.Player.Charisma))
 		text.Draw(screen, attrCha, basicfont.Face7x13, infoX, infoStartY+(lineNum*infoLineHeight), color.White)
 		lineNum++
-		lineNum++ // Add a gap
+		lineNum++
 
-		// Close instruction
 		closeMsg := "Press [C] or [Esc] to close"
 		closeY := float32(menuY + menuH - 20)
 		closeX := float32(menuX + (menuW-text.BoundString(basicfont.Face7x13, closeMsg).Dx())/2)
 		text.Draw(screen, closeMsg, basicfont.Face7x13, int(closeX), int(closeY), color.Gray{Y: 150})
 	}
 
-	// Draw Combat Log
-	logLineHeight := 13                                                // Reduced line height for combat log as well
-	logStartY := screenHeight - (combatLogLength * logLineHeight) - 10 // Adjust start Y based on new height
+	logLineHeight := 13
+	logStartY := screenHeight - (combatLogLength * logLineHeight) - 10
 	logX := 10
 	for i, msg := range g.CombatLog {
 		text.Draw(screen, msg, basicfont.Face7x13, logX, logStartY+(i*logLineHeight), color.White)
 	}
 
-	// Draw Game Over / Victory Message
 	if g.CurrentTurn == GameOver {
 		gameOverMsg := "GAME OVER"
 		if g.Player.HP > 0 && len(g.Enemies) == 0 {
-			gameOverMsg = "VICTORY!"
+			isVictory := false
+			if g.CurrentWaveIndex >= 0 && g.CurrentWaveIndex < len(g.WaveDefinitions) {
+				if g.WaveDefinitions[g.CurrentWaveIndex].IsBossWave && g.CurrentWaveIndex+1 >= len(g.WaveDefinitions) {
+					isVictory = true
+				} else if g.CurrentWaveIndex+1 >= len(g.WaveDefinitions) {
+					isVictory = true
+				}
+			} else if g.CurrentWaveIndex == -1 && len(g.Enemies) == 0 {
+				isVictory = true
+			}
+
+			if isVictory {
+				gameOverMsg = "VICTORY!"
+			} else {
+				gameOverMsg = "GAME OVER?"
+			}
 		}
 
 		msgFont := basicfont.Face7x13
@@ -1310,8 +1459,8 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		msgX := (screenWidth - bounds.Dx()) / 2
 		msgY := (screenHeight - bounds.Dy()) / 2
 
-		text.Draw(screen, gameOverMsg, msgFont, msgX+1, msgY+1, color.Black) // Shadow
-		text.Draw(screen, gameOverMsg, msgFont, msgX, msgY, color.White)     // Text
+		text.Draw(screen, gameOverMsg, msgFont, msgX+1, msgY+1, color.Black)
+		text.Draw(screen, gameOverMsg, msgFont, msgX, msgY, color.White)
 
 		restartMsg := "Press [R] to Restart (Not Implemented)"
 		restartBounds := text.BoundString(basicfont.Face7x13, restartMsg)
@@ -1336,7 +1485,7 @@ func main() {
 	rand.Seed(time.Now().UnixNano())
 	game := NewGame()
 	ebiten.SetWindowSize(screenWidth*2, screenHeight*2)
-	ebiten.SetWindowTitle("Slumb Gate - Character Sheet")
+	ebiten.SetWindowTitle("Slumb Gate - Improved IA ranged mobs")
 	if err := ebiten.RunGame(game); err != nil {
 		log.Fatal(err)
 	}
