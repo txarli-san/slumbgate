@@ -35,7 +35,7 @@ const (
 	hpBarHeight         = 4
 	hpBarOffsetY        = 2
 	sheetWidthInSprites = 32
-	maxLevel            = 20 // Define a max level
+	maxLevel            = 20
 )
 
 type TurnState int
@@ -108,7 +108,7 @@ const (
 	RestTypeShort ResourceRestType = iota
 	RestTypeLong
 	RestTypeCombat
-	RestTypeNever // Refreshes on Level Up
+	RestTypeNever
 )
 
 type Entity struct {
@@ -249,31 +249,31 @@ type WaveDefinition struct {
 var EnemyDefinitions = map[string]EnemyDefinition{
 	"Small Slime": {
 		Name: "Small Slime", SpriteSheetX: 0, SpriteSheetY: 2,
-		BaseHP: 6, AC: 10, Str: 12, Dex: 10, Con: 11, Int: 8, Wis: 8, Cha: 8, Move: enemyBaseMovement,
+		BaseHP: 6, AC: 10, Str: 12, Dex: 10, Con: 11, Int: 8, Wis: 8, Cha: 8, Move: 3,
 		Width: 1, Height: 1, AttackType: "melee", MaxRange: 1,
 	},
 	"Tough Slime": {
 		Name: "Tough Slime", SpriteSheetX: 1, SpriteSheetY: 2,
-		BaseHP: 7, AC: 10, Str: 12, Dex: 10, Con: 11, Int: 8, Wis: 8, Cha: 8, Move: enemyBaseMovement,
+		BaseHP: 7, AC: 10, Str: 12, Dex: 10, Con: 11, Int: 8, Wis: 8, Cha: 8, Move: 3,
 		Width: 1, Height: 1, AttackType: "melee", MaxRange: 1,
 	},
 	"Goo Spitter": {
 		Name: "Goo Spitter", SpriteSheetX: 2, SpriteSheetY: 2,
-		BaseHP: 5, AC: 11, Str: 8, Dex: 14, Con: 10, Int: 8, Wis: 8, Cha: 8, Move: enemyBaseMovement,
+		BaseHP: 5, AC: 11, Str: 8, Dex: 14, Con: 10, Int: 8, Wis: 8, Cha: 8, Move: 4,
 		Width: 1, Height: 1, AttackType: "ranged", MaxRange: 4,
 	},
 	"Big Slime Boss": {
 		Name: "Big Slime Boss", SpriteSheetX: 1, SpriteSheetY: 2,
-		BaseHP: 25, AC: 12, Str: 14, Dex: 8, Con: 15, Int: 6, Wis: 6, Cha: 6, Move: enemyBaseMovement - 1,
+		BaseHP: 25, AC: 12, Str: 14, Dex: 8, Con: 15, Int: 6, Wis: 6, Cha: 6, Move: 2,
 		Width: 2, Height: 2, AttackType: "melee", MaxRange: 1,
 	},
 	"Melee Skeleton": {
-		Name: "Melee Skeleton", SpriteSheetX: 0, SpriteSheetY: 4, // Corrected Y coordinate
+		Name: "Melee Skeleton", SpriteSheetX: 0, SpriteSheetY: 4,
 		BaseHP: 13, AC: 13, Str: 10, Dex: 14, Con: 15, Int: 6, Wis: 8, Cha: 5, Move: enemyBaseMovement,
 		Width: 1, Height: 1, AttackType: "melee", MaxRange: 1,
 	},
 	"Ranged Skeleton": {
-		Name: "Ranged Skeleton", SpriteSheetX: 1, SpriteSheetY: 4, // Corrected Y coordinate
+		Name: "Ranged Skeleton", SpriteSheetX: 1, SpriteSheetY: 4,
 		BaseHP: 11, AC: 13, Str: 8, Dex: 16, Con: 13, Int: 6, Wis: 8, Cha: 5, Move: enemyBaseMovement,
 		Width: 1, Height: 1, AttackType: "ranged", MaxRange: 5,
 	},
@@ -725,16 +725,16 @@ func (g *Game) handleWaveCompletion() {
 	currentWaveDef := g.WaveDefinitions[g.CurrentWaveIndex]
 	isFinalWave := g.CurrentWaveIndex+1 >= len(g.WaveDefinitions)
 
-	if currentWaveDef.IsBossWave && g.Player.Level < maxLevel { // Check if boss and not max level
+	if currentWaveDef.IsBossWave && g.Player.Level < maxLevel {
 		g.addCombatLog("Final Boss Defeated!")
 		g.levelUpPlayer()
 		g.InputMode = InputModeLevelUp
-	} else if !isFinalWave { // Not final wave, offer rest
+	} else if !isFinalWave {
 		g.addCombatLog(fmt.Sprintf("Wave Cleared! Spend 1 Hit Die (of %d) to heal? [Y/N]", g.Player.HitDice))
 		g.InputMode = InputModeRestPrompt
-	} else { // Final wave cleared (or boss cleared at max level) -> Victory
+	} else {
 		g.addCombatLog("All challenges overcome! VICTORY!")
-		g.longRest() // Perform final long rest
+		g.longRest()
 		g.CurrentTurn = GameOver
 	}
 }
@@ -1665,87 +1665,107 @@ func (g *Game) handleEnemyTurns() {
 		enemy.ActionAvailable = true
 		actedThisTurn := false
 
-		for turnPhase := 0; turnPhase < 2; turnPhase++ {
-			if actedThisTurn && enemy.MovementPoints <= 0 {
-				break
-			}
+		// --- Action Phase Attempt 1 ---
+		distToPlayer := distance(enemy.X, enemy.Y, g.Player.X, g.Player.Y)
+		isAdj := isAdjacentToEntity(g.Player.X, g.Player.Y, &enemy.Entity)
 
-			distToPlayer := distance(enemy.X, enemy.Y, g.Player.X, g.Player.Y)
-			isAdj := isAdjacentToEntity(g.Player.X, g.Player.Y, &enemy.Entity)
+		if enemy.AttackType == "ranged" {
+			if !isAdj && distToPlayer <= enemy.MaxRange && enemy.ActionAvailable {
+				killedPlayer := g.resolveAttack(&enemy.Entity, &g.Player.Entity, 0, "ranged")
+				enemy.ActionAvailable = false
+				actedThisTurn = true
+				if killedPlayer {
+					return
+				}
+			}
+		} else { // Melee
+			if isAdj && enemy.ActionAvailable {
+				killedPlayer := g.resolveAttack(&enemy.Entity, &g.Player.Entity, 0, "melee")
+				enemy.ActionAvailable = false
+				actedThisTurn = true
+				if killedPlayer {
+					return
+				}
+			}
+		}
+
+		// --- Movement Phase ---
+		// movedThisTurn := false // Variable not used in this scope, removed
+		for enemy.MovementPoints > 0 {
+			distToPlayer = distance(enemy.X, enemy.Y, g.Player.X, g.Player.Y)
+			isAdj = isAdjacentToEntity(g.Player.X, g.Player.Y, &enemy.Entity)
+			movedThisStep := false
 
 			if enemy.AttackType == "ranged" {
-				moved := false
-				if isAdj && enemy.MovementPoints > 0 {
+				if isAdj {
 					nextX, nextY, foundMove := g.findRetreatStep(enemy.X, enemy.Y, g.Player.X, g.Player.Y, enemy.Width, enemy.Height, i)
 					if foundMove {
 						enemy.X, enemy.Y = nextX, nextY
 						enemy.MovementPoints--
-						moved = true
-						isAdj = isAdjacentToEntity(g.Player.X, g.Player.Y, &enemy.Entity)
-						distToPlayer = distance(enemy.X, enemy.Y, g.Player.X, g.Player.Y)
+						movedThisStep = true
+					} else {
+						break
 					}
+				} else if distToPlayer > enemy.MaxRange {
+					nextX, nextY, foundMove := g.findPathStep(enemy.X, enemy.Y, g.Player.X, g.Player.Y, enemy.Width, enemy.Height, i)
+					if foundMove {
+						enemy.X, enemy.Y = nextX, nextY
+						enemy.MovementPoints--
+						movedThisStep = true
+					} else {
+						break
+					}
+				} else {
+					break
 				}
+			} else { // Melee
+				if !isAdj {
+					nextX, nextY, foundMove := g.findPathStep(enemy.X, enemy.Y, g.Player.X, g.Player.Y, enemy.Width, enemy.Height, i)
+					if foundMove {
+						enemy.X, enemy.Y = nextX, nextY
+						enemy.MovementPoints--
+						movedThisStep = true
+					} else {
+						break
+					}
+				} else {
+					break
+				}
+			}
+			if !movedThisStep {
+				break
+			}
+			// movedThisTurn = true // Variable not used in this scope, removed
+		} // End movement loop
 
-				if !isAdj && distToPlayer <= enemy.MaxRange && enemy.ActionAvailable {
+		// --- Action Phase Attempt 2 (After Moving) ---
+		if !actedThisTurn && enemy.ActionAvailable {
+			distToPlayer = distance(enemy.X, enemy.Y, g.Player.X, g.Player.Y)
+			isAdj = isAdjacentToEntity(g.Player.X, g.Player.Y, &enemy.Entity)
+
+			if enemy.AttackType == "ranged" {
+				if !isAdj && distToPlayer <= enemy.MaxRange {
 					killedPlayer := g.resolveAttack(&enemy.Entity, &g.Player.Entity, 0, "ranged")
 					enemy.ActionAvailable = false
-					actedThisTurn = true
+
 					if killedPlayer {
 						return
 					}
 				}
-
-				if !moved && enemy.ActionAvailable && distToPlayer > enemy.MaxRange && enemy.MovementPoints > 0 {
-					nextX, nextY, foundMove := g.findPathStep(enemy.X, enemy.Y, g.Player.X, g.Player.Y, enemy.Width, enemy.Height, i)
-					if foundMove {
-						enemy.X, enemy.Y = nextX, nextY
-						enemy.MovementPoints--
-						moved = true
-						distToPlayer = distance(enemy.X, enemy.Y, g.Player.X, g.Player.Y)
-						if !isAdjacentToEntity(g.Player.X, g.Player.Y, &enemy.Entity) && distToPlayer <= enemy.MaxRange && enemy.ActionAvailable {
-							killedPlayer := g.resolveAttack(&enemy.Entity, &g.Player.Entity, 0, "ranged")
-							enemy.ActionAvailable = false
-							actedThisTurn = true
-							if killedPlayer {
-								return
-							}
-						}
-					}
-				}
-			} else { // Melee AI
-
-				if isAdj && enemy.ActionAvailable {
+			} else { // Melee
+				if isAdj {
 					killedPlayer := g.resolveAttack(&enemy.Entity, &g.Player.Entity, 0, "melee")
 					enemy.ActionAvailable = false
-					actedThisTurn = true
+
 					if killedPlayer {
 						return
 					}
 				}
-
-				if !isAdj && enemy.MovementPoints > 0 {
-					nextX, nextY, foundMove := g.findPathStep(enemy.X, enemy.Y, g.Player.X, g.Player.Y, enemy.Width, enemy.Height, i)
-					if foundMove {
-						enemy.X, enemy.Y = nextX, nextY
-						enemy.MovementPoints--
-
-						isAdj = isAdjacentToEntity(g.Player.X, g.Player.Y, &enemy.Entity)
-						if isAdj && enemy.ActionAvailable {
-							killedPlayer := g.resolveAttack(&enemy.Entity, &g.Player.Entity, 0, "melee")
-							enemy.ActionAvailable = false
-							actedThisTurn = true
-							if killedPlayer {
-								return
-							}
-						}
-					}
-				}
-			}
-			if enemy.ActionAvailable {
-				enemy.ActionAvailable = false
 			}
 		}
-	}
+		enemy.ActionAvailable = false
+
+	} // End loop through enemies
 }
 
 func (g *Game) cleanupDeadEnemies() {
@@ -1762,38 +1782,30 @@ func (g *Game) cleanupDeadEnemies() {
 }
 
 func (g *Game) Update() error {
-	// Handle Game Over state first
 	if g.CurrentTurn == GameOver {
-		// Potentially handle restart input here later
 		return nil
 	}
 
-	// Handle Level Up state separately - only process Enter key
 	if g.InputMode == InputModeLevelUp {
-		g.handlePlayerInput() // This now only checks for Enter in this mode
-		return nil            // Halt further game logic until Enter is pressed
+		g.handlePlayerInput()
+		return nil
 	}
 
-	// Handle other input modes or player turn actions
 	if g.CurrentTurn == PlayerTurn || g.InputMode == InputModeActionSelect || g.InputMode == InputModeCharacterSheet || g.InputMode == InputModeRestPrompt {
 		g.handlePlayerInput()
 	}
 
-	// If input handling resulted in a state change that should halt further processing
 	if g.CurrentTurn == GameOver || g.InputMode == InputModeLevelUp || g.InputMode == InputModeRestPrompt {
 		return nil
 	}
 
-	// Process enemy turn if it's their turn
 	if g.CurrentTurn == EnemyTurn {
 		g.handleEnemyTurns()
-		// Check player death immediately after enemy actions
 		if g.Player.HP <= 0 && g.CurrentTurn != GameOver {
 			g.addCombatLog("Player has died! Game Over.")
 			g.CurrentTurn = GameOver
 			return nil
 		}
-		// End enemy turn only if not waiting for rest/level up
 		if g.InputMode != InputModeRestPrompt && g.InputMode != InputModeLevelUp {
 			g.endEnemyTurn()
 		}
