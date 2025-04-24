@@ -35,6 +35,7 @@ const (
 	hpBarHeight         = 4
 	hpBarOffsetY        = 2
 	sheetWidthInSprites = 32
+	maxLevel            = 20 // Define a max level
 )
 
 type TurnState int
@@ -65,6 +66,7 @@ const (
 	InputModeActionSelect
 	InputModeCharacterSheet
 	InputModeRestPrompt
+	InputModeLevelUp
 )
 
 type ActionType int
@@ -106,7 +108,7 @@ const (
 	RestTypeShort ResourceRestType = iota
 	RestTypeLong
 	RestTypeCombat
-	RestTypeNever // Changed from LevelUp as level up isn't implemented yet
+	RestTypeNever // Refreshes on Level Up
 )
 
 type Entity struct {
@@ -159,7 +161,7 @@ type ClassAction struct {
 	ActionType    ActionType
 	ResourceType  ResourceType
 	ResourceCost  int
-	UsesPerRest   int // Represents max uses per refresh cycle (e.g., per level up)
+	UsesPerRest   int
 	RefreshesOn   ResourceRestType
 	Description   string
 }
@@ -265,35 +267,45 @@ var EnemyDefinitions = map[string]EnemyDefinition{
 		BaseHP: 25, AC: 12, Str: 14, Dex: 8, Con: 15, Int: 6, Wis: 6, Cha: 6, Move: enemyBaseMovement - 1,
 		Width: 2, Height: 2, AttackType: "melee", MaxRange: 1,
 	},
+	"Melee Skeleton": {
+		Name: "Melee Skeleton", SpriteSheetX: 0, SpriteSheetY: 4, // Corrected Y coordinate
+		BaseHP: 13, AC: 13, Str: 10, Dex: 14, Con: 15, Int: 6, Wis: 8, Cha: 5, Move: enemyBaseMovement,
+		Width: 1, Height: 1, AttackType: "melee", MaxRange: 1,
+	},
+	"Ranged Skeleton": {
+		Name: "Ranged Skeleton", SpriteSheetX: 1, SpriteSheetY: 4, // Corrected Y coordinate
+		BaseHP: 11, AC: 13, Str: 8, Dex: 16, Con: 13, Int: 6, Wis: 8, Cha: 5, Move: enemyBaseMovement,
+		Width: 1, Height: 1, AttackType: "ranged", MaxRange: 5,
+	},
 }
 
 var ClassDefinitions = map[string]*ClassDefinition{
 	"Fighter": {
 		Name:             "Fighter",
-		HitDieSize:       10, // d10
+		HitDieSize:       10,
 		PrimaryAbility:   "STR",
 		SavingThrowProfs: []string{"STR", "CON"},
 		ClassActions: map[string]*ClassAction{
 			"second_wind": {
 				ActionID:      "second_wind",
 				Name:          "Second Wind",
-				RequiredLevel: 2,                  // Per user spec
-				ActionType:    ActionTypeStandard, // Per user spec
+				RequiredLevel: 2,
+				ActionType:    ActionTypeStandard,
 				ResourceType:  ResourceClassFeature,
 				ResourceCost:  1,
-				UsesPerRest:   1,                                     // 1 use per refresh cycle
-				RefreshesOn:   RestTypeNever,                         // Refreshes on Level Up (handled externally for now)
-				Description:   "Use Action: Heal 1d10 + CON mod HP.", // Updated description
+				UsesPerRest:   1,
+				RefreshesOn:   RestTypeNever,
+				Description:   "Use Action: Heal using 1 Hit Die (d10 + CON).",
 			},
 			"action_surge": {
 				ActionID:      "action_surge",
 				Name:          "Action Surge",
-				RequiredLevel: 2,              // Per user spec
-				ActionType:    ActionTypeFree, // Per user spec
+				RequiredLevel: 2,
+				ActionType:    ActionTypeFree,
 				ResourceType:  ResourceClassFeature,
 				ResourceCost:  1,
-				UsesPerRest:   1,             // 1 use per refresh cycle
-				RefreshesOn:   RestTypeNever, // Refreshes on Level Up (handled externally for now)
+				UsesPerRest:   1,
+				RefreshesOn:   RestTypeNever,
 				Description:   "Gain an additional standard action this turn.",
 			},
 		},
@@ -349,7 +361,7 @@ var ActionTable = map[string]*ActionDefinition{
 	"second_wind": {
 		ID:             "second_wind",
 		Name:           "Second Wind",
-		ActionType:     ActionTypeStandard, // Changed to Standard
+		ActionType:     ActionTypeStandard,
 		Targeting:      TargetSelf,
 		Range:          0,
 		RequiresTarget: false,
@@ -402,6 +414,22 @@ func getSpriteFromSheet(sheet *ebiten.Image, sx, sy int) *ebiten.Image {
 
 func getModifier(score int) int { return (score - 10) / 2 }
 
+func calculateProficiencyBonus(level int) int {
+	if level < 5 {
+		return 2
+	}
+	if level < 9 {
+		return 3
+	}
+	if level < 13 {
+		return 4
+	}
+	if level < 17 {
+		return 5
+	}
+	return 6
+}
+
 func NewGame() *Game {
 	g := &Game{}
 	g.Enemies = make([]*Enemy, 0)
@@ -418,6 +446,15 @@ func NewGame() *Game {
 		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Tough Slime", SpawnPointIdx: 2}, {TypeName: "Tough Slime", SpawnPointIdx: 3}}, IsBossWave: false},
 		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Tough Slime", SpawnPointIdx: 0}, {TypeName: "Goo Spitter", SpawnPointIdx: 4}, {TypeName: "Tough Slime", SpawnPointIdx: 1}}, IsBossWave: false},
 		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Big Slime Boss", SpawnPointIdx: 4}}, IsBossWave: true},
+		{
+			EnemiesToSpawn: []EnemySpawnInfo{
+				{TypeName: "Melee Skeleton", SpawnPointIdx: 0},
+				{TypeName: "Melee Skeleton", SpawnPointIdx: 1},
+				{TypeName: "Melee Skeleton", SpawnPointIdx: 2},
+				{TypeName: "Ranged Skeleton", SpawnPointIdx: 4},
+			},
+			IsBossWave: false,
+		},
 	}
 
 	var err error
@@ -465,6 +502,7 @@ func NewGame() *Game {
 		log.Fatalf("FATAL: Player class '%s' not found in ClassDefinitions!", playerClass)
 	}
 
+	startLevel := 1
 	playerMaxHP := classDef.HitDieSize + playerConMod
 	g.Player = &Player{
 		Entity: Entity{
@@ -474,16 +512,16 @@ func NewGame() *Game {
 			Intelligence: playerInt, Wisdom: playerWis, Charisma: playerCha,
 			Sprite: playerSprite, Name: "Player",
 		},
-		Level:             1,
+		Level:             startLevel,
 		Class:             playerClass,
-		ProficiencyBonus:  2,
+		ProficiencyBonus:  calculateProficiencyBonus(startLevel),
 		MaxMovementPoints: playerBaseMovement,
 		ClassResources:    make(map[string]int),
-		MaxHitDice:        1, // Start with 1 Hit Die at level 1
-		HitDice:           1,
+		MaxHitDice:        startLevel,
+		HitDice:           startLevel,
 	}
 
-	g.initializePlayerResources() // Initialize class features like Second Wind/Action Surge uses
+	g.initializePlayerResources()
 
 	g.CurrentTurn = PlayerTurn
 	g.SpawnNextWave()
@@ -491,7 +529,6 @@ func NewGame() *Game {
 	return g
 }
 
-// This function now only initializes uses for class features based on their definition
 func (g *Game) initializePlayerResources() {
 	classDef := ClassDefinitions[g.Player.Class]
 	if classDef == nil {
@@ -512,7 +549,41 @@ func (g *Game) initializePlayerResources() {
 	}
 }
 
-// This function resets resources based on rest type *except* those marked RestTypeNever
+func (g *Game) refreshLevelUpResources() {
+	classDef := ClassDefinitions[g.Player.Class]
+	if classDef == nil {
+		return
+	}
+
+	refreshedSomething := false
+	logMsg := "Level Up! Resources refreshed: "
+
+	for actionID, classAction := range classDef.ClassActions {
+		if classAction.RefreshesOn == RestTypeNever {
+			if g.Player.Level >= classAction.RequiredLevel {
+				currentUses := g.Player.ClassResources[actionID]
+				maxUses := classAction.UsesPerRest
+
+				if currentUses < maxUses {
+					g.Player.ClassResources[actionID] = maxUses
+					logMsg += fmt.Sprintf("%s, ", classAction.Name)
+					refreshedSomething = true
+				} else if g.Player.Level == classAction.RequiredLevel {
+					g.Player.ClassResources[actionID] = maxUses
+					logMsg += fmt.Sprintf("%s (Unlocked!), ", classAction.Name)
+					refreshedSomething = true
+				}
+			}
+		}
+	}
+	if refreshedSomething {
+		if len(logMsg) > 2 {
+			logMsg = logMsg[:len(logMsg)-2] + "."
+		}
+		g.addCombatLog(logMsg)
+	}
+}
+
 func (g *Game) resetPlayerResources(restType ResourceRestType) {
 	classDef := ClassDefinitions[g.Player.Class]
 	if classDef == nil {
@@ -527,7 +598,6 @@ func (g *Game) resetPlayerResources(restType ResourceRestType) {
 
 	refreshedSomething := false
 	for actionID, classAction := range classDef.ClassActions {
-		// Skip resetting abilities that refresh on Level Up (RestTypeNever)
 		if classAction.RefreshesOn == RestTypeNever {
 			continue
 		}
@@ -559,17 +629,8 @@ func (g *Game) resetPlayerResources(restType ResourceRestType) {
 			logMsg = logMsg[:len(logMsg)-2] + "."
 		}
 		g.addCombatLog(logMsg)
-	} else {
-		// Don't log "no resources refreshed" if the rest type wouldn't refresh anything anyway
-		// (Currently, nothing resets on short/long rest for fighter based on user spec)
-		// if restType == RestTypeShort {
-		// 	g.addCombatLog("Short Rest complete. No resources refreshed.")
-		// } else if restType == RestTypeLong {
-		// 	g.addCombatLog("Long Rest complete. No resources refreshed.")
-		// }
 	}
 
-	// Handle Hit Dice recovery on Long Rest
 	if restType == RestTypeLong {
 		diceToRecover := max(1, g.Player.MaxHitDice/2)
 		initialDice := g.Player.HitDice
@@ -581,7 +642,6 @@ func (g *Game) resetPlayerResources(restType ResourceRestType) {
 	}
 }
 
-// Short Rest now only handles Hit Dice spending
 func (g *Game) shortRest() {
 	g.addCombatLog("Player takes a Short Rest...")
 	classDef := ClassDefinitions[g.Player.Class]
@@ -592,10 +652,10 @@ func (g *Game) shortRest() {
 
 	if g.Player.HitDice > 0 {
 		conMod := getModifier(g.Player.Constitution)
-		healRoll := rand.Intn(classDef.HitDieSize) + 1            // Roll the class Hit Die (d10 for Fighter)
-		healAmount := max(1, healRoll+conMod)                     // Minimum 1 HP healed
-		actualHeal := min(healAmount, g.Player.MaxHP-g.Player.HP) // Don't overheal
-		actualHeal = max(0, actualHeal)                           // Ensure heal is not negative
+		healRoll := rand.Intn(classDef.HitDieSize) + 1
+		healAmount := max(1, healRoll+conMod)
+		actualHeal := min(healAmount, g.Player.MaxHP-g.Player.HP)
+		actualHeal = max(0, actualHeal)
 
 		if actualHeal > 0 {
 			g.Player.HP += actualHeal
@@ -612,8 +672,43 @@ func (g *Game) shortRest() {
 func (g *Game) longRest() {
 	g.addCombatLog("Player takes a Long Rest...")
 	g.Player.HP = g.Player.MaxHP
-	g.resetPlayerResources(RestTypeLong) // Resets resources (like Hit Dice) and logs HP recovery
+	g.resetPlayerResources(RestTypeLong)
 	g.addCombatLog("HP fully restored.")
+}
+
+func (g *Game) levelUpPlayer() {
+	if g.Player.Level >= maxLevel {
+		g.addCombatLog("Already at max level!")
+		return
+	}
+
+	classDef := ClassDefinitions[g.Player.Class]
+	if classDef == nil {
+		log.Printf("Error: Cannot find class definition %s for level up.", g.Player.Class)
+		return
+	}
+
+	g.Player.Level++
+	g.addCombatLog(fmt.Sprintf("LEVEL UP! Reached Level %d!", g.Player.Level))
+
+	conMod := getModifier(g.Player.Constitution)
+	hpRoll := rand.Intn(classDef.HitDieSize) + 1
+	hpIncrease := max(1, hpRoll+conMod)
+	g.Player.MaxHP += hpIncrease
+	g.Player.HP += hpIncrease
+	g.addCombatLog(fmt.Sprintf("Max HP increased by %d (Rolled %d%+d).", hpIncrease, hpRoll, conMod))
+
+	g.Player.MaxHitDice++
+	g.Player.HitDice++
+	g.addCombatLog("Gained 1 Hit Die.")
+
+	newProfBonus := calculateProficiencyBonus(g.Player.Level)
+	if newProfBonus > g.Player.ProficiencyBonus {
+		g.Player.ProficiencyBonus = newProfBonus
+		g.addCombatLog(fmt.Sprintf("Proficiency Bonus increased to +%d.", newProfBonus))
+	}
+
+	g.refreshLevelUpResources()
 }
 
 func (g *Game) startPlayerTurn() {
@@ -630,35 +725,33 @@ func (g *Game) handleWaveCompletion() {
 	currentWaveDef := g.WaveDefinitions[g.CurrentWaveIndex]
 	isFinalWave := g.CurrentWaveIndex+1 >= len(g.WaveDefinitions)
 
-	if currentWaveDef.IsBossWave && isFinalWave {
-		g.addCombatLog("Final Boss Defeated! VICTORY!")
-		g.longRest()
-		g.CurrentTurn = GameOver
-	} else if !isFinalWave {
-		// Update prompt text
+	if currentWaveDef.IsBossWave && g.Player.Level < maxLevel { // Check if boss and not max level
+		g.addCombatLog("Final Boss Defeated!")
+		g.levelUpPlayer()
+		g.InputMode = InputModeLevelUp
+	} else if !isFinalWave { // Not final wave, offer rest
 		g.addCombatLog(fmt.Sprintf("Wave Cleared! Spend 1 Hit Die (of %d) to heal? [Y/N]", g.Player.HitDice))
 		g.InputMode = InputModeRestPrompt
-	} else {
-		g.addCombatLog("All defined waves cleared! VICTORY!")
-		g.longRest()
+	} else { // Final wave cleared (or boss cleared at max level) -> Victory
+		g.addCombatLog("All challenges overcome! VICTORY!")
+		g.longRest() // Perform final long rest
 		g.CurrentTurn = GameOver
 	}
 }
 
-// This function is now only responsible for spawning the next wave and setting the turn
 func (g *Game) startNextWave() {
 	g.SpawnNextWave()
 	if len(g.Enemies) > 0 {
-		if g.CurrentTurn == PlayerTurn { // If player cleared wave
-			g.startEnemyTurn() // Next turn is enemy's
-		} else { // If enemy cleared wave (e.g. killed self)
-			g.startPlayerTurn() // Next turn is player's
+		if g.CurrentTurn == PlayerTurn {
+			g.startEnemyTurn()
+		} else {
+			g.startPlayerTurn()
 		}
 	} else {
 		g.addCombatLog("Error spawning next wave or wave empty.")
-		g.CurrentTurn = GameOver // Or handle victory if appropriate
+		g.CurrentTurn = GameOver
 	}
-	g.InputMode = InputModeMap // Return to map mode
+	g.InputMode = InputModeMap
 }
 
 func (g *Game) endPlayerTurn() {
@@ -671,7 +764,7 @@ func (g *Game) endPlayerTurn() {
 	}
 
 	g.primedActionID = ""
-	if g.CurrentTurn != GameOver && g.InputMode != InputModeRestPrompt {
+	if g.CurrentTurn != GameOver && g.InputMode != InputModeRestPrompt && g.InputMode != InputModeLevelUp {
 		g.InputMode = InputModeMap
 	}
 }
@@ -972,9 +1065,19 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 				damageLog = fmt.Sprintf(" (1d8[%d]%+d)", damageRoll, attackAbilityMod)
 			}
 		} else {
-			damageRoll = 0
-			damage = attackAbilityMod
-			damageLog = fmt.Sprintf(" (%+d)", attackAbilityMod)
+			if attacker.Name == "Melee Skeleton" {
+				damageRoll = rand.Intn(6) + 1
+				damage = damageRoll + getModifier(attacker.Dexterity)
+				damageLog = fmt.Sprintf(" (1d6[%d]%+d)", damageRoll, getModifier(attacker.Dexterity))
+			} else if attacker.Name == "Ranged Skeleton" {
+				damageRoll = rand.Intn(6) + 1
+				damage = damageRoll + getModifier(attacker.Dexterity)
+				damageLog = fmt.Sprintf(" (1d6[%d]%+d)", damageRoll, getModifier(attacker.Dexterity))
+			} else {
+				damageRoll = 0
+				damage = attackAbilityMod
+				damageLog = fmt.Sprintf(" (%+d)", attackAbilityMod)
+			}
 		}
 
 		damage = max(1, damage)
@@ -1101,10 +1204,10 @@ func executeSecondWind(g *Game, targetX, targetY int) bool {
 	}
 
 	conMod := getModifier(g.Player.Constitution)
-	healRoll := rand.Intn(classDef.HitDieSize) + 1            // Roll the class Hit Die (d10 for Fighter)
-	healAmount := max(1, healRoll+conMod)                     // Minimum 1 HP healed
-	actualHeal := min(healAmount, g.Player.MaxHP-g.Player.HP) // Don't overheal
-	actualHeal = max(0, actualHeal)                           // Ensure heal is not negative
+	healRoll := rand.Intn(classDef.HitDieSize) + 1
+	healAmount := max(1, healRoll+conMod)
+	actualHeal := min(healAmount, g.Player.MaxHP-g.Player.HP)
+	actualHeal = max(0, actualHeal)
 
 	if actualHeal > 0 {
 		g.Player.HP += actualHeal
@@ -1126,7 +1229,7 @@ func (g *Game) handlePlayerInput() {
 		if g.InputMode == InputModeCharacterSheet {
 			g.InputMode = InputModeMap
 			g.primedActionID = ""
-		} else if g.InputMode != InputModeRestPrompt {
+		} else if g.InputMode != InputModeRestPrompt && g.InputMode != InputModeLevelUp {
 			g.InputMode = InputModeCharacterSheet
 			g.primedActionID = ""
 		}
@@ -1134,13 +1237,26 @@ func (g *Game) handlePlayerInput() {
 	}
 
 	switch g.InputMode {
+	case InputModeLevelUp:
+		if inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
+			g.addCombatLog("Level up acknowledged. Preparing for next challenge...")
+			g.longRest()
+			if g.CurrentWaveIndex+1 < len(g.WaveDefinitions) {
+				g.startNextWave()
+			} else {
+				g.addCombatLog("All challenges overcome! VICTORY!")
+				g.CurrentTurn = GameOver
+			}
+		}
+		return
+
 	case InputModeRestPrompt:
 		if inpututil.IsKeyJustPressed(ebiten.KeyY) {
-			g.shortRest()     // Perform the short rest (Hit Dice heal)
-			g.startNextWave() // Proceed to the next wave
+			g.shortRest()
+			g.startNextWave()
 		} else if inpututil.IsKeyJustPressed(ebiten.KeyN) {
 			g.addCombatLog("Skipped short rest.")
-			g.startNextWave() // Proceed without resting
+			g.startNextWave()
 		}
 		return
 
@@ -1170,7 +1286,7 @@ func (g *Game) handlePlayerInput() {
 
 				if !selectedActionDef.RequiresTarget {
 					g.executeAction(selectedActionDef, -1, -1)
-					if g.CurrentTurn != GameOver && selectedActionDef.ID != "wait" && g.InputMode != InputModeRestPrompt {
+					if g.CurrentTurn != GameOver && selectedActionDef.ID != "wait" && g.InputMode != InputModeRestPrompt && g.InputMode != InputModeLevelUp {
 						g.InputMode = InputModeMap
 						g.primedActionID = ""
 					}
@@ -1254,8 +1370,7 @@ func (g *Game) handlePlayerInput() {
 		}
 
 		if actionExecutedByClick {
-			// Check if the action ended the turn or game
-			if g.CurrentTurn == GameOver || g.InputMode == InputModeRestPrompt {
+			if g.CurrentTurn == GameOver || g.InputMode == InputModeRestPrompt || g.InputMode == InputModeLevelUp {
 				return
 			}
 		}
@@ -1647,22 +1762,39 @@ func (g *Game) cleanupDeadEnemies() {
 }
 
 func (g *Game) Update() error {
+	// Handle Game Over state first
 	if g.CurrentTurn == GameOver {
+		// Potentially handle restart input here later
 		return nil
 	}
 
+	// Handle Level Up state separately - only process Enter key
+	if g.InputMode == InputModeLevelUp {
+		g.handlePlayerInput() // This now only checks for Enter in this mode
+		return nil            // Halt further game logic until Enter is pressed
+	}
+
+	// Handle other input modes or player turn actions
 	if g.CurrentTurn == PlayerTurn || g.InputMode == InputModeActionSelect || g.InputMode == InputModeCharacterSheet || g.InputMode == InputModeRestPrompt {
 		g.handlePlayerInput()
 	}
 
+	// If input handling resulted in a state change that should halt further processing
+	if g.CurrentTurn == GameOver || g.InputMode == InputModeLevelUp || g.InputMode == InputModeRestPrompt {
+		return nil
+	}
+
+	// Process enemy turn if it's their turn
 	if g.CurrentTurn == EnemyTurn {
 		g.handleEnemyTurns()
+		// Check player death immediately after enemy actions
 		if g.Player.HP <= 0 && g.CurrentTurn != GameOver {
 			g.addCombatLog("Player has died! Game Over.")
 			g.CurrentTurn = GameOver
 			return nil
 		}
-		if g.InputMode != InputModeRestPrompt {
+		// End enemy turn only if not waiting for rest/level up
+		if g.InputMode != InputModeRestPrompt && g.InputMode != InputModeLevelUp {
 			g.endEnemyTurn()
 		}
 	}
@@ -1925,13 +2057,39 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	logStartY := screenHeight - (combatLogLength * logLineHeight) - 10
 	logX := 10
 	for i, msg := range g.CombatLog {
-		// Check specifically for the rest prompt message content
 		isRestPrompt := g.InputMode == InputModeRestPrompt && i == len(g.CombatLog)-1 && msg == fmt.Sprintf("Wave Cleared! Spend 1 Hit Die (of %d) to heal? [Y/N]", g.Player.HitDice)
+		isLevelUpMsg := g.InputMode == InputModeLevelUp && i == len(g.CombatLog)-1 && msg == fmt.Sprintf("LEVEL UP! Reached Level %d!", g.Player.Level)
+
 		var msgColor color.Color = color.White
-		if isRestPrompt {
+		if isRestPrompt || isLevelUpMsg {
 			msgColor = color.RGBA{R: 255, G: 255, B: 0, A: 255}
 		}
 		text.Draw(screen, msg, basicfont.Face7x13, logX, logStartY+(i*logLineHeight), msgColor)
+	}
+
+	if g.InputMode == InputModeLevelUp {
+		menuW, menuH := screenWidth/2, screenHeight/4
+		menuX, menuY := (screenWidth-menuW)/2, (screenHeight-menuH)/2
+		vector.DrawFilledRect(screen, float32(menuX), float32(menuY), float32(menuW), float32(menuH), color.NRGBA{R: 20, G: 30, B: 20, A: 230}, false)
+		vector.StrokeRect(screen, float32(menuX), float32(menuY), float32(menuW), float32(menuH), 2, color.White, false)
+
+		levelUpTitle := fmt.Sprintf("Level %d Reached!", g.Player.Level)
+		titleBounds := text.BoundString(basicfont.Face7x13, levelUpTitle)
+		titleX := menuX + (menuW-titleBounds.Dx())/2
+		titleY := menuY + 20
+		text.Draw(screen, levelUpTitle, basicfont.Face7x13, titleX, titleY, color.White)
+
+		summaryText := "Check Character Sheet [C] for details."
+		summaryBounds := text.BoundString(basicfont.Face7x13, summaryText)
+		summaryX := menuX + (menuW-summaryBounds.Dx())/2
+		summaryY := titleY + 25
+		text.Draw(screen, summaryText, basicfont.Face7x13, summaryX, summaryY, color.Gray{Y: 200})
+
+		continueMsg := "Press [Enter] to Continue"
+		continueBounds := text.BoundString(basicfont.Face7x13, continueMsg)
+		continueX := menuX + (menuW-continueBounds.Dx())/2
+		continueY := menuY + menuH - 30
+		text.Draw(screen, continueMsg, basicfont.Face7x13, continueX, continueY, color.White)
 	}
 
 	if g.CurrentTurn == GameOver {
@@ -1947,15 +2105,14 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			gameOverMsg = "VICTORY!"
 		}
 
-		msgFont := basicfont.Face7x13
-
-		bounds := text.BoundString(msgFont, gameOverMsg)
-		msgX := (screenWidth - bounds.Dx()) / 2
-		msgY := (screenHeight - bounds.Dy()) / 2
-
-		text.Draw(screen, gameOverMsg, msgFont, msgX+1, msgY+1, color.Black)
-		text.Draw(screen, gameOverMsg, msgFont, msgX, msgY, color.White)
-
+		if g.InputMode != InputModeLevelUp {
+			msgFont := basicfont.Face7x13
+			bounds := text.BoundString(msgFont, gameOverMsg)
+			msgX := (screenWidth - bounds.Dx()) / 2
+			msgY := (screenHeight - bounds.Dy()) / 2
+			text.Draw(screen, gameOverMsg, msgFont, msgX+1, msgY+1, color.Black)
+			text.Draw(screen, gameOverMsg, msgFont, msgX, msgY, color.White)
+		}
 	}
 }
 
