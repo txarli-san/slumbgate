@@ -1536,9 +1536,7 @@ func (g *Game) buildAvailableActions() {
 
 func (g *Game) findPathStep(startX, startY, targetX, targetY, entityWidth, entityHeight, movingEnemyIndex int) (int, int, bool) {
 	moveOffsets := []image.Point{{X: 0, Y: -1}, {X: 0, Y: 1}, {X: -1, Y: 0}, {X: 1, Y: 0}}
-	currentDist := distance(startX, startY, targetX, targetY)
 	bestMoveX, bestMoveY := startX, startY
-	minDist := currentDist
 
 	possibleMoves := []image.Point{}
 	for _, offset := range moveOffsets {
@@ -1552,13 +1550,20 @@ func (g *Game) findPathStep(startX, startY, targetX, targetY, entityWidth, entit
 		return startX, startY, false
 	}
 
-	bestMoves := []image.Point{}
+	minDist := math.MaxInt32
 	for _, move := range possibleMoves {
 		dist := distance(move.X, move.Y, targetX, targetY)
 		if dist < minDist {
 			minDist = dist
 		}
 	}
+
+	currentDist := distance(startX, startY, targetX, targetY)
+	if currentDist <= 1 && minDist > currentDist {
+		return startX, startY, false
+	}
+
+	bestMoves := []image.Point{}
 	for _, move := range possibleMoves {
 		if distance(move.X, move.Y, targetX, targetY) == minDist {
 			bestMoves = append(bestMoves, move)
@@ -1578,7 +1583,7 @@ func (g *Game) findPathStep(startX, startY, targetX, targetY, entityWidth, entit
 				}
 			}
 		}
-		if !preferredMoveFound && math.Abs(float64(dy)) >= math.Abs(float64(dx)) {
+		if !preferredMoveFound && math.Abs(float64(dy)) > math.Abs(float64(dx)) {
 			for _, move := range bestMoves {
 				if move.Y != startY {
 					bestMoveX, bestMoveY = move.X, move.Y
@@ -1588,8 +1593,20 @@ func (g *Game) findPathStep(startX, startY, targetX, targetY, entityWidth, entit
 			}
 		}
 		if !preferredMoveFound {
-			bestMoveX, bestMoveY = bestMoves[0].X, bestMoves[0].Y
+			if math.Abs(float64(dx)) >= math.Abs(float64(dy)) {
+				for _, move := range bestMoves {
+					if move.Y != startY {
+						bestMoveX, bestMoveY = move.X, move.Y
+						preferredMoveFound = true
+						break
+					}
+				}
+			}
+			if !preferredMoveFound {
+				bestMoveX, bestMoveY = bestMoves[0].X, bestMoves[0].Y
+			}
 		}
+
 		if bestMoveX != startX || bestMoveY != startY {
 			return bestMoveX, bestMoveY, true
 		}
