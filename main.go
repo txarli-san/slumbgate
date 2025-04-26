@@ -1844,6 +1844,19 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		}
 	}
 
+	if g.CurrentTurn == PlayerTurn && g.InputMode == InputModeMap {
+		cursorX, cursorY := ebiten.CursorPosition()
+		gridX := (cursorX - g.MapOffsetX) / tileSize
+		gridY := (cursorY - g.MapOffsetY) / tileSize
+
+		if gridX >= 0 && gridX < mapWidth && gridY >= 0 && gridY < mapHeight {
+			hoverScreenX := float32(mapOffsetX + gridX*tileSize)
+			hoverScreenY := float32(mapOffsetY + gridY*tileSize)
+			hoverColor := color.NRGBA{R: 255, G: 255, B: 255, A: 100}
+			vector.StrokeRect(screen, hoverScreenX, hoverScreenY, float32(tileSize), float32(tileSize), 1, hoverColor, false)
+		}
+	}
+
 	if g.CurrentTurn == PlayerTurn && g.primedActionID != "" {
 		actionDef, exists := ActionTable[g.primedActionID]
 		if exists && actionDef.RequiresTarget && actionDef.Range > 0 {
