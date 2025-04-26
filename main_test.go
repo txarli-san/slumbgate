@@ -4,24 +4,28 @@ import (
 	"fmt"
 	"image"
 	"testing"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 func setupTestGamePathfinding(playerPos image.Point, blockers []image.Point) *Game {
 	g := &Game{
 		Player: &Player{
-			Entity: Entity{X: playerPos.X, Y: playerPos.Y, Width: 1, Height: 1, HP: 10},
+			Entity: Entity{X: playerPos.X, Y: playerPos.Y, Width: 1, Height: 1, HP: 10, MaxHP: 10, CurrentAlpha: 1.0},
 		},
-		Enemies: make([]*Enemy, 0),
+		Enemies:       make([]*Enemy, 0),
+		FloatingTexts: make([]*FloatingText, 0),
+		CombatLog:     make([]string, 0, combatLogLength),
 	}
 	for i, pos := range blockers {
 		g.Enemies = append(g.Enemies, &Enemy{
-			Entity: Entity{Name: fmt.Sprintf("Blocker%d", i), X: pos.X, Y: pos.Y, Width: 1, Height: 1, HP: 1},
+			Entity: Entity{Name: fmt.Sprintf("Blocker%d", i), X: pos.X, Y: pos.Y, Width: 1, Height: 1, HP: 1, MaxHP: 1, CurrentAlpha: 1.0},
 		})
 	}
 	return g
 }
 
-func createTestPlayer(level int, className string, initialResources map[string]int) *Game {
+func createTestPlayer(level int, className string, initialResources map[string]int, enemiesToSpawn []EnemySpawnInfo) *Game {
 	g := &Game{}
 	g.Enemies = make([]*Enemy, 0)
 	g.CombatLog = make([]string, 0, combatLogLength)
@@ -67,6 +71,25 @@ func createTestPlayer(level int, className string, initialResources map[string]i
 		for key, value := range initialResources {
 			g.Player.ClassResources[key] = value
 		}
+	}
+
+	spawnPoints := []image.Point{
+		{X: g.Player.X + 1, Y: g.Player.Y},
+		{X: g.Player.X - 1, Y: g.Player.Y},
+		{X: g.Player.X, Y: g.Player.Y + 1},
+		{X: g.Player.X, Y: g.Player.Y - 1},
+	}
+	for i, spawnInfo := range enemiesToSpawn {
+		enemyDef, defExists := EnemyDefinitions[spawnInfo.TypeName]
+		if !defExists {
+			panic(fmt.Sprintf("Test setup error: Enemy type %s not found", spawnInfo.TypeName))
+		}
+		spawnIdx := i % len(spawnPoints)
+		spawnX, spawnY := spawnPoints[spawnIdx].X, spawnPoints[spawnIdx].Y
+
+		var sprite *ebiten.Image = nil
+
+		g.spawnEnemyFromDef(spawnX, spawnY, enemyDef, sprite)
 	}
 
 	return g
@@ -380,7 +403,7 @@ func TestFindRetreatStep_NotAdjacent(t *testing.T) {
 }
 
 func TestFighterResourceInitialization(t *testing.T) {
-	g1 := createTestPlayer(1, "Fighter", nil)
+	g1 := createTestPlayer(1, "Fighter", nil, nil)
 	p1 := g1.Player
 	if p1.HitDice != 1 || p1.MaxHitDice != 1 {
 		t.Errorf("Lvl 1 Fighter Hit Dice incorrect: expected 1/1, got %d/%d", p1.HitDice, p1.MaxHitDice)
@@ -402,7 +425,7 @@ func TestFighterResourceInitialization(t *testing.T) {
 		}
 	}
 
-	g2 := createTestPlayer(2, "Fighter", nil)
+	g2 := createTestPlayer(2, "Fighter", nil, nil)
 	p2 := g2.Player
 	if p2.HitDice != 2 || p2.MaxHitDice != 2 {
 		t.Errorf("Lvl 2 Fighter Hit Dice incorrect: expected 2/2, got %d/%d", p2.HitDice, p2.MaxHitDice)
@@ -434,7 +457,7 @@ func TestFighterResourceInitialization(t *testing.T) {
 }
 
 func TestFighterResourceConsumption(t *testing.T) {
-	g := createTestPlayer(2, "Fighter", nil)
+	g := createTestPlayer(2, "Fighter", nil, nil)
 	p := g.Player
 	actionSurgeDef := ActionTable["action_surge"]
 	secondWindDef := ActionTable["second_wind"]
@@ -515,7 +538,7 @@ func TestFighterResourceReset(t *testing.T) {
 		"action_surge": 0,
 		"second_wind":  0,
 	}
-	g := createTestPlayer(2, "Fighter", initialRes)
+	g := createTestPlayer(2, "Fighter", initialRes, nil)
 	p := g.Player
 	p.HitDice = 0
 
@@ -539,7 +562,7 @@ func TestLevelUpResourceReset(t *testing.T) {
 		"action_surge": 0,
 		"second_wind":  0,
 	}
-	g := createTestPlayer(2, "Fighter", initialRes)
+	g := createTestPlayer(2, "Fighter", initialRes, nil)
 	p := g.Player
 
 	g.levelUpPlayer()
@@ -556,5 +579,79 @@ func TestLevelUpResourceReset(t *testing.T) {
 	}
 	if p.HitDice != p.MaxHitDice {
 		t.Errorf("Hit Dice after Level Up: expected %d, got %d", p.MaxHitDice, p.HitDice)
+	}
+}
+
+func TestIntegration_Fighter_ActionSurge_DoubleAttack(t *testing.T) {
+	enemies := []EnemySpawnInfo{{TypeName: "Melee Skeleton"}}
+	g := createTestPlayer(2, "Fighter", nil, enemies)
+	p := g.Player
+	enemy := g.Enemies[0]
+	actionSurgeDef := ActionTable["action_surge"]
+	meleeAttackDef := ActionTable["melee_attack"]
+
+	if p.ClassResources["action_surge"] != 1 {
+		t.Fatalf("Test setup error: Expected 1 Action Surge use, got %d", p.ClassResources["action_surge"])
+	}
+
+	g.Player.X = enemy.X - 1
+	g.Player.Y = enemy.Y
+
+	successAttack1 := g.executeAction(meleeAttackDef, enemy.X, enemy.Y)
+	if !successAttack1 {
+		t.Fatalf("First melee attack failed unexpectedly")
+	}
+	if !p.ActionTaken {
+		t.Fatalf("First melee attack did not consume standard action")
+	}
+
+	successSurge := g.executeAction(actionSurgeDef, -1, -1)
+	if !successSurge {
+		t.Fatalf("Action Surge execution failed unexpectedly")
+	}
+	if p.ClassResources["action_surge"] != 0 {
+		t.Fatalf("Action Surge resource not consumed")
+	}
+	if p.ActionTaken {
+		t.Fatalf("Action Surge incorrectly reset ActionTaken to true (should be false)")
+	}
+
+	successAttack2 := g.executeAction(meleeAttackDef, enemy.X, enemy.Y)
+	if !successAttack2 {
+		t.Errorf("Second melee attack (after surge) failed unexpectedly")
+	}
+	if !p.ActionTaken {
+		t.Errorf("Second melee attack did not consume the surged standard action")
+	}
+}
+
+func TestIntegration_Fighter_SecondWind_MidCombat(t *testing.T) {
+	enemies := []EnemySpawnInfo{{TypeName: "Small Slime"}}
+	g := createTestPlayer(2, "Fighter", nil, enemies)
+	p := g.Player
+	secondWindDef := ActionTable["second_wind"]
+
+	if p.ClassResources["second_wind"] != 1 {
+		t.Fatalf("Test setup error: Expected 1 Second Wind use, got %d", p.ClassResources["second_wind"])
+	}
+
+	p.HP = 5
+	initialHP := p.HP
+
+	successSW := g.executeAction(secondWindDef, -1, -1)
+	if !successSW {
+		t.Fatalf("Second Wind execution failed unexpectedly")
+	}
+	if p.ClassResources["second_wind"] != 0 {
+		t.Fatalf("Second Wind resource not consumed")
+	}
+	if !p.ActionTaken {
+		t.Fatalf("Second Wind did not consume standard action")
+	}
+	if p.HP <= initialHP {
+		t.Errorf("Second Wind did not heal player: HP before=%d, HP after=%d", initialHP, p.HP)
+	}
+	if p.HP > p.MaxHP {
+		t.Errorf("Second Wind healed player above MaxHP: HP=%d, MaxHP=%d", p.HP, p.MaxHP)
 	}
 }
