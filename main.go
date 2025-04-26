@@ -1905,8 +1905,19 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		hpRatio := float32(entity.HP) / float32(entity.MaxHP)
 		hpRatio = maxF(0.0, minF(1.0, hpRatio))
 
-		vector.DrawFilledRect(screen, hpBarX, hpBarY, hpBarWidth, hpBarHeight, color.RGBA{R: 80, G: 0, B: 0, A: 255}, false)
-		vector.DrawFilledRect(screen, hpBarX, hpBarY, hpBarWidth*hpRatio, hpBarHeight, color.RGBA{R: 0, G: 200, B: 0, A: 255}, false)
+		var hpColor color.RGBA
+		if hpRatio > 0.6 {
+			hpColor = color.RGBA{R: 0, G: 200, B: 0, A: 255}
+		} else if hpRatio > 0.3 {
+			hpColor = color.RGBA{R: 255, G: 255, B: 0, A: 255}
+		} else {
+			hpColor = color.RGBA{R: 200, G: 0, B: 0, A: 255}
+		}
+
+		hpBgColor := color.RGBA{R: 50, G: 50, B: 50, A: 255}
+
+		vector.DrawFilledRect(screen, hpBarX, hpBarY, hpBarWidth, hpBarHeight, hpBgColor, false)
+		vector.DrawFilledRect(screen, hpBarX, hpBarY, hpBarWidth*hpRatio, hpBarHeight, hpColor, false)
 		vector.StrokeRect(screen, hpBarX, hpBarY, hpBarWidth, hpBarHeight, 1, color.Black, false)
 	}
 
