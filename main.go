@@ -193,11 +193,21 @@ type Game struct {
 	primedActionID       string
 	lastExecutedActionID string
 	WaveDefinitions      []WaveDefinition
+	FloatingTexts        []*FloatingText
 }
 
 type ActionExecuteFunc func(g *Game, targetX, targetY int) bool
 
 type TargetType string
+
+type FloatingText struct {
+	Text      string
+	X, Y      float64
+	Life      int
+	MaxLife   int
+	Color     color.Color
+	VelocityY float64
+}
 
 const (
 	TargetSelf          TargetType = "self"
@@ -440,6 +450,7 @@ func NewGame() *Game {
 	g.availableActions = make([]*ActionDefinition, 0)
 	g.lastExecutedActionID = ""
 	g.CurrentWaveIndex = -1
+	g.FloatingTexts = make([]*FloatingText, 0)
 
 	g.WaveDefinitions = []WaveDefinition{
 		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Small Slime", SpawnPointIdx: 0}, {TypeName: "Small Slime", SpawnPointIdx: 1}}, IsBossWave: false},
@@ -1046,6 +1057,10 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 	}
 	logMsg := fmt.Sprintf("%s %s %s(AC%d). Roll: %s.", attacker.Name, attackVerb, defender.Name, defender.AC, rollString)
 
+	textSpawnX := float64(g.MapOffsetX + defender.X*tileSize + (defender.Width*tileSize)/2)
+	textSpawnY := float64(g.MapOffsetY + defender.Y*tileSize)
+	textLifetime := 60
+
 	if hit {
 		var damage int
 		damageRoll := 0
@@ -1075,15 +1090,36 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 				damageLog = fmt.Sprintf(" (1d6[%d]%+d)", damageRoll, getModifier(attacker.Dexterity))
 			} else {
 				damageRoll = 0
-				damage = attackAbilityMod
+				damage = max(1, attackAbilityMod)
 				damageLog = fmt.Sprintf(" (%+d)", attackAbilityMod)
 			}
 		}
 
 		damage = max(1, damage)
+		actualDamage := min(damage, defender.HP)
 
-		defender.HP -= damage
-		logMsg += fmt.Sprintf(" Hit! Deals %d%s dmg.", damage, damageLog)
+		defender.HP -= actualDamage
+		logMsg += fmt.Sprintf(" Hit! Deals %d%s dmg.", actualDamage, damageLog)
+
+		g.FloatingTexts = append(g.FloatingTexts, &FloatingText{
+			Text:      fmt.Sprintf("-%d", actualDamage),
+			X:         textSpawnX,
+			Y:         textSpawnY,
+			Life:      textLifetime,
+			MaxLife:   textLifetime,
+			Color:     color.RGBA{R: 255, G: 50, B: 50, A: 255},
+			VelocityY: -0.5,
+		})
+		g.FloatingTexts = append(g.FloatingTexts, &FloatingText{
+			Text:      "Hit!",
+			X:         textSpawnX,
+			Y:         textSpawnY - 15,
+			Life:      textLifetime / 2,
+			MaxLife:   textLifetime / 2,
+			Color:     color.RGBA{R: 255, G: 255, B: 255, A: 255},
+			VelocityY: -0.5,
+		})
+
 		if defender.HP <= 0 {
 			logMsg += fmt.Sprintf(" %s dies!", defender.Name)
 			g.addCombatLog(logMsg)
@@ -1091,6 +1127,15 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 		}
 	} else {
 		logMsg += " Miss!"
+		g.FloatingTexts = append(g.FloatingTexts, &FloatingText{
+			Text:      "Miss!",
+			X:         textSpawnX,
+			Y:         textSpawnY - 15,
+			Life:      textLifetime / 2,
+			MaxLife:   textLifetime / 2,
+			Color:     color.RGBA{R: 180, G: 180, B: 180, A: 255},
+			VelocityY: -0.5,
+		})
 	}
 	g.addCombatLog(logMsg)
 	return false
@@ -1799,6 +1844,16 @@ func (g *Game) cleanupDeadEnemies() {
 }
 
 func (g *Game) Update() error {
+	activeTexts := make([]*FloatingText, 0, len(g.FloatingTexts))
+	for _, ft := range g.FloatingTexts {
+		ft.Life--
+		if ft.Life > 0 {
+			ft.Y += ft.VelocityY
+			activeTexts = append(activeTexts, ft)
+		}
+	}
+	g.FloatingTexts = activeTexts
+
 	if g.CurrentTurn == GameOver {
 		return nil
 	}
@@ -2118,6 +2173,22 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			msgColor = color.RGBA{R: 255, G: 255, B: 0, A: 255}
 		}
 		text.Draw(screen, msg, basicfont.Face7x13, logX, logStartY+(i*logLineHeight), msgColor)
+	}
+
+	for _, ft := range g.FloatingTexts {
+		alpha := uint8(255 * (float64(ft.Life) / float64(ft.MaxLife)))
+		textColor := ft.Color
+		if rgba, ok := textColor.(color.RGBA); ok {
+			rgba.A = alpha
+			textColor = rgba
+		}
+
+		bounds := text.BoundString(basicfont.Face7x13, ft.Text)
+		textX := int(ft.X) - bounds.Dx()/2
+		textY := int(ft.Y)
+
+		text.Draw(screen, ft.Text, basicfont.Face7x13, textX+1, textY+1, color.RGBA{A: alpha}) // Shadow
+		text.Draw(screen, ft.Text, basicfont.Face7x13, textX, textY, textColor)
 	}
 
 	if g.InputMode == InputModeLevelUp {
