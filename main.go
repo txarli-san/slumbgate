@@ -36,6 +36,8 @@ const (
 	hpBarOffsetY        = 2
 	sheetWidthInSprites = 32
 	maxLevel            = 20
+	attackBumpDuration  = 10
+	deathFadeDuration   = 30
 )
 
 type TurnState int
@@ -112,22 +114,25 @@ const (
 )
 
 type Entity struct {
-	X            int
-	Y            int
-	Width        int
-	Height       int
-	HP           int
-	MaxHP        int
-	AC           int
-	Strength     int
-	Dexterity    int
-	Constitution int
-	Intelligence int
-	Wisdom       int
-	Charisma     int
-	Sprite       *ebiten.Image
-	DrawOpts     ebiten.DrawImageOptions
-	Name         string
+	X               int
+	Y               int
+	Width           int
+	Height          int
+	HP              int
+	MaxHP           int
+	AC              int
+	Strength        int
+	Dexterity       int
+	Constitution    int
+	Intelligence    int
+	Wisdom          int
+	Charisma        int
+	Sprite          *ebiten.Image
+	DrawOpts        ebiten.DrawImageOptions
+	Name            string
+	AttackBumpTimer int
+	IsDying         bool
+	CurrentAlpha    float64
 }
 
 type Player struct {
@@ -522,6 +527,7 @@ func NewGame() *Game {
 			Strength: playerStr, Dexterity: playerDex, Constitution: playerCon,
 			Intelligence: playerInt, Wisdom: playerWis, Charisma: playerCha,
 			Sprite: playerSprite, Name: "Player",
+			CurrentAlpha: 1.0,
 		},
 		Level:             startLevel,
 		Class:             playerClass,
@@ -787,9 +793,9 @@ func (g *Game) startEnemyTurn() {
 func (g *Game) endEnemyTurn() {
 	g.cleanupDeadEnemies()
 
-	if g.Player.HP <= 0 {
+	if g.Player.IsDying && g.Player.CurrentAlpha <= 0 {
 		if g.CurrentTurn != GameOver {
-			g.addCombatLog("Player has died! Game Over.")
+			g.addCombatLog("Player has faded away! Game Over.")
 			g.CurrentTurn = GameOver
 		}
 		return
@@ -907,6 +913,7 @@ func (g *Game) spawnEnemyFromDef(x, y int, def EnemyDefinition, sprite *ebiten.I
 			Strength: def.Str, Dexterity: def.Dex, Constitution: def.Con,
 			Intelligence: def.Int, Wisdom: def.Wis, Charisma: def.Cha,
 			Sprite: sprite, Name: def.Name,
+			CurrentAlpha: 1.0,
 		},
 		MaxMovementPoints: def.Move,
 		AttackType:        def.AttackType,
@@ -929,6 +936,7 @@ func (g *Game) spawnEnemy(x, y int, name string, baseHp, ac, str, dex, con, inte
 			Strength: str, Dexterity: dex, Constitution: con,
 			Intelligence: intel, Wisdom: wis, Charisma: cha,
 			Sprite: sprite, Name: name,
+			CurrentAlpha: 1.0,
 		},
 		MaxMovementPoints: move,
 	}
@@ -943,12 +951,12 @@ func (g *Game) addCombatLog(msg string) {
 }
 
 func (g *Game) isTileBlocked(checkX, checkY, movingEnemyIndex int) bool {
-	if g.Player.HP > 0 && checkX >= g.Player.X && checkX < g.Player.X+g.Player.Width &&
+	if !g.Player.IsDying && g.Player.HP > 0 && checkX >= g.Player.X && checkX < g.Player.X+g.Player.Width &&
 		checkY >= g.Player.Y && checkY < g.Player.Y+g.Player.Height {
 		return true
 	}
 	for i, enemy := range g.Enemies {
-		if enemy.HP <= 0 {
+		if enemy.IsDying || enemy.HP <= 0 {
 			continue
 		}
 		if i == movingEnemyIndex {
@@ -979,7 +987,7 @@ func (g *Game) isTileFullyBlocked(checkX, checkY, entityWidth, entityHeight, mov
 
 func (g *Game) getEnemyAt(x, y int) *Enemy {
 	for _, enemy := range g.Enemies {
-		if enemy.HP <= 0 {
+		if enemy.IsDying || enemy.HP <= 0 {
 			continue
 		}
 		if x >= enemy.X && x < enemy.X+enemy.Width &&
@@ -999,7 +1007,7 @@ func isAdjacentSimple(x1, y1, x2, y2 int) bool {
 }
 
 func isAdjacentToEntity(px, py int, entity *Entity) bool {
-	if entity == nil || entity.HP <= 0 {
+	if entity == nil || entity.IsDying || entity.HP <= 0 {
 		return false
 	}
 	for ex := entity.X; ex < entity.X+entity.Width; ex++ {
@@ -1014,7 +1022,7 @@ func isAdjacentToEntity(px, py int, entity *Entity) bool {
 
 func isPlayerAdjacentToEnemy(g *Game) bool {
 	for _, enemy := range g.Enemies {
-		if enemy.HP <= 0 {
+		if enemy.IsDying || enemy.HP <= 0 {
 			continue
 		}
 		if isAdjacentToEntity(g.Player.X, g.Player.Y, &enemy.Entity) {
@@ -1025,7 +1033,7 @@ func isPlayerAdjacentToEnemy(g *Game) bool {
 }
 
 func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBonus int, attackType string) bool {
-	if attacker == nil || defender == nil || attacker.HP <= 0 || defender.HP <= 0 {
+	if attacker == nil || defender == nil || attacker.HP <= 0 || defender.HP <= 0 || defender.IsDying {
 		return false
 	}
 
@@ -1060,8 +1068,11 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 	textSpawnX := float64(g.MapOffsetX + defender.X*tileSize + (defender.Width*tileSize)/2)
 	textSpawnY := float64(g.MapOffsetY + defender.Y*tileSize)
 	textLifetime := 60
+	killed := false
 
 	if hit {
+		attacker.AttackBumpTimer = attackBumpDuration
+
 		var damage int
 		damageRoll := 0
 		damageLog := ""
@@ -1122,8 +1133,8 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 
 		if defender.HP <= 0 {
 			logMsg += fmt.Sprintf(" %s dies!", defender.Name)
-			g.addCombatLog(logMsg)
-			return true
+			defender.IsDying = true
+			killed = true
 		}
 	} else {
 		logMsg += " Miss!"
@@ -1138,7 +1149,7 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 		})
 	}
 	g.addCombatLog(logMsg)
-	return false
+	return killed
 }
 
 func (g *Game) executeAction(actionDef *ActionDefinition, targetX, targetY int) bool {
@@ -1195,7 +1206,7 @@ func executeMeleeAttack(g *Game, targetX, targetY int) bool {
 	if targetEnemy != nil && isAdjacentToEntity(g.Player.X, g.Player.Y, &targetEnemy.Entity) {
 		killed := g.resolveAttack(&g.Player.Entity, &targetEnemy.Entity, g.Player.ProficiencyBonus, "melee")
 		if killed {
-			g.cleanupDeadEnemies()
+			// Cleanup is handled later, after animation
 		}
 		return true
 	}
@@ -1210,7 +1221,7 @@ func executeRangedAttack(g *Game, targetX, targetY int) bool {
 		if dist <= playerRangedRange {
 			killed := g.resolveAttack(&g.Player.Entity, &targetEnemy.Entity, g.Player.ProficiencyBonus, "ranged")
 			if killed {
-				g.cleanupDeadEnemies()
+				// Cleanup is handled later, after animation
 			}
 			return true
 		}
@@ -1459,14 +1470,14 @@ func (g *Game) handlePlayerInput() {
 						performAoOCheck := !g.Player.IsDisengaging
 						if performAoOCheck {
 							for _, enemy := range g.Enemies {
-								if enemy.HP <= 0 {
+								if enemy.IsDying || enemy.HP <= 0 {
 									continue
 								}
 								wasAdj := isAdjacentToEntity(startX, startY, &enemy.Entity)
 								isStillAdj := isAdjacentToEntity(targetX, targetY, &enemy.Entity)
 
 								if wasAdj && !isStillAdj {
-									if g.Player.HP > 0 {
+									if g.Player.HP > 0 && !g.Player.IsDying {
 										g.addCombatLog(fmt.Sprintf("%s makes an Opportunity Attack!", enemy.Name))
 										killedByAoO := g.resolveAttack(&enemy.Entity, &g.Player.Entity, 0, "melee")
 										if killedByAoO {
@@ -1478,7 +1489,7 @@ func (g *Game) handlePlayerInput() {
 							}
 						}
 
-						if g.Player.HP > 0 {
+						if g.Player.HP > 0 && !g.Player.IsDying {
 							g.Player.X = targetX
 							g.Player.Y = targetY
 							g.Player.MovementPoints--
@@ -1714,12 +1725,12 @@ func (g *Game) findRetreatStep(startX, startY, targetX, targetY, entityWidth, en
 }
 
 func (g *Game) handleEnemyTurns() {
-	if g.Player.HP <= 0 {
+	if g.Player.IsDying || g.Player.HP <= 0 {
 		return
 	}
 
 	for i, enemy := range g.Enemies {
-		if enemy.HP <= 0 {
+		if enemy.IsDying || enemy.HP <= 0 {
 			continue
 		}
 
@@ -1727,7 +1738,6 @@ func (g *Game) handleEnemyTurns() {
 		enemy.ActionAvailable = true
 		actedThisTurn := false
 
-		// --- Action Phase Attempt 1 ---
 		distToPlayer := distance(enemy.X, enemy.Y, g.Player.X, g.Player.Y)
 		isAdj := isAdjacentToEntity(g.Player.X, g.Player.Y, &enemy.Entity)
 
@@ -1740,7 +1750,7 @@ func (g *Game) handleEnemyTurns() {
 					return
 				}
 			}
-		} else { // Melee
+		} else {
 			if isAdj && enemy.ActionAvailable {
 				killedPlayer := g.resolveAttack(&enemy.Entity, &g.Player.Entity, 0, "melee")
 				enemy.ActionAvailable = false
@@ -1751,9 +1761,11 @@ func (g *Game) handleEnemyTurns() {
 			}
 		}
 
-		// --- Movement Phase ---
-		// movedThisTurn := false // Variable not used in this scope, removed
 		for enemy.MovementPoints > 0 {
+			if g.Player.IsDying || g.Player.HP <= 0 {
+				break
+			} // Stop moving if player died mid-move/AoO
+
 			distToPlayer = distance(enemy.X, enemy.Y, g.Player.X, g.Player.Y)
 			isAdj = isAdjacentToEntity(g.Player.X, g.Player.Y, &enemy.Entity)
 			movedThisStep := false
@@ -1780,7 +1792,7 @@ func (g *Game) handleEnemyTurns() {
 				} else {
 					break
 				}
-			} else { // Melee
+			} else {
 				if !isAdj {
 					nextX, nextY, foundMove := g.findPathStep(enemy.X, enemy.Y, g.Player.X, g.Player.Y, enemy.Width, enemy.Height, i)
 					if foundMove {
@@ -1797,11 +1809,13 @@ func (g *Game) handleEnemyTurns() {
 			if !movedThisStep {
 				break
 			}
-			// movedThisTurn = true // Variable not used in this scope, removed
-		} // End movement loop
+		}
 
-		// --- Action Phase Attempt 2 (After Moving) ---
 		if !actedThisTurn && enemy.ActionAvailable {
+			if g.Player.IsDying || g.Player.HP <= 0 {
+				continue
+			} // Don't act if player died
+
 			distToPlayer = distance(enemy.X, enemy.Y, g.Player.X, g.Player.Y)
 			isAdj = isAdjacentToEntity(g.Player.X, g.Player.Y, &enemy.Entity)
 
@@ -1809,16 +1823,14 @@ func (g *Game) handleEnemyTurns() {
 				if !isAdj && distToPlayer <= enemy.MaxRange {
 					killedPlayer := g.resolveAttack(&enemy.Entity, &g.Player.Entity, 0, "ranged")
 					enemy.ActionAvailable = false
-
 					if killedPlayer {
 						return
 					}
 				}
-			} else { // Melee
+			} else {
 				if isAdj {
 					killedPlayer := g.resolveAttack(&enemy.Entity, &g.Player.Entity, 0, "melee")
 					enemy.ActionAvailable = false
-
 					if killedPlayer {
 						return
 					}
@@ -1827,14 +1839,14 @@ func (g *Game) handleEnemyTurns() {
 		}
 		enemy.ActionAvailable = false
 
-	} // End loop through enemies
+	}
 }
 
 func (g *Game) cleanupDeadEnemies() {
 	initialCount := len(g.Enemies)
 	aliveEnemies := make([]*Enemy, 0, len(g.Enemies))
 	for _, enemy := range g.Enemies {
-		if enemy.HP > 0 {
+		if !enemy.IsDying || enemy.CurrentAlpha > 0 {
 			aliveEnemies = append(aliveEnemies, enemy)
 		}
 	}
@@ -1854,8 +1866,34 @@ func (g *Game) Update() error {
 	}
 	g.FloatingTexts = activeTexts
 
+	if g.Player.AttackBumpTimer > 0 {
+		g.Player.AttackBumpTimer--
+	}
+	if g.Player.IsDying && g.Player.CurrentAlpha > 0 {
+		g.Player.CurrentAlpha -= 1.0 / float64(deathFadeDuration)
+		if g.Player.CurrentAlpha < 0 {
+			g.Player.CurrentAlpha = 0
+		}
+	}
+	for _, enemy := range g.Enemies {
+		if enemy.AttackBumpTimer > 0 {
+			enemy.AttackBumpTimer--
+		}
+		if enemy.IsDying && enemy.CurrentAlpha > 0 {
+			enemy.CurrentAlpha -= 1.0 / float64(deathFadeDuration)
+			if enemy.CurrentAlpha < 0 {
+				enemy.CurrentAlpha = 0
+			}
+		}
+	}
+
 	if g.CurrentTurn == GameOver {
-		return nil
+		if g.Player.IsDying && g.Player.CurrentAlpha <= 0 {
+			return nil
+		}
+		if !g.Player.IsDying {
+			return nil
+		}
 	}
 
 	if g.InputMode == InputModeLevelUp {
@@ -1873,8 +1911,8 @@ func (g *Game) Update() error {
 
 	if g.CurrentTurn == EnemyTurn {
 		g.handleEnemyTurns()
-		if g.Player.HP <= 0 && g.CurrentTurn != GameOver {
-			g.addCombatLog("Player has died! Game Over.")
+		if g.Player.IsDying && g.Player.CurrentAlpha <= 0 && g.CurrentTurn != GameOver {
+			g.addCombatLog("Player has faded away! Game Over.")
 			g.CurrentTurn = GameOver
 			return nil
 		}
@@ -1937,16 +1975,19 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	entitiesToDraw := make([]*Entity, 0, len(g.Enemies)+1)
 	for _, enemy := range g.Enemies {
-		if enemy.HP > 0 {
+		if !enemy.IsDying || enemy.CurrentAlpha > 0 {
 			entitiesToDraw = append(entitiesToDraw, &enemy.Entity)
 		}
 	}
-	if g.Player.HP > 0 {
+	if !g.Player.IsDying || g.Player.CurrentAlpha > 0 {
 		entitiesToDraw = append(entitiesToDraw, &g.Player.Entity)
 	}
 
 	sort.Slice(entitiesToDraw, func(i, j int) bool {
-		return entitiesToDraw[i].Y < entitiesToDraw[j].Y
+		if entitiesToDraw[i].Y != entitiesToDraw[j].Y {
+			return entitiesToDraw[i].Y < entitiesToDraw[j].Y
+		}
+		return entitiesToDraw[i].X < entitiesToDraw[j].X
 	})
 
 	entityOpts := &ebiten.DrawImageOptions{}
@@ -1958,35 +1999,55 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		entityScreenX := float64(mapOffsetX + entity.X*tileSize)
 		entityScreenY := float64(mapOffsetY + entity.Y*tileSize)
 
+		bumpOffsetX := 0.0
+		if entity.AttackBumpTimer > 0 {
+			progress := float64(attackBumpDuration-entity.AttackBumpTimer) / float64(attackBumpDuration)
+			bumpOffsetX = math.Sin(progress*math.Pi) * 4.0
+			entityScreenX += bumpOffsetX
+		}
+
 		entityOpts.GeoM.Reset()
 		if entity.Width > 1 || entity.Height > 1 {
 			entityOpts.GeoM.Scale(float64(entity.Width), float64(entity.Height))
 		}
 		entityOpts.GeoM.Translate(entityScreenX, entityScreenY)
-		screen.DrawImage(entity.Sprite, entityOpts)
 
-		hpBarBaseX := float64(mapOffsetX + entity.X*tileSize)
-		hpBarBaseY := float64(mapOffsetY + (entity.Y+entity.Height)*tileSize)
-		hpBarX := float32(hpBarBaseX)
-		hpBarY := float32(hpBarBaseY + hpBarOffsetY)
-		hpBarWidth := float32(tileSize * entity.Width)
-		hpRatio := float32(entity.HP) / float32(entity.MaxHP)
-		hpRatio = maxF(0.0, minF(1.0, hpRatio))
-
-		var hpColor color.RGBA
-		if hpRatio > 0.6 {
-			hpColor = color.RGBA{R: 0, G: 200, B: 0, A: 255}
-		} else if hpRatio > 0.3 {
-			hpColor = color.RGBA{R: 255, G: 255, B: 0, A: 255}
-		} else {
-			hpColor = color.RGBA{R: 200, G: 0, B: 0, A: 255}
+		entityOpts.ColorM.Reset()
+		if entity.CurrentAlpha < 1.0 {
+			entityOpts.ColorM.Scale(1, 1, 1, entity.CurrentAlpha)
 		}
 
-		hpBgColor := color.RGBA{R: 50, G: 50, B: 50, A: 255}
+		screen.DrawImage(entity.Sprite, entityOpts)
 
-		vector.DrawFilledRect(screen, hpBarX, hpBarY, hpBarWidth, hpBarHeight, hpBgColor, false)
-		vector.DrawFilledRect(screen, hpBarX, hpBarY, hpBarWidth*hpRatio, hpBarHeight, hpColor, false)
-		vector.StrokeRect(screen, hpBarX, hpBarY, hpBarWidth, hpBarHeight, 1, color.Black, false)
+		if entity.CurrentAlpha > 0 {
+			hpBarBaseX := float64(mapOffsetX+entity.X*tileSize) + bumpOffsetX
+			hpBarBaseY := float64(mapOffsetY + (entity.Y+entity.Height)*tileSize)
+			hpBarX := float32(hpBarBaseX)
+			hpBarY := float32(hpBarBaseY + hpBarOffsetY)
+			hpBarWidth := float32(tileSize * entity.Width)
+			hpRatio := float32(max(0, entity.HP)) / float32(entity.MaxHP)
+			hpRatio = maxF(0.0, minF(1.0, hpRatio))
+
+			var hpColor color.RGBA
+			if hpRatio > 0.6 {
+				hpColor = color.RGBA{R: 0, G: 200, B: 0, A: 255}
+			} else if hpRatio > 0.3 {
+				hpColor = color.RGBA{R: 255, G: 255, B: 0, A: 255}
+			} else {
+				hpColor = color.RGBA{R: 200, G: 0, B: 0, A: 255}
+			}
+
+			hpBgColor := color.RGBA{R: 50, G: 50, B: 50, A: 255}
+
+			hpBarAlpha := uint8(entity.CurrentAlpha * 255)
+			hpColor.A = hpBarAlpha
+			hpBgColor.A = hpBarAlpha
+			outlineColor := color.RGBA{R: 0, G: 0, B: 0, A: hpBarAlpha}
+
+			vector.DrawFilledRect(screen, hpBarX, hpBarY, hpBarWidth, hpBarHeight, hpBgColor, false)
+			vector.DrawFilledRect(screen, hpBarX, hpBarY, hpBarWidth*hpRatio, hpBarHeight, hpColor, false)
+			vector.StrokeRect(screen, hpBarX, hpBarY, hpBarWidth, hpBarHeight, 1, outlineColor, false)
+		}
 	}
 
 	uiStartY := 10
@@ -2181,13 +2242,20 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		if rgba, ok := textColor.(color.RGBA); ok {
 			rgba.A = alpha
 			textColor = rgba
+		} else if nrgba, ok := textColor.(color.NRGBA); ok {
+			nrgba.A = alpha
+			textColor = nrgba
+		} else if gray, ok := textColor.(color.Gray); ok {
+			gray.Y = uint8(float64(gray.Y) * (float64(alpha) / 255.0))
+			textColor = color.NRGBA{R: gray.Y, G: gray.Y, B: gray.Y, A: alpha}
 		}
 
 		bounds := text.BoundString(basicfont.Face7x13, ft.Text)
 		textX := int(ft.X) - bounds.Dx()/2
 		textY := int(ft.Y)
 
-		text.Draw(screen, ft.Text, basicfont.Face7x13, textX+1, textY+1, color.RGBA{A: alpha}) // Shadow
+		shadowColor := color.NRGBA{A: alpha / 2}
+		text.Draw(screen, ft.Text, basicfont.Face7x13, textX+1, textY+1, shadowColor)
 		text.Draw(screen, ft.Text, basicfont.Face7x13, textX, textY, textColor)
 	}
 
@@ -2219,7 +2287,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	if g.CurrentTurn == GameOver {
 		gameOverMsg := "GAME OVER"
 		isVictory := false
-		if g.Player.HP > 0 {
+		if !g.Player.IsDying && g.Player.HP > 0 {
 			if g.CurrentWaveIndex >= len(g.WaveDefinitions)-1 {
 				isVictory = true
 			}
@@ -2229,7 +2297,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			gameOverMsg = "VICTORY!"
 		}
 
-		if g.InputMode != InputModeLevelUp {
+		if g.InputMode != InputModeLevelUp && (!g.Player.IsDying || g.Player.CurrentAlpha <= 0) {
 			msgFont := basicfont.Face7x13
 			bounds := text.BoundString(msgFont, gameOverMsg)
 			msgX := (screenWidth - bounds.Dx()) / 2
