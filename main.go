@@ -1050,7 +1050,9 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 
 	roll := rand.Intn(20) + 1
 	attackRoll := roll + attackerProfBonus + attackAbilityMod
-	hit := attackRoll >= defender.AC
+	isCrit := roll == 20
+	isFumble := roll == 1
+	hit := !isFumble && (isCrit || attackRoll >= defender.AC)
 
 	modString := fmt.Sprintf("%+d", attackAbilityMod)
 	profString := ""
@@ -1070,39 +1072,88 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 	textLifetime := 60
 	killed := false
 
-	if hit {
+	if isFumble {
+		logMsg += " FUMBLE! Miss!"
+		g.FloatingTexts = append(g.FloatingTexts, &FloatingText{
+			Text:      "FUMBLE!",
+			X:         textSpawnX,
+			Y:         textSpawnY - 15,
+			Life:      textLifetime / 2,
+			MaxLife:   textLifetime / 2,
+			Color:     color.RGBA{R: 150, G: 0, B: 0, A: 255},
+			VelocityY: -0.5,
+		})
+	} else if hit {
 		attacker.AttackBumpTimer = attackBumpDuration
 
 		var damage int
-		damageRoll := 0
+		damageRoll1 := 0
+		damageRoll2 := 0
 		damageLog := ""
+		if isCrit {
+			logMsg += " CRITICAL!"
+		}
 
 		isPlayer := attacker == &g.Player.Entity
 
 		if isPlayer {
 			switch attackType {
 			case "ranged":
-				damageRoll = rand.Intn(6) + 1
-				damage = damageRoll + attackAbilityMod
-				damageLog = fmt.Sprintf(" (1d6[%d]%+d)", damageRoll, attackAbilityMod)
+				damageRoll1 = rand.Intn(6) + 1
+				if isCrit {
+					damageRoll2 = rand.Intn(6) + 1
+				}
+				damage = damageRoll1 + damageRoll2 + attackAbilityMod
+				if isCrit {
+					damageLog = fmt.Sprintf(" (2d6[%d,%d]%+d)", damageRoll1, damageRoll2, attackAbilityMod)
+				} else {
+					damageLog = fmt.Sprintf(" (1d6[%d]%+d)", damageRoll1, attackAbilityMod)
+				}
 			default:
-				damageRoll = rand.Intn(8) + 1
-				damage = damageRoll + attackAbilityMod
-				damageLog = fmt.Sprintf(" (1d8[%d]%+d)", damageRoll, attackAbilityMod)
+				damageRoll1 = rand.Intn(8) + 1
+				if isCrit {
+					damageRoll2 = rand.Intn(8) + 1
+				}
+				damage = damageRoll1 + damageRoll2 + attackAbilityMod
+				if isCrit {
+					damageLog = fmt.Sprintf(" (2d8[%d,%d]%+d)", damageRoll1, damageRoll2, attackAbilityMod)
+				} else {
+					damageLog = fmt.Sprintf(" (1d8[%d]%+d)", damageRoll1, attackAbilityMod)
+				}
 			}
 		} else {
 			if attacker.Name == "Melee Skeleton" {
-				damageRoll = rand.Intn(6) + 1
-				damage = damageRoll + getModifier(attacker.Dexterity)
-				damageLog = fmt.Sprintf(" (1d6[%d]%+d)", damageRoll, getModifier(attacker.Dexterity))
+				damageRoll1 = rand.Intn(6) + 1
+				if isCrit {
+					damageRoll2 = rand.Intn(6) + 1
+				}
+				damage = damageRoll1 + damageRoll2 + getModifier(attacker.Dexterity)
+				if isCrit {
+					damageLog = fmt.Sprintf(" (2d6[%d,%d]%+d)", damageRoll1, damageRoll2, getModifier(attacker.Dexterity))
+				} else {
+					damageLog = fmt.Sprintf(" (1d6[%d]%+d)", damageRoll1, getModifier(attacker.Dexterity))
+				}
 			} else if attacker.Name == "Ranged Skeleton" {
-				damageRoll = rand.Intn(6) + 1
-				damage = damageRoll + getModifier(attacker.Dexterity)
-				damageLog = fmt.Sprintf(" (1d6[%d]%+d)", damageRoll, getModifier(attacker.Dexterity))
+				damageRoll1 = rand.Intn(6) + 1
+				if isCrit {
+					damageRoll2 = rand.Intn(6) + 1
+				}
+				damage = damageRoll1 + damageRoll2 + getModifier(attacker.Dexterity)
+				if isCrit {
+					damageLog = fmt.Sprintf(" (2d6[%d,%d]%+d)", damageRoll1, damageRoll2, getModifier(attacker.Dexterity))
+				} else {
+					damageLog = fmt.Sprintf(" (1d6[%d]%+d)", damageRoll1, getModifier(attacker.Dexterity))
+				}
 			} else {
-				damageRoll = 0
+				damageRoll1 = 0
 				damage = max(1, attackAbilityMod)
+				if isCrit {
+					damage = max(1, attackAbilityMod*2)
+				}
 				damageLog = fmt.Sprintf(" (%+d)", attackAbilityMod)
+				if isCrit {
+					damageLog = fmt.Sprintf(" (Crit %+d)", attackAbilityMod*2)
+				}
 			}
 		}
 
@@ -1112,22 +1163,31 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 		defender.HP -= actualDamage
 		logMsg += fmt.Sprintf(" Hit! Deals %d%s dmg.", actualDamage, damageLog)
 
+		dmgTextColor := color.RGBA{R: 255, G: 50, B: 50, A: 255}
+		hitTextColor := color.RGBA{R: 255, G: 255, B: 255, A: 255}
+		hitText := "Hit!"
+		if isCrit {
+			dmgTextColor = color.RGBA{R: 255, G: 165, B: 0, A: 255}
+			hitTextColor = color.RGBA{R: 255, G: 215, B: 0, A: 255}
+			hitText = "CRITICAL!"
+		}
+
 		g.FloatingTexts = append(g.FloatingTexts, &FloatingText{
 			Text:      fmt.Sprintf("-%d", actualDamage),
 			X:         textSpawnX,
 			Y:         textSpawnY,
 			Life:      textLifetime,
 			MaxLife:   textLifetime,
-			Color:     color.RGBA{R: 255, G: 50, B: 50, A: 255},
+			Color:     dmgTextColor,
 			VelocityY: -0.5,
 		})
 		g.FloatingTexts = append(g.FloatingTexts, &FloatingText{
-			Text:      "Hit!",
+			Text:      hitText,
 			X:         textSpawnX,
 			Y:         textSpawnY - 15,
 			Life:      textLifetime / 2,
 			MaxLife:   textLifetime / 2,
-			Color:     color.RGBA{R: 255, G: 255, B: 255, A: 255},
+			Color:     hitTextColor,
 			VelocityY: -0.5,
 		})
 
@@ -1136,7 +1196,7 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 			defender.IsDying = true
 			killed = true
 		}
-	} else {
+	} else if !isFumble {
 		logMsg += " Miss!"
 		g.FloatingTexts = append(g.FloatingTexts, &FloatingText{
 			Text:      "Miss!",
@@ -1204,10 +1264,7 @@ func (g *Game) executeAction(actionDef *ActionDefinition, targetX, targetY int) 
 func executeMeleeAttack(g *Game, targetX, targetY int) bool {
 	targetEnemy := g.getEnemyAt(targetX, targetY)
 	if targetEnemy != nil && isAdjacentToEntity(g.Player.X, g.Player.Y, &targetEnemy.Entity) {
-		killed := g.resolveAttack(&g.Player.Entity, &targetEnemy.Entity, g.Player.ProficiencyBonus, "melee")
-		if killed {
-			// Cleanup is handled later, after animation
-		}
+		g.resolveAttack(&g.Player.Entity, &targetEnemy.Entity, g.Player.ProficiencyBonus, "melee")
 		return true
 	}
 	g.addCombatLog("Invalid target for melee attack (or not adjacent).")
@@ -1219,10 +1276,7 @@ func executeRangedAttack(g *Game, targetX, targetY int) bool {
 	if targetEnemy != nil {
 		dist := distance(g.Player.X, g.Player.Y, targetEnemy.X, targetEnemy.Y)
 		if dist <= playerRangedRange {
-			killed := g.resolveAttack(&g.Player.Entity, &targetEnemy.Entity, g.Player.ProficiencyBonus, "ranged")
-			if killed {
-				// Cleanup is handled later, after animation
-			}
+			g.resolveAttack(&g.Player.Entity, &targetEnemy.Entity, g.Player.ProficiencyBonus, "ranged")
 			return true
 		}
 		g.addCombatLog(fmt.Sprintf("Target %s out of range (%d > %d).", targetEnemy.Name, dist, playerRangedRange))
@@ -1764,7 +1818,7 @@ func (g *Game) handleEnemyTurns() {
 		for enemy.MovementPoints > 0 {
 			if g.Player.IsDying || g.Player.HP <= 0 {
 				break
-			} // Stop moving if player died mid-move/AoO
+			}
 
 			distToPlayer = distance(enemy.X, enemy.Y, g.Player.X, g.Player.Y)
 			isAdj = isAdjacentToEntity(g.Player.X, g.Player.Y, &enemy.Entity)
@@ -1814,7 +1868,7 @@ func (g *Game) handleEnemyTurns() {
 		if !actedThisTurn && enemy.ActionAvailable {
 			if g.Player.IsDying || g.Player.HP <= 0 {
 				continue
-			} // Don't act if player died
+			}
 
 			distToPlayer = distance(enemy.X, enemy.Y, g.Player.X, g.Player.Y)
 			isAdj = isAdjacentToEntity(g.Player.X, g.Player.Y, &enemy.Entity)
@@ -2246,7 +2300,6 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			nrgba.A = alpha
 			textColor = nrgba
 		} else if gray, ok := textColor.(color.Gray); ok {
-			gray.Y = uint8(float64(gray.Y) * (float64(alpha) / 255.0))
 			textColor = color.NRGBA{R: gray.Y, G: gray.Y, B: gray.Y, A: alpha}
 		}
 
