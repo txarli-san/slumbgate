@@ -373,9 +373,87 @@ var EnemyDefinitions = map[string]EnemyDefinition{
 	},
 	"Goblin Chieftain": {
 		Name: "Goblin Chieftain", SpriteSheetX: 4, SpriteSheetY: 0,
-		BaseHP: 18, AC: 14, Str: 17, Dex: 14, Con: 16, Int: 12, Wis: 13, Cha: 14, Move: 4,
-		Width: 2, Height: 1, AttackType: "melee", MaxRange: 1,
+		BaseHP: 30, AC: 15, Str: 17, Dex: 14, Con: 16, Int: 12, Wis: 13, Cha: 14, Move: 4,
+		Width: 1, Height: 1, AttackType: "melee", MaxRange: 1,
 		AttackDiceNum: 2, AttackDiceSize: 6, AttackAbilityMod: "STR",
+	},
+	"Goblin Warlock": {
+		Name: "Goblin Warlock", SpriteSheetX: 6, SpriteSheetY: 0,
+		BaseHP: 10, AC: 11, Str: 8, Dex: 12, Con: 10, Int: 14, Wis: 12, Cha: 12, Move: 4,
+		Width: 1, Height: 1, AttackType: "ranged", MaxRange: 5,
+		AttackDiceNum: 1, AttackDiceSize: 6, AttackAbilityMod: "INT",
+	},
+	"Spore Mushroom": {
+		Name: "Spore Mushroom", SpriteSheetX: 0, SpriteSheetY: 10,
+		BaseHP: 12, AC: 11, Str: 6, Dex: 8, Con: 14, Int: 2, Wis: 10, Cha: 4, Move: 2,
+		Width: 1, Height: 1, AttackType: "ranged", MaxRange: 3,
+		AttackDiceNum: 1, AttackDiceSize: 4, AttackAbilityMod: "WIS",
+	},
+	"Elder Spore Mushroom": {
+		Name: "Elder Spore Mushroom", SpriteSheetX: 1, SpriteSheetY: 10,
+		BaseHP: 40, AC: 13, Str: 8, Dex: 6, Con: 18, Int: 4, Wis: 12, Cha: 6, Move: 1,
+		Width: 2, Height: 2, AttackType: "ranged", MaxRange: 4,
+		AttackDiceNum: 1, AttackDiceSize: 8, AttackAbilityMod: "CON",
+	},
+	"Centaur": {
+		Name: "Centaur", SpriteSheetX: 3, SpriteSheetY: 7,
+		BaseHP: 18, AC: 14, Str: 14, Dex: 16, Con: 14, Int: 10, Wis: 12, Cha: 10, Move: 7,
+		Width: 1, Height: 1, AttackType: "ranged", MaxRange: 5,
+		AttackDiceNum: 1, AttackDiceSize: 8, AttackAbilityMod: "DEX",
+	},
+	"Druid": {
+		Name: "Druid", SpriteSheetX: 6, SpriteSheetY: 7,
+		BaseHP: 14, AC: 12, Str: 8, Dex: 12, Con: 12, Int: 10, Wis: 16, Cha: 12, Move: 4,
+		Width: 1, Height: 1, AttackType: "ranged", MaxRange: 4,
+		AttackDiceNum: 1, AttackDiceSize: 6, AttackAbilityMod: "WIS",
+	},
+	"Faun": {
+		Name: "Faun", SpriteSheetX: 0, SpriteSheetY: 7,
+		BaseHP: 12, AC: 13, Str: 10, Dex: 14, Con: 12, Int: 12, Wis: 14, Cha: 14, Move: 5,
+		Width: 1, Height: 1, AttackType: "ranged", MaxRange: 3,
+		AttackDiceNum: 1, AttackDiceSize: 6, AttackAbilityMod: "WIS",
+	},
+	"Dire Wolf": {
+		Name: "Dire Wolf", SpriteSheetX: 5, SpriteSheetY: 6,
+		BaseHP: 20, AC: 13, Str: 16, Dex: 15, Con: 14, Int: 3, Wis: 12, Cha: 6, Move: 7,
+		Width: 1, Height: 1, AttackType: "melee", MaxRange: 1,
+		AttackDiceNum: 1, AttackDiceSize: 8, AttackAbilityMod: "STR",
+	},
+	"Naga": {
+		Name: "Naga", SpriteSheetX: 4, SpriteSheetY: 7,
+		BaseHP: 22, AC: 15, Str: 14, Dex: 16, Con: 14, Int: 12, Wis: 12, Cha: 14, Move: 4,
+		Width: 2, Height: 2, AttackType: "melee", MaxRange: 1,
+		AttackDiceNum: 1, AttackDiceSize: 8, AttackAbilityMod: "STR",
+	},
+	"Tauren": {
+		Name: "Tauren", SpriteSheetX: 7, SpriteSheetY: 7,
+		BaseHP: 45, AC: 15, Str: 18, Dex: 10, Con: 18, Int: 8, Wis: 12, Cha: 10, Move: 4,
+		Width: 2, Height: 2, AttackType: "melee", MaxRange: 1,
+		AttackDiceNum: 2, AttackDiceSize: 8, AttackAbilityMod: "STR",
+	},
+	"Orc Warrior": {
+		Name: "Orc Warrior", SpriteSheetX: 3, SpriteSheetY: 0,
+		BaseHP: 18, AC: 15, Str: 18, Dex: 10, Con: 18, Int: 8, Wis: 12, Cha: 10, Move: 4,
+		Width: 1, Height: 1, AttackType: "melee", MaxRange: 1,
+		AttackDiceNum: 2, AttackDiceSize: 8, AttackAbilityMod: "STR",
+	},
+	"Orc Shaman": {
+		Name: "Orc Shaman", SpriteSheetX: 1, SpriteSheetY: 0,
+		BaseHP: 18, AC: 15, Str: 18, Dex: 10, Con: 18, Int: 8, Wis: 12, Cha: 10, Move: 4,
+		Width: 1, Height: 1, AttackType: "melee", MaxRange: 1,
+		AttackDiceNum: 2, AttackDiceSize: 8, AttackAbilityMod: "STR",
+	},
+	"Orc Chieftain": {
+		Name: "Orc Chieftain", SpriteSheetX: 4, SpriteSheetY: 0,
+		BaseHP: 18, AC: 15, Str: 18, Dex: 10, Con: 18, Int: 8, Wis: 12, Cha: 10, Move: 4,
+		Width: 1, Height: 1, AttackType: "melee", MaxRange: 1,
+		AttackDiceNum: 2, AttackDiceSize: 8, AttackAbilityMod: "STR",
+	},
+	"Orc Brute": {
+		Name: "Orc Brute", SpriteSheetX: 0, SpriteSheetY: 0,
+		BaseHP: 18, AC: 15, Str: 18, Dex: 10, Con: 18, Int: 8, Wis: 12, Cha: 10, Move: 4,
+		Width: 1, Height: 1, AttackType: "melee", MaxRange: 1,
+		AttackDiceNum: 2, AttackDiceSize: 8, AttackAbilityMod: "STR",
 	},
 }
 
@@ -717,15 +795,21 @@ func (g *Game) InitializeGameplay(playerClassName string) {
 		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Goblin Scout", SpawnPointIdx: 2}, {TypeName: "Goblin Scout", SpawnPointIdx: 3}, {TypeName: "Goblin Archer", SpawnPointIdx: 4}}, IsBossWave: false},
 		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Goblin Brute", SpawnPointIdx: 0}, {TypeName: "Goblin Archer", SpawnPointIdx: 2}, {TypeName: "Goblin Archer", SpawnPointIdx: 3}}, IsBossWave: false},
 		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Goblin Chieftain", SpawnPointIdx: 4}}, IsBossWave: true},
-		{
-			EnemiesToSpawn: []EnemySpawnInfo{
-				{TypeName: "Melee Skeleton", SpawnPointIdx: 0},
-				{TypeName: "Melee Skeleton", SpawnPointIdx: 1},
-				{TypeName: "Melee Skeleton", SpawnPointIdx: 2},
-				{TypeName: "Ranged Skeleton", SpawnPointIdx: 4},
-			},
-			IsBossWave: false,
-		},
+
+		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Orc Warrior", SpawnPointIdx: 0}, {TypeName: "Orc Warrior", SpawnPointIdx: 1}, {TypeName: "Goblin Scout", SpawnPointIdx: 3}}, IsBossWave: false},
+		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Orc Warrior", SpawnPointIdx: 0}, {TypeName: "Orc Shaman", SpawnPointIdx: 4}, {TypeName: "Orc Warrior", SpawnPointIdx: 1}}, IsBossWave: false},
+		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Orc Brute", SpawnPointIdx: 0}, {TypeName: "Orc Shaman", SpawnPointIdx: 4}, {TypeName: "Orc Warrior", SpawnPointIdx: 2}, {TypeName: "Orc Warrior", SpawnPointIdx: 3}}, IsBossWave: false},
+		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Orc Chieftain", SpawnPointIdx: 4}, {TypeName: "Orc Brute", SpawnPointIdx: 0}, {TypeName: "Orc Brute", SpawnPointIdx: 1}, {TypeName: "Orc Shaman", SpawnPointIdx: 3}}, IsBossWave: true},
+
+		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Small Slime", SpawnPointIdx: 0}, {TypeName: "Small Slime", SpawnPointIdx: 1}, {TypeName: "Spore Mushroom", SpawnPointIdx: 4}}, IsBossWave: false},
+		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Tough Slime", SpawnPointIdx: 0}, {TypeName: "Tough Slime", SpawnPointIdx: 1}, {TypeName: "Spore Mushroom", SpawnPointIdx: 2}, {TypeName: "Spore Mushroom", SpawnPointIdx: 3}}, IsBossWave: false},
+		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Goo Spitter", SpawnPointIdx: 4}, {TypeName: "Tough Slime", SpawnPointIdx: 0}, {TypeName: "Tough Slime", SpawnPointIdx: 1}, {TypeName: "Small Slime", SpawnPointIdx: 2}, {TypeName: "Small Slime", SpawnPointIdx: 3}}, IsBossWave: false},
+		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Elder Spore Mushroom", SpawnPointIdx: 4}, {TypeName: "Goo Spitter", SpawnPointIdx: 2}, {TypeName: "Goo Spitter", SpawnPointIdx: 3}, {TypeName: "Tough Slime", SpawnPointIdx: 0}, {TypeName: "Tough Slime", SpawnPointIdx: 1}}, IsBossWave: true},
+
+		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Centaur", SpawnPointIdx: 2}, {TypeName: "Centaur", SpawnPointIdx: 3}, {TypeName: "Druid", SpawnPointIdx: 4}}, IsBossWave: false},
+		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Dire Wolf", SpawnPointIdx: 0}, {TypeName: "Faun", SpawnPointIdx: 2}, {TypeName: "Faun", SpawnPointIdx: 3}, {TypeName: "Druid", SpawnPointIdx: 4}}, IsBossWave: false},
+		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Centaur", SpawnPointIdx: 2}, {TypeName: "Centaur", SpawnPointIdx: 3}, {TypeName: "Naga", SpawnPointIdx: 1}, {TypeName: "Druid", SpawnPointIdx: 4}}, IsBossWave: false},
+		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Tauren", SpawnPointIdx: 4}, {TypeName: "Druid", SpawnPointIdx: 2}, {TypeName: "Druid", SpawnPointIdx: 3}, {TypeName: "Dire Wolf", SpawnPointIdx: 0}, {TypeName: "Dire Wolf", SpawnPointIdx: 1}}, IsBossWave: true},
 	}
 
 	var err error
