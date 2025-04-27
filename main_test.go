@@ -944,3 +944,48 @@ func TestMoveAoONonMage(t *testing.T) {
 		t.Errorf("Player movement points not decremented, got %d", g.Player.MovementPoints)
 	}
 }
+
+func TestPlayerDeathGameOverState(t *testing.T) {
+	initialPos := image.Point{X: 5, Y: 5}
+	enemies := []EnemySpawnInfo{{TypeName: "Goblin Scout"}}
+	g := createTestPlayerWithClass(1, "Fighter", nil, nil, enemies, initialPos)
+	if len(g.Enemies) == 0 {
+		t.Fatal("Test setup error: Enemy did not spawn")
+	}
+	enemy := g.Enemies[0]
+	enemy.X = g.Player.X + 1
+	enemy.Y = g.Player.Y
+
+	g.Player.HP = 1
+	g.Player.AC = 0
+	g.CurrentTurn = EnemyTurn
+	enemy.ActionAvailable = true
+	enemy.MovementPoints = enemy.MaxMovementPoints
+
+	killed, _ := g.resolveAttack(&enemy.Entity, &g.Player.Entity, 0, "melee")
+
+	if !killed {
+		t.Fatalf("Enemy attack did not kill player with 1 HP and 0 AC. Check attack/damage logic.")
+	}
+	if !g.Player.IsDying {
+		t.Errorf("Player.IsDying was not set to true after lethal damage.")
+	}
+	if g.CurrentGameState != StateGameOverScreen {
+		t.Errorf("Game.CurrentGameState was not set to StateGameOverScreen immediately after lethal damage. Got: %v", g.CurrentGameState)
+	}
+	if g.CurrentTurn != GameOver {
+		t.Errorf("Game.CurrentTurn was not set to GameOver immediately after lethal damage. Got: %v", g.CurrentTurn)
+	}
+
+	g.endEnemyTurn()
+
+	if g.Player.IsDying == false {
+		t.Errorf("Player.IsDying became false after endEnemyTurn.")
+	}
+	if g.CurrentGameState != StateGameOverScreen {
+		t.Errorf("Game.CurrentGameState was not StateGameOverScreen after endEnemyTurn. Got: %v", g.CurrentGameState)
+	}
+	if g.CurrentTurn != GameOver {
+		t.Errorf("Game.CurrentTurn was not GameOver after endEnemyTurn. Got: %v", g.CurrentTurn)
+	}
+}

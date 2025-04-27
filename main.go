@@ -274,22 +274,25 @@ type ActionDefinition struct {
 }
 
 type EnemyDefinition struct {
-	Name         string
-	SpriteSheetX int
-	SpriteSheetY int
-	BaseHP       int
-	AC           int
-	Str          int
-	Dex          int
-	Con          int
-	Int          int
-	Wis          int
-	Cha          int
-	Move         int
-	Width        int
-	Height       int
-	AttackType   string
-	MaxRange     int
+	Name             string
+	SpriteSheetX     int
+	SpriteSheetY     int
+	BaseHP           int
+	AC               int
+	Str              int
+	Dex              int
+	Con              int
+	Int              int
+	Wis              int
+	Cha              int
+	Move             int
+	Width            int
+	Height           int
+	AttackType       string
+	MaxRange         int
+	AttackDiceNum    int
+	AttackDiceSize   int
+	AttackAbilityMod string
 }
 
 type EnemySpawnInfo struct {
@@ -318,31 +321,61 @@ var EnemyDefinitions = map[string]EnemyDefinition{
 		Name: "Small Slime", SpriteSheetX: 0, SpriteSheetY: 2,
 		BaseHP: 6, AC: 10, Str: 12, Dex: 10, Con: 11, Int: 8, Wis: 8, Cha: 8, Move: 3,
 		Width: 1, Height: 1, AttackType: "melee", MaxRange: 1,
+		AttackDiceNum: 0, AttackDiceSize: 0, AttackAbilityMod: "STR",
 	},
 	"Tough Slime": {
 		Name: "Tough Slime", SpriteSheetX: 1, SpriteSheetY: 2,
 		BaseHP: 7, AC: 10, Str: 12, Dex: 10, Con: 11, Int: 8, Wis: 8, Cha: 8, Move: 3,
 		Width: 1, Height: 1, AttackType: "melee", MaxRange: 1,
+		AttackDiceNum: 0, AttackDiceSize: 0, AttackAbilityMod: "STR",
 	},
 	"Goo Spitter": {
 		Name: "Goo Spitter", SpriteSheetX: 2, SpriteSheetY: 2,
 		BaseHP: 5, AC: 11, Str: 8, Dex: 14, Con: 10, Int: 8, Wis: 8, Cha: 8, Move: 4,
 		Width: 1, Height: 1, AttackType: "ranged", MaxRange: 4,
+		AttackDiceNum: 0, AttackDiceSize: 0, AttackAbilityMod: "DEX",
 	},
 	"Big Slime Boss": {
 		Name: "Big Slime Boss", SpriteSheetX: 1, SpriteSheetY: 2,
 		BaseHP: 25, AC: 12, Str: 14, Dex: 8, Con: 15, Int: 6, Wis: 6, Cha: 6, Move: 2,
 		Width: 2, Height: 2, AttackType: "melee", MaxRange: 1,
+		AttackDiceNum: 0, AttackDiceSize: 0, AttackAbilityMod: "STR",
 	},
 	"Melee Skeleton": {
 		Name: "Melee Skeleton", SpriteSheetX: 0, SpriteSheetY: 4,
 		BaseHP: 13, AC: 13, Str: 10, Dex: 14, Con: 15, Int: 6, Wis: 8, Cha: 5, Move: enemyBaseMovement,
 		Width: 1, Height: 1, AttackType: "melee", MaxRange: 1,
+		AttackDiceNum: 1, AttackDiceSize: 6, AttackAbilityMod: "DEX",
 	},
 	"Ranged Skeleton": {
 		Name: "Ranged Skeleton", SpriteSheetX: 1, SpriteSheetY: 4,
 		BaseHP: 11, AC: 13, Str: 8, Dex: 16, Con: 13, Int: 6, Wis: 8, Cha: 5, Move: enemyBaseMovement,
 		Width: 1, Height: 1, AttackType: "ranged", MaxRange: 5,
+		AttackDiceNum: 1, AttackDiceSize: 6, AttackAbilityMod: "DEX",
+	},
+	"Goblin Scout": {
+		Name: "Goblin Scout", SpriteSheetX: 2, SpriteSheetY: 0,
+		BaseHP: 6, AC: 9, Str: 10, Dex: 15, Con: 10, Int: 10, Wis: 10, Cha: 8, Move: 6,
+		Width: 1, Height: 1, AttackType: "melee", MaxRange: 1,
+		AttackDiceNum: 1, AttackDiceSize: 4, AttackAbilityMod: "DEX",
+	},
+	"Goblin Archer": {
+		Name: "Goblin Archer", SpriteSheetX: 5, SpriteSheetY: 0,
+		BaseHP: 4, AC: 10, Str: 8, Dex: 13, Con: 11, Int: 10, Wis: 12, Cha: 8, Move: 5,
+		Width: 1, Height: 1, AttackType: "ranged", MaxRange: 6,
+		AttackDiceNum: 1, AttackDiceSize: 6, AttackAbilityMod: "DEX",
+	},
+	"Goblin Brute": {
+		Name: "Goblin Brute", SpriteSheetX: 7, SpriteSheetY: 0,
+		BaseHP: 8, AC: 12, Str: 14, Dex: 12, Con: 14, Int: 8, Wis: 8, Cha: 8, Move: 4,
+		Width: 1, Height: 1, AttackType: "melee", MaxRange: 1,
+		AttackDiceNum: 1, AttackDiceSize: 8, AttackAbilityMod: "STR",
+	},
+	"Goblin Chieftain": {
+		Name: "Goblin Chieftain", SpriteSheetX: 4, SpriteSheetY: 0,
+		BaseHP: 18, AC: 14, Str: 17, Dex: 14, Con: 16, Int: 12, Wis: 13, Cha: 14, Move: 4,
+		Width: 2, Height: 1, AttackType: "melee", MaxRange: 1,
+		AttackDiceNum: 2, AttackDiceSize: 6, AttackAbilityMod: "STR",
 	},
 }
 
@@ -680,10 +713,10 @@ func (g *Game) InitializeGameplay(playerClassName string) {
 	g.isVictory = false
 
 	g.WaveDefinitions = []WaveDefinition{
-		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Small Slime", SpawnPointIdx: 0}, {TypeName: "Small Slime", SpawnPointIdx: 1}}, IsBossWave: false},
-		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Tough Slime", SpawnPointIdx: 2}, {TypeName: "Tough Slime", SpawnPointIdx: 3}}, IsBossWave: false},
-		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Tough Slime", SpawnPointIdx: 0}, {TypeName: "Goo Spitter", SpawnPointIdx: 4}, {TypeName: "Tough Slime", SpawnPointIdx: 1}}, IsBossWave: false},
-		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Big Slime Boss", SpawnPointIdx: 4}}, IsBossWave: true},
+		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Goblin Scout", SpawnPointIdx: 0}, {TypeName: "Goblin Scout", SpawnPointIdx: 1}}, IsBossWave: false},
+		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Goblin Scout", SpawnPointIdx: 2}, {TypeName: "Goblin Scout", SpawnPointIdx: 3}, {TypeName: "Goblin Archer", SpawnPointIdx: 4}}, IsBossWave: false},
+		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Goblin Brute", SpawnPointIdx: 0}, {TypeName: "Goblin Archer", SpawnPointIdx: 2}, {TypeName: "Goblin Archer", SpawnPointIdx: 3}}, IsBossWave: false},
+		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Goblin Chieftain", SpawnPointIdx: 4}}, IsBossWave: true},
 		{
 			EnemiesToSpawn: []EnemySpawnInfo{
 				{TypeName: "Melee Skeleton", SpawnPointIdx: 0},
@@ -740,21 +773,24 @@ func (g *Game) InitializeGameplay(playerClassName string) {
 	playerInt, playerWis, playerCha := 10, 10, 10
 
 	if playerClassName == "Fighter" {
-		playerStr, playerDex, playerCon = 15, 14, 13
-		playerInt, playerWis, playerCha = 8, 10, 12
+		playerStr, playerDex, playerCon = 16, 14, 14
+		playerInt, playerWis, playerCha = 8, 8, 10
 	} else if playerClassName == "Mage" {
-		playerStr, playerDex, playerCon = 8, 13, 14
-		playerInt, playerWis, playerCha = 15, 12, 10
+		playerStr, playerDex, playerCon = 8, 14, 14
+		playerInt, playerWis, playerCha = 16, 10, 8
 	}
 
 	playerConMod := getModifier(playerCon)
+	playerDexMod := getModifier(playerDex)
 
 	startLevel := 1
 	playerMaxHP := classDef.HitDieSize + playerConMod
+	playerAC := 10 + playerDexMod
+
 	g.Player = &Player{
 		Entity: Entity{
 			X: mapWidth / 2, Y: mapHeight / 2, Width: 1, Height: 1,
-			HP: playerMaxHP, MaxHP: playerMaxHP, AC: 10 + getModifier(playerDex),
+			HP: playerMaxHP, MaxHP: playerMaxHP, AC: playerAC,
 			Strength: playerStr, Dexterity: playerDex, Constitution: playerCon,
 			Intelligence: playerInt, Wisdom: playerWis, Charisma: playerCha,
 			Sprite: playerSprite, Name: "Player",
@@ -1072,11 +1108,7 @@ func (g *Game) handleWaveCompletion() {
 func (g *Game) startNextWave() {
 	g.SpawnNextWave()
 	if len(g.Enemies) > 0 {
-		if g.CurrentTurn == PlayerTurn {
-			g.startEnemyTurn()
-		} else {
-			g.startPlayerTurn()
-		}
+		g.startPlayerTurn()
 	} else {
 		g.addCombatLog("Error spawning next wave or wave empty.")
 		g.setGameOver(false)
@@ -1114,10 +1146,25 @@ func (g *Game) endEnemyTurn() {
 		return
 	}
 
+	if g.CurrentTurn == GameOver || g.CurrentGameState == StateGameOverScreen {
+		return
+	}
 	if len(g.Enemies) == 0 {
+		if g.Player.IsDying {
+			if g.CurrentGameState != StateGameOverScreen {
+				g.setGameOver(false)
+			}
+			return
+		}
 		g.handleWaveCompletion()
 	} else {
-		g.startPlayerTurn()
+		if !g.Player.IsDying {
+			g.startPlayerTurn()
+		} else {
+			if g.CurrentGameState != StateGameOverScreen {
+				g.setGameOver(false)
+			}
+		}
 	}
 }
 
@@ -1361,6 +1408,7 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 
 	var attackAbilityMod int
 	var abilityName string
+	var enemyDef *EnemyDefinition
 
 	if isPlayerAttacking {
 		switch attackType {
@@ -1372,13 +1420,51 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 			abilityName = "STR"
 		}
 	} else {
-		switch attackType {
-		case "ranged":
-			attackAbilityMod = getModifier(attacker.Dexterity)
-			abilityName = "DEX"
-		default:
-			attackAbilityMod = getModifier(attacker.Strength)
-			abilityName = "STR"
+		foundDef := false
+		var tempDef EnemyDefinition
+		for _, def := range EnemyDefinitions {
+			if def.Name == attacker.Name {
+				tempDef = def
+				enemyDef = &tempDef
+				foundDef = true
+				break
+			}
+		}
+
+		if foundDef {
+			switch enemyDef.AttackAbilityMod {
+			case "STR":
+				attackAbilityMod = getModifier(attacker.Strength)
+				abilityName = "STR"
+			case "DEX":
+				attackAbilityMod = getModifier(attacker.Dexterity)
+				abilityName = "DEX"
+			case "INT":
+				attackAbilityMod = getModifier(attacker.Intelligence)
+				abilityName = "INT"
+			case "WIS":
+				attackAbilityMod = getModifier(attacker.Wisdom)
+				abilityName = "WIS"
+			case "CHA":
+				attackAbilityMod = getModifier(attacker.Charisma)
+				abilityName = "CHA"
+			default:
+				if enemyDef.AttackType == "ranged" {
+					attackAbilityMod = getModifier(attacker.Dexterity)
+					abilityName = "DEX"
+				} else {
+					attackAbilityMod = getModifier(attacker.Strength)
+					abilityName = "STR"
+				}
+			}
+		} else {
+			if attackType == "ranged" {
+				attackAbilityMod = getModifier(attacker.Dexterity)
+				abilityName = "DEX"
+			} else {
+				attackAbilityMod = getModifier(attacker.Strength)
+				abilityName = "STR"
+			}
 		}
 	}
 
@@ -1387,6 +1473,7 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 	if isPlayerDefending {
 		effectiveAC += g.Player.ACBonusUntilNextTurn
 	}
+
 	attackRoll := roll + attackerProfBonus + attackAbilityMod
 	isCrit := roll == 20
 	isFumble := roll == 1
@@ -1485,37 +1572,37 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 				}
 			}
 		} else {
-			if attacker.Name == "Melee Skeleton" {
-				damageRoll1 = rand.Intn(6) + 1
+			if enemyDef != nil && enemyDef.AttackDiceNum > 0 && enemyDef.AttackDiceSize > 0 {
+				totalDiceRoll := 0
+				diceRolls := []int{}
+				numDiceToRoll := enemyDef.AttackDiceNum
 				if isCrit {
-					damageRoll2 = rand.Intn(6) + 1
+					numDiceToRoll *= 2
 				}
-				damage = damageRoll1 + damageRoll2 + getModifier(attacker.Dexterity)
-				if isCrit {
-					damageLog = fmt.Sprintf(" (2d6[%d,%d]%+d)", damageRoll1, damageRoll2, getModifier(attacker.Dexterity))
-				} else {
-					damageLog = fmt.Sprintf(" (1d6[%d]%+d)", damageRoll1, getModifier(attacker.Dexterity))
+
+				for i := 0; i < numDiceToRoll; i++ {
+					roll := rand.Intn(enemyDef.AttackDiceSize) + 1
+					totalDiceRoll += roll
+					diceRolls = append(diceRolls, roll)
 				}
-			} else if attacker.Name == "Ranged Skeleton" {
-				damageRoll1 = rand.Intn(6) + 1
-				if isCrit {
-					damageRoll2 = rand.Intn(6) + 1
+				damage = totalDiceRoll + attackAbilityMod
+
+				rollsStr := ""
+				for i, r := range diceRolls {
+					rollsStr += fmt.Sprintf("%d", r)
+					if i < len(diceRolls)-1 {
+						rollsStr += ","
+					}
 				}
-				damage = damageRoll1 + damageRoll2 + getModifier(attacker.Dexterity)
-				if isCrit {
-					damageLog = fmt.Sprintf(" (2d6[%d,%d]%+d)", damageRoll1, damageRoll2, getModifier(attacker.Dexterity))
-				} else {
-					damageLog = fmt.Sprintf(" (1d6[%d]%+d)", damageRoll1, getModifier(attacker.Dexterity))
-				}
+				damageLog = fmt.Sprintf(" (%dd%d[%s]%+d)", numDiceToRoll, enemyDef.AttackDiceSize, rollsStr, attackAbilityMod)
+
 			} else {
-				damageRoll1 = 0
 				damage = max(1, attackAbilityMod)
 				if isCrit {
-					damage = max(1, attackAbilityMod*2)
-				}
-				damageLog = fmt.Sprintf(" (%+d)", attackAbilityMod)
-				if isCrit {
-					damageLog = fmt.Sprintf(" (Crit %+d)", attackAbilityMod*2)
+					damage = max(1, damage*2)
+					damageLog = fmt.Sprintf(" (Crit %+d)", damage)
+				} else {
+					damageLog = fmt.Sprintf(" (%+d)", damage)
 				}
 			}
 		}
@@ -2768,41 +2855,6 @@ func (g *Game) cleanupDeadEnemies() {
 }
 
 func (g *Game) Update() error {
-	switch g.CurrentGameState {
-	case StateClassSelection:
-		if inpututil.IsKeyJustPressed(ebiten.KeyArrowUp) {
-			g.classSelectionIndex--
-			if g.classSelectionIndex < 0 {
-				g.classSelectionIndex = len(g.selectableClasses) - 1
-			}
-		}
-		if inpututil.IsKeyJustPressed(ebiten.KeyArrowDown) {
-			g.classSelectionIndex++
-			if g.classSelectionIndex >= len(g.selectableClasses) {
-				g.classSelectionIndex = 0
-			}
-		}
-		if inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
-			selected := g.selectableClasses[g.classSelectionIndex]
-			if selected.IsAvailable {
-				g.InitializeGameplay(selected.Name)
-			}
-		}
-	case StatePlaying:
-		g.UpdatePlaying()
-	case StateGameOverScreen:
-		// TODO: add input to restart or quit later
-	}
-
-	return nil
-}
-
-func (g *Game) UpdatePlaying() {
-	if g.reactionPending {
-		g.handlePlayerInput()
-		return
-	}
-
 	activeTexts := make([]*FloatingText, 0, len(g.FloatingTexts))
 	for _, ft := range g.FloatingTexts {
 		ft.Life--
@@ -2837,14 +2889,43 @@ func (g *Game) UpdatePlaying() {
 		}
 	}
 
-	if g.CurrentTurn == GameOver {
-		if g.Player.IsDying && g.Player.CurrentAlpha <= 0 {
-			g.setGameOver(false)
-			return
+	switch g.CurrentGameState {
+	case StateClassSelection:
+		if inpututil.IsKeyJustPressed(ebiten.KeyArrowUp) {
+			g.classSelectionIndex--
+			if g.classSelectionIndex < 0 {
+				g.classSelectionIndex = len(g.selectableClasses) - 1
+			}
 		}
-		if !g.Player.IsDying {
-			return
+		if inpututil.IsKeyJustPressed(ebiten.KeyArrowDown) {
+			g.classSelectionIndex++
+			if g.classSelectionIndex >= len(g.selectableClasses) {
+				g.classSelectionIndex = 0
+			}
 		}
+		if inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
+			selected := g.selectableClasses[g.classSelectionIndex]
+			if selected.IsAvailable {
+				g.InitializeGameplay(selected.Name)
+			}
+		}
+	case StatePlaying:
+		g.UpdatePlaying()
+	case StateGameOverScreen:
+		break
+	}
+
+	return nil
+}
+
+func (g *Game) UpdatePlaying() {
+	if g.reactionPending {
+		g.handlePlayerInput()
+		return
+	}
+
+	if g.CurrentTurn == GameOver || g.CurrentGameState == StateGameOverScreen {
+		return
 	}
 
 	if g.InputMode == InputModeLevelUp {
@@ -2870,7 +2951,6 @@ func (g *Game) UpdatePlaying() {
 			return
 		}
 		if g.Player.IsDying && g.Player.CurrentAlpha <= 0 && g.CurrentGameState != StateGameOverScreen {
-			g.addCombatLog("Player has faded away! Game Over.")
 			g.setGameOver(false)
 			return
 		}
@@ -3395,26 +3475,16 @@ func (g *Game) DrawGameOver(screen *ebiten.Image) {
 		gameOverMsg = "VICTORY!"
 	}
 
-	shouldDraw := true
-	if g.Player != nil && g.Player.IsDying && g.Player.CurrentAlpha > 0 {
-		shouldDraw = false
-	}
-	if g.InputMode == InputModeLevelUp {
-		shouldDraw = false
-	}
+	msgFont := basicfont.Face7x13
+	bounds := text.BoundString(msgFont, gameOverMsg)
+	msgX := (screenWidth - bounds.Dx()) / 2
+	msgY := (screenHeight - bounds.Dy()) / 2
 
-	if shouldDraw {
-		msgFont := basicfont.Face7x13
-		bounds := text.BoundString(msgFont, gameOverMsg)
-		msgX := (screenWidth - bounds.Dx()) / 2
-		msgY := (screenHeight - bounds.Dy()) / 2
+	overlayColor := color.NRGBA{R: 0, G: 0, B: 0, A: 180}
+	vector.DrawFilledRect(screen, 0, 0, float32(screenWidth), float32(screenHeight), overlayColor, false)
 
-		overlayColor := color.NRGBA{R: 0, G: 0, B: 0, A: 180}
-		vector.DrawFilledRect(screen, 0, 0, float32(screenWidth), float32(screenHeight), overlayColor, false)
-
-		text.Draw(screen, gameOverMsg, msgFont, msgX+1, msgY+1, colorBlack)
-		text.Draw(screen, gameOverMsg, msgFont, msgX, msgY, colorWhite)
-	}
+	text.Draw(screen, gameOverMsg, msgFont, msgX+1, msgY+1, colorBlack)
+	text.Draw(screen, gameOverMsg, msgFont, msgX, msgY, colorWhite)
 }
 
 func max(a, b int) int {
@@ -3454,8 +3524,7 @@ func main() {
 
 	game := NewGameInitial()
 	ebiten.SetWindowSize(screenWidth*2, screenHeight*2)
-	ebiten.SetWindowTitle("Slumb Gate - Class Select Test")
-	// ebiten.SetFullscreen(true)
+	ebiten.SetWindowTitle("Slumb Gate")
 	if err := ebiten.RunGame(game); err != nil {
 		log.Fatal(err)
 	}
