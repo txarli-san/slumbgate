@@ -497,7 +497,7 @@ func init() {
 			ResourceType:     ResourceNone,
 			ResourceCost:     0,
 			Targeting:        TargetEnemyRange,
-			Range:            playerRangedRange,
+			Range:            playerRangedRange + 2,
 			RequiresTarget:   true,
 			Execute:          executeFirebolt,
 			VisualEffectType: "Fire",
@@ -3446,6 +3446,7 @@ func main() {
 	game := NewGameInitial()
 	ebiten.SetWindowSize(screenWidth*2, screenHeight*2)
 	ebiten.SetWindowTitle("Slumb Gate - Class Select Test")
+	// ebiten.SetFullscreen(true)
 	if err := ebiten.RunGame(game); err != nil {
 		log.Fatal(err)
 	}
