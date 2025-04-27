@@ -45,6 +45,15 @@ var (
 	colorWhite  = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
 	colorBlack  = color.NRGBA{R: 0, G: 0, B: 0, A: 255}
 	colorGray   = color.NRGBA{R: 180, G: 180, B: 180, A: 255}
+	colorLocked = color.NRGBA{R: 100, G: 100, B: 100, A: 255}
+)
+
+type GameState int
+
+const (
+	StateClassSelection GameState = iota
+	StatePlaying
+	StateGameOverScreen
 )
 
 type TurnState int
@@ -196,6 +205,11 @@ type ClassDefinition struct {
 	SpriteSheetY     int
 }
 
+type SelectableClass struct {
+	Name        string
+	IsAvailable bool
+}
+
 type Game struct {
 	Player                    *Player
 	Enemies                   []*Enemy
@@ -219,6 +233,10 @@ type Game struct {
 	reactionPending           bool
 	reactionAttackerID        int
 	pendingLevelUpSpellChoice int
+	CurrentGameState          GameState
+	selectableClasses         []SelectableClass
+	classSelectionIndex       int
+	isVictory                 bool
 }
 
 type ActionExecuteFunc func(g *Game, targetX, targetY int) bool
@@ -625,8 +643,28 @@ func spellSaveDC(g *Game) int {
 	return 8 + mod + g.Player.ProficiencyBonus
 }
 
-func NewGame() *Game {
+func NewGameInitial() *Game {
 	g := &Game{}
+	g.CurrentGameState = StateClassSelection
+	g.selectableClasses = []SelectableClass{
+		{Name: "Fighter", IsAvailable: true},
+		{Name: "Mage", IsAvailable: true},
+		{Name: "Druid", IsAvailable: false},
+		{Name: "Cleric", IsAvailable: false},
+		{Name: "Rogue", IsAvailable: false},
+	}
+	g.classSelectionIndex = 0
+
+	for i, class := range g.selectableClasses {
+		if class.IsAvailable {
+			g.classSelectionIndex = i
+			break
+		}
+	}
+	return g
+}
+
+func (g *Game) InitializeGameplay(playerClassName string) {
 	g.Enemies = make([]*Enemy, 0)
 	g.CombatLog = make([]string, 0, combatLogLength)
 	g.MapOffsetX = (screenWidth - (mapWidth * tileSize)) / 2
@@ -636,6 +674,7 @@ func NewGame() *Game {
 	g.lastExecutedActionID = ""
 	g.CurrentWaveIndex = -1
 	g.FloatingTexts = make([]*FloatingText, 0)
+	g.isVictory = false
 
 	g.WaveDefinitions = []WaveDefinition{
 		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Small Slime", SpawnPointIdx: 0}, {TypeName: "Small Slime", SpawnPointIdx: 1}}, IsBossWave: false},
@@ -687,15 +726,24 @@ func NewGame() *Game {
 	overlayColor := color.NRGBA{R: 0, G: 100, B: 200, A: 80}
 	vector.DrawFilledRect(g.RangeOverlayTile, 0, 0, float32(tileSize), float32(tileSize), overlayColor, false)
 
-	playerClass := "Mage"
-	classDef, classExists := ClassDefinitions[playerClass]
+	classDef, classExists := ClassDefinitions[playerClassName]
 	if !classExists {
-		log.Fatalf("FATAL: Player class '%s' not found in ClassDefinitions!", playerClass)
+		log.Fatalf("FATAL: Player class '%s' not found in ClassDefinitions!", playerClassName)
 	}
 
 	playerSprite := getSpriteFromSheet(g.rogueSheet, classDef.SpriteSheetX, classDef.SpriteSheetY)
-	playerStr, playerDex, playerCon := 8, 13, 14
-	playerInt, playerWis, playerCha := 15, 12, 10
+
+	playerStr, playerDex, playerCon := 10, 10, 10
+	playerInt, playerWis, playerCha := 10, 10, 10
+
+	if playerClassName == "Fighter" {
+		playerStr, playerDex, playerCon = 15, 14, 13
+		playerInt, playerWis, playerCha = 8, 10, 12
+	} else if playerClassName == "Mage" {
+		playerStr, playerDex, playerCon = 8, 13, 14
+		playerInt, playerWis, playerCha = 15, 12, 10
+	}
+
 	playerConMod := getModifier(playerCon)
 
 	startLevel := 1
@@ -710,7 +758,7 @@ func NewGame() *Game {
 			CurrentAlpha: 1.0,
 		},
 		Level:                startLevel,
-		Class:                playerClass,
+		Class:                playerClassName,
 		ProficiencyBonus:     calculateProficiencyBonus(startLevel),
 		MaxMovementPoints:    playerBaseMovement,
 		ClassResources:       make(map[string]int),
@@ -731,7 +779,7 @@ func NewGame() *Game {
 	g.CurrentTurn = PlayerTurn
 	g.SpawnNextWave()
 	g.startPlayerTurn()
-	return g
+	g.CurrentGameState = StatePlaying
 }
 
 func (g *Game) initializePlayerResources() {
@@ -990,6 +1038,12 @@ func (g *Game) startPlayerTurn() {
 	g.primedActionID = ""
 }
 
+func (g *Game) setGameOver(victory bool) {
+	g.CurrentTurn = GameOver
+	g.CurrentGameState = StateGameOverScreen
+	g.isVictory = victory
+}
+
 func (g *Game) handleWaveCompletion() {
 	currentWaveDef := g.WaveDefinitions[g.CurrentWaveIndex]
 	isFinalWave := g.CurrentWaveIndex+1 >= len(g.WaveDefinitions)
@@ -1008,7 +1062,7 @@ func (g *Game) handleWaveCompletion() {
 	} else {
 		g.addCombatLog("All challenges overcome! VICTORY!")
 		g.longRest()
-		g.CurrentTurn = GameOver
+		g.setGameOver(true)
 	}
 }
 
@@ -1022,7 +1076,7 @@ func (g *Game) startNextWave() {
 		}
 	} else {
 		g.addCombatLog("Error spawning next wave or wave empty.")
-		g.CurrentTurn = GameOver
+		g.setGameOver(false)
 	}
 	g.InputMode = InputModeMap
 }
@@ -1037,7 +1091,7 @@ func (g *Game) endPlayerTurn() {
 	}
 
 	g.primedActionID = ""
-	if g.CurrentTurn != GameOver && g.InputMode != InputModeRestPrompt && g.InputMode != InputModeLevelUp {
+	if g.CurrentGameState == StatePlaying && g.InputMode != InputModeRestPrompt && g.InputMode != InputModeLevelUp {
 		g.InputMode = InputModeMap
 	}
 }
@@ -1050,9 +1104,9 @@ func (g *Game) endEnemyTurn() {
 	g.cleanupDeadEnemies()
 
 	if g.Player.IsDying && g.Player.CurrentAlpha <= 0 {
-		if g.CurrentTurn != GameOver {
+		if g.CurrentGameState != StateGameOverScreen {
 			g.addCombatLog("Player has faded away! Game Over.")
-			g.CurrentTurn = GameOver
+			g.setGameOver(false)
 		}
 		return
 	}
@@ -1070,8 +1124,8 @@ func (g *Game) SpawnNextWave() {
 	if g.CurrentWaveIndex >= len(g.WaveDefinitions) {
 		log.Printf("Attempted to spawn wave index %d, but only %d waves are defined.", g.CurrentWaveIndex, len(g.WaveDefinitions))
 		g.addCombatLog("No more waves defined.")
-		if g.CurrentTurn != GameOver {
-			g.CurrentTurn = GameOver
+		if g.CurrentGameState != StateGameOverScreen {
+			g.setGameOver(true)
 		}
 		return
 	}
@@ -1200,6 +1254,9 @@ func (g *Game) spawnEnemy(x, y int, name string, baseHp, ac, str, dex, con, inte
 }
 
 func (g *Game) addCombatLog(msg string) {
+	if g.CombatLog == nil {
+		g.CombatLog = make([]string, 0, combatLogLength)
+	}
 	g.CombatLog = append(g.CombatLog, msg)
 	if len(g.CombatLog) > combatLogLength {
 		g.CombatLog = g.CombatLog[len(g.CombatLog)-combatLogLength:]
@@ -1207,7 +1264,7 @@ func (g *Game) addCombatLog(msg string) {
 }
 
 func (g *Game) isTileBlocked(checkX, checkY, movingEnemyIndex int) bool {
-	if !g.Player.IsDying && g.Player.HP > 0 && checkX >= g.Player.X && checkX < g.Player.X+g.Player.Width &&
+	if g.Player != nil && !g.Player.IsDying && g.Player.HP > 0 && checkX >= g.Player.X && checkX < g.Player.X+g.Player.Width &&
 		checkY >= g.Player.Y && checkY < g.Player.Y+g.Player.Height {
 		return true
 	}
@@ -1277,6 +1334,9 @@ func isAdjacentToEntity(px, py int, entity *Entity) bool {
 }
 
 func isPlayerAdjacentToEnemy(g *Game) bool {
+	if g.Player == nil {
+		return false
+	}
 	for _, enemy := range g.Enemies {
 		if enemy.IsDying || enemy.HP <= 0 {
 			continue
@@ -1293,8 +1353,8 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 		return false, false
 	}
 
-	isPlayerAttacking := attacker == &g.Player.Entity
-	isPlayerDefending := defender == &g.Player.Entity
+	isPlayerAttacking := g.Player != nil && attacker == &g.Player.Entity
+	isPlayerDefending := g.Player != nil && defender == &g.Player.Entity
 
 	var attackAbilityMod int
 	var abilityName string
@@ -1495,6 +1555,9 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 			logMsg += fmt.Sprintf(" %s dies!", defender.Name)
 			defender.IsDying = true
 			killed = true
+			if isPlayerDefending {
+				g.setGameOver(false)
+			}
 		}
 	} else if !isFumble {
 		logMsg += " Miss!"
@@ -1530,9 +1593,15 @@ func (g *Game) executeAction(actionDef *ActionDefinition, targetX, targetY int) 
 			return false
 		}
 	} else if actionDef.ResourceType == ResourceClassFeature {
-		if classAction != nil && classAction.UsesPerRest > 0 && g.Player.ClassResources[actionDef.ID] < classAction.ResourceCost {
-			g.addCombatLog(fmt.Sprintf("Not enough uses left for %s.", actionDef.Name))
-			return false
+		if classAction != nil && classAction.UsesPerRest > 0 {
+			if _, ok := g.Player.ClassResources[actionDef.ID]; !ok {
+				g.addCombatLog(fmt.Sprintf("Resource %s not initialized for player.", actionDef.ID))
+				return false
+			}
+			if g.Player.ClassResources[actionDef.ID] < classAction.ResourceCost {
+				g.addCombatLog(fmt.Sprintf("Not enough uses left for %s.", actionDef.Name))
+				return false
+			}
 		}
 	}
 
@@ -2097,7 +2166,7 @@ func (g *Game) handlePlayerInput() {
 					g.startNextWave()
 				} else {
 					g.addCombatLog("All challenges overcome! VICTORY!")
-					g.CurrentTurn = GameOver
+					g.setGameOver(true)
 				}
 			}
 		}
@@ -2139,7 +2208,7 @@ func (g *Game) handlePlayerInput() {
 
 				if !selectedActionDef.RequiresTarget {
 					g.executeAction(selectedActionDef, -1, -1)
-					if g.CurrentTurn != GameOver && selectedActionDef.ID != "wait" && g.InputMode != InputModeRestPrompt && g.InputMode != InputModeLevelUp {
+					if g.CurrentGameState == StatePlaying && selectedActionDef.ID != "wait" && g.InputMode != InputModeRestPrompt && g.InputMode != InputModeLevelUp {
 						g.InputMode = InputModeMap
 						g.primedActionID = ""
 					}
@@ -2223,7 +2292,7 @@ func (g *Game) handlePlayerInput() {
 		}
 
 		if actionExecutedByClick {
-			if g.CurrentTurn == GameOver || g.InputMode == InputModeRestPrompt || g.InputMode == InputModeLevelUp {
+			if g.CurrentGameState != StatePlaying || g.InputMode == InputModeRestPrompt || g.InputMode == InputModeLevelUp {
 				return
 			}
 		}
@@ -2377,8 +2446,12 @@ func (g *Game) buildAvailableActions() {
 		} else if actionDef.ResourceType == ResourceClassFeature {
 			if classDef != nil {
 				if classAction, ok := classDef.ClassActions[id]; ok {
-					if classAction.UsesPerRest > 0 && g.Player.ClassResources[id] < classAction.ResourceCost {
-						isAvailable = false
+					if classAction.UsesPerRest > 0 {
+						if _, resOk := g.Player.ClassResources[id]; !resOk {
+							isAvailable = false
+						} else if g.Player.ClassResources[id] < classAction.ResourceCost {
+							isAvailable = false
+						}
 					}
 				}
 			}
@@ -2543,7 +2616,7 @@ func (g *Game) findRetreatStep(startX, startY, targetX, targetY, entityWidth, en
 }
 
 func (g *Game) handleEnemyTurns() {
-	if g.Player.IsDying || g.Player.HP <= 0 {
+	if g.Player == nil || g.Player.IsDying || g.Player.HP <= 0 {
 		return
 	}
 
@@ -2686,9 +2759,39 @@ func (g *Game) cleanupDeadEnemies() {
 }
 
 func (g *Game) Update() error {
+	switch g.CurrentGameState {
+	case StateClassSelection:
+		if inpututil.IsKeyJustPressed(ebiten.KeyArrowUp) {
+			g.classSelectionIndex--
+			if g.classSelectionIndex < 0 {
+				g.classSelectionIndex = len(g.selectableClasses) - 1
+			}
+		}
+		if inpututil.IsKeyJustPressed(ebiten.KeyArrowDown) {
+			g.classSelectionIndex++
+			if g.classSelectionIndex >= len(g.selectableClasses) {
+				g.classSelectionIndex = 0
+			}
+		}
+		if inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
+			selected := g.selectableClasses[g.classSelectionIndex]
+			if selected.IsAvailable {
+				g.InitializeGameplay(selected.Name)
+			}
+		}
+	case StatePlaying:
+		g.UpdatePlaying()
+	case StateGameOverScreen:
+		// TODO: add input to restart or quit later
+	}
+
+	return nil
+}
+
+func (g *Game) UpdatePlaying() {
 	if g.reactionPending {
 		g.handlePlayerInput()
-		return nil
+		return
 	}
 
 	activeTexts := make([]*FloatingText, 0, len(g.FloatingTexts))
@@ -2701,15 +2804,18 @@ func (g *Game) Update() error {
 	}
 	g.FloatingTexts = activeTexts
 
-	if g.Player.AttackBumpTimer > 0 {
-		g.Player.AttackBumpTimer--
-	}
-	if g.Player.IsDying && g.Player.CurrentAlpha > 0 {
-		g.Player.CurrentAlpha -= 1.0 / float64(deathFadeDuration)
-		if g.Player.CurrentAlpha < 0 {
-			g.Player.CurrentAlpha = 0
+	if g.Player != nil {
+		if g.Player.AttackBumpTimer > 0 {
+			g.Player.AttackBumpTimer--
+		}
+		if g.Player.IsDying && g.Player.CurrentAlpha > 0 {
+			g.Player.CurrentAlpha -= 1.0 / float64(deathFadeDuration)
+			if g.Player.CurrentAlpha < 0 {
+				g.Player.CurrentAlpha = 0
+			}
 		}
 	}
+
 	for _, enemy := range g.Enemies {
 		if enemy.AttackBumpTimer > 0 {
 			enemy.AttackBumpTimer--
@@ -2724,49 +2830,100 @@ func (g *Game) Update() error {
 
 	if g.CurrentTurn == GameOver {
 		if g.Player.IsDying && g.Player.CurrentAlpha <= 0 {
-			return nil
+			g.setGameOver(false)
+			return
 		}
 		if !g.Player.IsDying {
-			return nil
+			return
 		}
 	}
 
 	if g.InputMode == InputModeLevelUp {
 		g.handlePlayerInput()
-		return nil
+		return
 	}
 	if g.InputMode == InputModeRestPrompt {
 		g.handlePlayerInput()
-		return nil
+		return
 	}
 
 	if g.CurrentTurn == PlayerTurn || g.InputMode == InputModeActionSelect || g.InputMode == InputModeCharacterSheet {
 		g.handlePlayerInput()
 	}
 
-	if g.CurrentTurn == GameOver || g.InputMode == InputModeLevelUp || g.InputMode == InputModeRestPrompt {
-		return nil
+	if g.CurrentGameState != StatePlaying || g.InputMode == InputModeLevelUp || g.InputMode == InputModeRestPrompt {
+		return
 	}
 
 	if g.CurrentTurn == EnemyTurn {
 		g.handleEnemyTurns()
 		if g.reactionPending {
-			return nil
+			return
 		}
-		if g.Player.IsDying && g.Player.CurrentAlpha <= 0 && g.CurrentTurn != GameOver {
+		if g.Player.IsDying && g.Player.CurrentAlpha <= 0 && g.CurrentGameState != StateGameOverScreen {
 			g.addCombatLog("Player has faded away! Game Over.")
-			g.CurrentTurn = GameOver
-			return nil
+			g.setGameOver(false)
+			return
 		}
 		if g.InputMode != InputModeRestPrompt && g.InputMode != InputModeLevelUp {
 			g.endEnemyTurn()
 		}
 	}
-
-	return nil
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
+	switch g.CurrentGameState {
+	case StateClassSelection:
+		g.DrawClassSelection(screen)
+	case StatePlaying:
+		g.DrawPlaying(screen)
+	case StateGameOverScreen:
+		g.DrawPlaying(screen)
+		g.DrawGameOver(screen)
+	}
+}
+
+func (g *Game) DrawClassSelection(screen *ebiten.Image) {
+	screen.Fill(color.NRGBA{R: 10, G: 10, B: 20, A: 255})
+	title := "Select Your Class"
+	titleFont := basicfont.Face7x13
+	titleBounds := text.BoundString(titleFont, title)
+	titleX := (screenWidth - titleBounds.Dx()) / 2
+	titleY := screenHeight / 4
+	text.Draw(screen, title, titleFont, titleX, titleY, colorWhite)
+
+	itemStartY := titleY + 40
+	itemLineHeight := 20
+	itemX := screenWidth / 3
+
+	for i, class := range g.selectableClasses {
+		lineText := class.Name
+		lineColor := colorGray
+
+		if !class.IsAvailable {
+			lineText += " (Locked)"
+			lineColor = colorLocked
+		}
+
+		if i == g.classSelectionIndex {
+			lineText = "> " + lineText
+			if class.IsAvailable {
+				lineColor = colorWhite
+			} else {
+				lineColor = color.NRGBA{R: 150, G: 150, B: 150, A: 255}
+			}
+		}
+
+		text.Draw(screen, lineText, titleFont, itemX, itemStartY+(i*itemLineHeight), lineColor)
+	}
+	helpText := "Up/Down to navigate, Enter to select"
+	helpBounds := text.BoundString(titleFont, helpText)
+	helpX := (screenWidth - helpBounds.Dx()) / 2
+	helpY := screenHeight - 40
+	text.Draw(screen, helpText, titleFont, helpX, helpY, colorGray)
+}
+
+func (g *Game) DrawPlaying(screen *ebiten.Image) {
 	mapOffsetX, mapOffsetY := g.MapOffsetX, g.MapOffsetY
 	tileOpts := &ebiten.DrawImageOptions{}
 	for x := 0; x < mapWidth; x++ {
@@ -2775,7 +2932,9 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			screenY := float64(mapOffsetY + y*tileSize)
 			tileOpts.GeoM.Reset()
 			tileOpts.GeoM.Translate(screenX, screenY)
-			screen.DrawImage(g.TileImage, tileOpts)
+			if g.TileImage != nil {
+				screen.DrawImage(g.TileImage, tileOpts)
+			}
 		}
 	}
 
@@ -2792,9 +2951,9 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		}
 	}
 
-	if g.CurrentTurn == PlayerTurn && g.primedActionID != "" {
+	if g.CurrentTurn == PlayerTurn && g.primedActionID != "" && g.RangeOverlayTile != nil {
 		actionDef, exists := ActionTable[g.primedActionID]
-		if exists && actionDef.RequiresTarget && actionDef.Range > 0 {
+		if exists && actionDef.RequiresTarget && actionDef.Range > 0 && g.Player != nil {
 			overlayOpts := &ebiten.DrawImageOptions{}
 			originX, originY := g.Player.X, g.Player.Y
 
@@ -2826,7 +2985,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			entitiesToDraw = append(entitiesToDraw, &enemy.Entity)
 		}
 	}
-	if !g.Player.IsDying || g.Player.CurrentAlpha > 0 {
+	if g.Player != nil && (!g.Player.IsDying || g.Player.CurrentAlpha > 0) {
 		entitiesToDraw = append(entitiesToDraw, &g.Player.Entity)
 	}
 
@@ -2866,7 +3025,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 		screen.DrawImage(entity.Sprite, entityOpts)
 
-		if entity.CurrentAlpha > 0 {
+		if entity.CurrentAlpha > 0 && entity.MaxHP > 0 {
 			hpBarBaseX := float64(mapOffsetX+entity.X*tileSize) + bumpOffsetX
 			hpBarBaseY := float64(mapOffsetY + (entity.Y+entity.Height)*tileSize)
 			hpBarX := float32(hpBarBaseX)
@@ -2901,59 +3060,61 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	uiLineHeight := 15
 	statusStartY := 10
 
-	waveText := fmt.Sprintf("Wave: %d / %d", g.CurrentWaveIndex+1, len(g.WaveDefinitions))
-	waveTextWidth := text.BoundString(basicfont.Face7x13, waveText).Dx()
-	ebitenutil.DebugPrintAt(screen, waveText, screenWidth-waveTextWidth-10, statusStartY)
+	if g.Player != nil {
+		waveText := fmt.Sprintf("Wave: %d / %d", g.CurrentWaveIndex+1, len(g.WaveDefinitions))
+		waveTextWidth := text.BoundString(basicfont.Face7x13, waveText).Dx()
+		ebitenutil.DebugPrintAt(screen, waveText, screenWidth-waveTextWidth-10, statusStartY)
 
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Turn: %s", g.CurrentTurn.String()), 10, uiStartY)
-	playerHpVal := max(0, g.Player.HP)
-	effectiveAC := g.Player.AC + g.Player.ACBonusUntilNextTurn
-	acString := fmt.Sprintf("%d", g.Player.AC)
-	if g.Player.ACBonusUntilNextTurn > 0 {
-		acString = fmt.Sprintf("%d (%d+%d)", effectiveAC, g.Player.AC, g.Player.ACBonusUntilNextTurn)
-	}
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("HP: %d/%d AC: %s", playerHpVal, g.Player.MaxHP, acString), 10, uiStartY+uiLineHeight*1)
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Move: %d/%d", g.Player.MovementPoints, g.Player.MaxMovementPoints), 10, uiStartY+uiLineHeight*2)
-	if g.Player.Class == "Mage" {
-		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("L1 Slots: %d/%d", g.Player.SpellSlotsL1, g.Player.MaxSpellSlotsL1), 10, uiStartY+uiLineHeight*3)
-	} else {
-		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Hit Dice: %d/%d", g.Player.HitDice, g.Player.MaxHitDice), 10, uiStartY+uiLineHeight*3)
-	}
-
-	actionStatusText := "Action: Available"
-	if g.Player.ActionTaken {
-		actionStatusText = "Action: Used"
-	}
-	ebitenutil.DebugPrintAt(screen, actionStatusText, 10, uiStartY+uiLineHeight*4)
-
-	bonusActionStatusText := "Bonus Action: Available"
-	if g.Player.BonusActionTaken {
-		bonusActionStatusText = "Bonus Action: Used"
-	}
-	ebitenutil.DebugPrintAt(screen, bonusActionStatusText, 10, uiStartY+uiLineHeight*5)
-
-	reactionStatusText := "Reaction: Available"
-	if g.Player.UsedReaction {
-		reactionStatusText = "Reaction: Used"
-	}
-	ebitenutil.DebugPrintAt(screen, reactionStatusText, 10, uiStartY+uiLineHeight*6)
-
-	primedActionText := "Primed: None"
-	if g.primedActionID != "" {
-		if actionDef, exists := ActionTable[g.primedActionID]; exists {
-			primedActionText = fmt.Sprintf("Primed: %s", actionDef.Name)
-		} else {
-			primedActionText = fmt.Sprintf("Primed: ??? (%s)", g.primedActionID)
+		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Turn: %s", g.CurrentTurn.String()), 10, uiStartY)
+		playerHpVal := max(0, g.Player.HP)
+		effectiveAC := g.Player.AC + g.Player.ACBonusUntilNextTurn
+		acString := fmt.Sprintf("%d", g.Player.AC)
+		if g.Player.ACBonusUntilNextTurn > 0 {
+			acString = fmt.Sprintf("%d (%d+%d)", effectiveAC, g.Player.AC, g.Player.ACBonusUntilNextTurn)
 		}
-	}
-	ebitenutil.DebugPrintAt(screen, primedActionText, 10, uiStartY+uiLineHeight*7)
+		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("HP: %d/%d AC: %s", playerHpVal, g.Player.MaxHP, acString), 10, uiStartY+uiLineHeight*1)
+		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Move: %d/%d", g.Player.MovementPoints, g.Player.MaxMovementPoints), 10, uiStartY+uiLineHeight*2)
+		if g.Player.Class == "Mage" {
+			ebitenutil.DebugPrintAt(screen, fmt.Sprintf("L1 Slots: %d/%d", g.Player.SpellSlotsL1, g.Player.MaxSpellSlotsL1), 10, uiStartY+uiLineHeight*3)
+		} else {
+			ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Hit Dice: %d/%d", g.Player.HitDice, g.Player.MaxHitDice), 10, uiStartY+uiLineHeight*3)
+		}
 
-	statusText := ""
-	if g.Player.IsDisengaging {
-		statusText = "Status: Disengaging"
-	}
-	if statusText != "" {
-		ebitenutil.DebugPrintAt(screen, statusText, 10, uiStartY+uiLineHeight*8)
+		actionStatusText := "Action: Available"
+		if g.Player.ActionTaken {
+			actionStatusText = "Action: Used"
+		}
+		ebitenutil.DebugPrintAt(screen, actionStatusText, 10, uiStartY+uiLineHeight*4)
+
+		bonusActionStatusText := "Bonus Action: Available"
+		if g.Player.BonusActionTaken {
+			bonusActionStatusText = "Bonus Action: Used"
+		}
+		ebitenutil.DebugPrintAt(screen, bonusActionStatusText, 10, uiStartY+uiLineHeight*5)
+
+		reactionStatusText := "Reaction: Available"
+		if g.Player.UsedReaction {
+			reactionStatusText = "Reaction: Used"
+		}
+		ebitenutil.DebugPrintAt(screen, reactionStatusText, 10, uiStartY+uiLineHeight*6)
+
+		primedActionText := "Primed: None"
+		if g.primedActionID != "" {
+			if actionDef, exists := ActionTable[g.primedActionID]; exists {
+				primedActionText = fmt.Sprintf("Primed: %s", actionDef.Name)
+			} else {
+				primedActionText = fmt.Sprintf("Primed: ??? (%s)", g.primedActionID)
+			}
+		}
+		ebitenutil.DebugPrintAt(screen, primedActionText, 10, uiStartY+uiLineHeight*7)
+
+		statusText := ""
+		if g.Player.IsDisengaging {
+			statusText = "Status: Disengaging"
+		}
+		if statusText != "" {
+			ebitenutil.DebugPrintAt(screen, statusText, 10, uiStartY+uiLineHeight*8)
+		}
 	}
 
 	if g.InputMode == InputModeActionSelect {
@@ -2980,7 +3141,11 @@ func (g *Game) Draw(screen *ebiten.Image) {
 				if classDef != nil {
 					if classAction, ok := classDef.ClassActions[actionDef.ID]; ok {
 						if classAction.UsesPerRest > 0 {
-							resourceText = fmt.Sprintf(" (%d/%d)", g.Player.ClassResources[actionDef.ID], classAction.UsesPerRest)
+							uses := 0
+							if val, resOk := g.Player.ClassResources[actionDef.ID]; resOk {
+								uses = val
+							}
+							resourceText = fmt.Sprintf(" (%d/%d)", uses, classAction.UsesPerRest)
 						}
 					}
 				}
@@ -2999,7 +3164,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		}
 	}
 
-	if g.InputMode == InputModeCharacterSheet {
+	if g.InputMode == InputModeCharacterSheet && g.Player != nil {
 		menuW, menuH := screenWidth/2+40, screenHeight/2+60
 		menuX, menuY := (screenWidth-menuW)/2, (screenHeight-menuH)/2
 		vector.DrawFilledRect(screen, float32(menuX), float32(menuY), float32(menuW), float32(menuH), color.NRGBA{R: 30, G: 20, B: 20, A: 230}, false)
@@ -3024,7 +3189,11 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		lineNum++
 		text.Draw(screen, fmt.Sprintf("Prof Bonus: +%d", g.Player.ProficiencyBonus), basicfont.Face7x13, col1X, infoStartY+(lineNum*infoLineHeight), colorWhite)
 		lineNum++
-		text.Draw(screen, fmt.Sprintf("Hit Dice: %d / %d (d%d)", g.Player.HitDice, g.Player.MaxHitDice, ClassDefinitions[g.Player.Class].HitDieSize), basicfont.Face7x13, col1X, infoStartY+(lineNum*infoLineHeight), colorWhite)
+		classHitDieSize := 0
+		if cd, ok := ClassDefinitions[g.Player.Class]; ok {
+			classHitDieSize = cd.HitDieSize
+		}
+		text.Draw(screen, fmt.Sprintf("Hit Dice: %d / %d (d%d)", g.Player.HitDice, g.Player.MaxHitDice, classHitDieSize), basicfont.Face7x13, col1X, infoStartY+(lineNum*infoLineHeight), colorWhite)
 		lineNum++
 		if g.Player.Class == "Mage" {
 			text.Draw(screen, fmt.Sprintf("L1 Slots: %d / %d", g.Player.SpellSlotsL1, g.Player.MaxSpellSlotsL1), basicfont.Face7x13, col1X, infoStartY+(lineNum*infoLineHeight), colorWhite)
@@ -3071,7 +3240,11 @@ func (g *Game) Draw(screen *ebiten.Image) {
 				if g.Player.Level >= classAction.RequiredLevel {
 					featureText := fmt.Sprintf(" L%d: %s", classAction.RequiredLevel, classAction.Name)
 					if classAction.ResourceType == ResourceClassFeature && classAction.UsesPerRest > 0 {
-						featureText += fmt.Sprintf(" (%d/%d)", g.Player.ClassResources[id], classAction.UsesPerRest)
+						uses := 0
+						if val, ok := g.Player.ClassResources[id]; ok {
+							uses = val
+						}
+						featureText += fmt.Sprintf(" (%d/%d)", uses, classAction.UsesPerRest)
 						if classAction.RefreshesOn == RestTypeLong {
 							featureText += " (LR)"
 						} else if classAction.RefreshesOn == RestTypeShort {
@@ -3120,16 +3293,24 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	logLineHeight := 13
 	logStartY := screenHeight - (combatLogLength * logLineHeight) - 10
 	logX := 10
-	for i, msg := range g.CombatLog {
-		isRestPrompt := g.InputMode == InputModeRestPrompt && i == len(g.CombatLog)-1 && msg == fmt.Sprintf("Wave Cleared! Spend 1 Hit Die (of %d) to heal? [Y/N]", g.Player.HitDice)
-		isLevelUpMsg := g.InputMode == InputModeLevelUp && i == len(g.CombatLog)-1 && msg == fmt.Sprintf("LEVEL UP! Reached Level %d!", g.Player.Level)
-		isReactionPrompt := g.InputMode == InputModeReactionPrompt && i == len(g.CombatLog)-1
+	if g.CombatLog != nil {
+		for i, msg := range g.CombatLog {
+			isRestPrompt := false
+			if g.Player != nil {
+				isRestPrompt = g.InputMode == InputModeRestPrompt && i == len(g.CombatLog)-1 && msg == fmt.Sprintf("Wave Cleared! Spend 1 Hit Die (of %d) to heal? [Y/N]", g.Player.HitDice)
+			}
+			isLevelUpMsg := false
+			if g.Player != nil {
+				isLevelUpMsg = g.InputMode == InputModeLevelUp && i == len(g.CombatLog)-1 && msg == fmt.Sprintf("LEVEL UP! Reached Level %d!", g.Player.Level)
+			}
+			isReactionPrompt := g.InputMode == InputModeReactionPrompt && i == len(g.CombatLog)-1
 
-		var msgColor color.Color = colorWhite
-		if isRestPrompt || isLevelUpMsg || isReactionPrompt {
-			msgColor = colorYellow
+			var msgColor color.Color = colorWhite
+			if isRestPrompt || isLevelUpMsg || isReactionPrompt {
+				msgColor = colorYellow
+			}
+			text.Draw(screen, msg, basicfont.Face7x13, logX, logStartY+(i*logLineHeight), msgColor)
 		}
-		text.Draw(screen, msg, basicfont.Face7x13, logX, logStartY+(i*logLineHeight), msgColor)
 	}
 
 	for _, ft := range g.FloatingTexts {
@@ -3150,7 +3331,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		text.Draw(screen, ft.Text, basicfont.Face7x13, textX, textY, finalColor)
 	}
 
-	if g.InputMode == InputModeLevelUp {
+	if g.InputMode == InputModeLevelUp && g.Player != nil {
 		menuW, menuH := screenWidth/2, screenHeight/4
 		menuX, menuY := (screenWidth-menuW)/2, (screenHeight-menuH)/2
 		vector.DrawFilledRect(screen, float32(menuX), float32(menuY), float32(menuW), float32(menuH), color.NRGBA{R: 20, G: 30, B: 20, A: 230}, false)
@@ -3197,28 +3378,33 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		promptY := menuY + (menuH-promptBounds.Dy())/2
 		text.Draw(screen, promptText, basicfont.Face7x13, promptX, promptY, colorYellow)
 	}
+}
 
-	if g.CurrentTurn == GameOver {
-		gameOverMsg := "GAME OVER"
-		isVictory := false
-		if !g.Player.IsDying && g.Player.HP > 0 {
-			if g.CurrentWaveIndex >= len(g.WaveDefinitions)-1 {
-				isVictory = true
-			}
-		}
+func (g *Game) DrawGameOver(screen *ebiten.Image) {
+	gameOverMsg := "GAME OVER"
+	if g.isVictory {
+		gameOverMsg = "VICTORY!"
+	}
 
-		if isVictory {
-			gameOverMsg = "VICTORY!"
-		}
+	shouldDraw := true
+	if g.Player != nil && g.Player.IsDying && g.Player.CurrentAlpha > 0 {
+		shouldDraw = false
+	}
+	if g.InputMode == InputModeLevelUp {
+		shouldDraw = false
+	}
 
-		if g.InputMode != InputModeLevelUp && (!g.Player.IsDying || g.Player.CurrentAlpha <= 0) {
-			msgFont := basicfont.Face7x13
-			bounds := text.BoundString(msgFont, gameOverMsg)
-			msgX := (screenWidth - bounds.Dx()) / 2
-			msgY := (screenHeight - bounds.Dy()) / 2
-			text.Draw(screen, gameOverMsg, msgFont, msgX+1, msgY+1, colorBlack)
-			text.Draw(screen, gameOverMsg, msgFont, msgX, msgY, colorWhite)
-		}
+	if shouldDraw {
+		msgFont := basicfont.Face7x13
+		bounds := text.BoundString(msgFont, gameOverMsg)
+		msgX := (screenWidth - bounds.Dx()) / 2
+		msgY := (screenHeight - bounds.Dy()) / 2
+
+		overlayColor := color.NRGBA{R: 0, G: 0, B: 0, A: 180}
+		vector.DrawFilledRect(screen, 0, 0, float32(screenWidth), float32(screenHeight), overlayColor, false)
+
+		text.Draw(screen, gameOverMsg, msgFont, msgX+1, msgY+1, colorBlack)
+		text.Draw(screen, gameOverMsg, msgFont, msgX, msgY, colorWhite)
 	}
 }
 
@@ -3257,9 +3443,9 @@ func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
 func main() {
 	rand.Seed(time.Now().UnixNano())
 
-	game := NewGame()
+	game := NewGameInitial()
 	ebiten.SetWindowSize(screenWidth*2, screenHeight*2)
-	ebiten.SetWindowTitle("Slumb Gate - Mage Test")
+	ebiten.SetWindowTitle("Slumb Gate - Class Select Test")
 	if err := ebiten.RunGame(game); err != nil {
 		log.Fatal(err)
 	}
