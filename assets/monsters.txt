@@ -1,0 +1,90 @@
+Row 0:
+(0,0): Orc Brute
+(0,1): Orc Shaman
+(0,2): Goblin Scout
+(0,3): Orc Warrior
+(0,4): Orc Chieftain
+(0,5): Goblin Archer
+(0,6): Goblin Warlock
+(0,7): Goblin Brute
+
+Row 1:
+(1,0): Ogre
+(1,1): Two-headed Ogre
+(1,2): Green Ogre
+Row 2:
+
+(2,0): Small Green Slime
+(2,1): Large Green Slime
+(2,2): Goo Spitter
+(2,3): Goo Spitter (amalgam)
+Row 3:
+
+(3,0): Chaos Acolyte
+(3,1): Chaos Cultist
+
+Row 4:
+(4,0): Skeleton Warrior
+(4,1): Skeleton Archer
+(4,2): Necromancer
+(4,3): Death Knight
+(4,4): Zombie
+(4,5): Ghoul
+
+Row 5:
+(5,0): Wraith
+(5,1): Parka
+(5,2): Shadow
+(5,3): Dark Druid
+(5,4): Witch
+
+Row 6:
+(6,0): Centipede
+(6,1): Tardigrade
+(6,2): Large Worm
+(6,3): Chimera
+(6,4): MegaAnt
+(6,5): Dire Wolf
+(6,6): Bat
+(6,7): Ant
+(6,8): Big Spider
+(6,9): Spider
+(6,10): Skaven
+(6,11): Rat
+
+
+Row 7:
+(7,0): Faun
+(7,1): Satyr
+(7,2): Golem
+(7,3): Centaur
+(7,4): Naga
+(7,5): Stag
+(7,6): Druid
+(7,7): Tauren
+(7,8): Cockatrice
+(7,9): Medusa
+
+Row 8:
+(8,0): Kobold
+(8,1): Basilisk
+(8,2): Green Dragon
+(8,3): Weird Dragon
+(8,4): Sea Serpent
+
+Row 9:
+(9,0): Gnoll Scout
+(9,1): Gnoll Warrior
+
+Row 10:
+(10,0): Spore Mushroom
+(10,1): Elder Spore Mushroom
+
+Row 11:
+(11,0): Angel
+(11,1): Demon
+
+Row 12:
+(12,0): Tentacle Monster
+(12,1): Big Tentacle Monster
+(12,2): Gorgon
