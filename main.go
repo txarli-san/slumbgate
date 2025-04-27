@@ -174,6 +174,8 @@ type Player struct {
 	LastSpellCastID      string
 	CombatStyle          string
 	CombatTechnique      string
+	IsSlowed             bool
+	SlowDuration         int
 }
 
 type Enemy struct {
@@ -1164,8 +1166,20 @@ func (g *Game) levelUpPlayer() {
 }
 
 func (g *Game) startPlayerTurn() {
+	if g.Player.IsSlowed {
+		g.Player.SlowDuration--
+		if g.Player.SlowDuration <= 0 {
+			g.Player.IsSlowed = false
+			g.addCombatLog("Slow effect wears off.")
+		}
+	}
+
 	g.CurrentTurn = PlayerTurn
 	g.Player.MovementPoints = g.Player.MaxMovementPoints
+	if g.Player.IsSlowed {
+		g.Player.MovementPoints = max(1, g.Player.MaxMovementPoints/2)
+	}
+
 	g.Player.ActionTaken = false
 	g.Player.BonusActionTaken = false
 	g.Player.IsDisengaging = false
@@ -1603,6 +1617,9 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 	attackVerb := "attacks"
 	if attackType == "ranged" {
 		attackVerb = "shoots"
+		if !isPlayerAttacking && attacker.Name == "Orc Shaman" {
+			attackVerb = "casts Bone Chill at"
+		}
 	}
 	logMsg := fmt.Sprintf("%s %s %s(AC%d). Roll: %s.", attacker.Name, attackVerb, defender.Name, effectiveAC, rollString)
 
@@ -1690,7 +1707,7 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 				}
 				damageLog += ")"
 			}
-		} else {
+		} else { // Enemy Attacking
 			if enemyDef != nil && enemyDef.AttackDiceNum > 0 && enemyDef.AttackDiceSize > 0 {
 				totalDiceRoll := 0
 				diceRolls := []int{}
@@ -1733,7 +1750,19 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 			logMsg += fmt.Sprintf(" (%.1fx Power Attack)", damageMultiplier)
 		}
 
+		if isPlayerDefending && !isPlayerAttacking && attacker.Name == "Orc Shaman" {
+			g.Player.IsSlowed = true
+			g.Player.SlowDuration = 2
+			logMsg += " Player is Slowed!"
+			g.FloatingTexts = append(g.FloatingTexts, &FloatingText{
+				Text: "Slowed!", X: textSpawnX, Y: textSpawnY + 15, Life: textLifetime, MaxLife: textLifetime, Color: visualEffectColors["Cold"], VelocityY: -0.5,
+			})
+		}
+
 		ftColor := visualEffectColors["Default"]
+		if !isPlayerAttacking && attacker.Name == "Orc Shaman" {
+			ftColor = visualEffectColors["Cold"]
+		}
 		hitTextColor := colorWhite
 		hitText := "Hit!"
 		if isCrit {
