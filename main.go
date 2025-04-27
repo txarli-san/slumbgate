@@ -1,6 +1,7 @@
 package main
 
 import (
+	"embed"
 	"fmt"
 	"image"
 	"image/color"
@@ -8,7 +9,6 @@ import (
 	"log"
 	"math"
 	"math/rand"
-	"os"
 	"sort"
 	"time"
 
@@ -402,6 +402,9 @@ var ClassDefinitions = map[string]*ClassDefinition{
 	},
 }
 
+//go:embed assets/*
+var assetsFS embed.FS
+
 var ActionTable map[string]*ActionDefinition
 
 func init() {
@@ -578,15 +581,15 @@ func init() {
 }
 
 func loadImage(path string) (*ebiten.Image, error) {
-	file, err := os.Open(path)
+	file, err := assetsFS.Open(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open image %s: %w", path, err)
+		return nil, fmt.Errorf("failed to open embedded image %s: %w", path, err)
 	}
 	defer file.Close()
 
 	img, _, err := image.Decode(file)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode image %s: %w", path, err)
+		return nil, fmt.Errorf("failed to decode embedded image %s: %w", path, err)
 	}
 	return ebiten.NewImageFromImage(img), nil
 }
