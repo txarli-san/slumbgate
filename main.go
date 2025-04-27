@@ -509,7 +509,7 @@ func init() {
 			ResourceType:     ResourceSpellSlotL1,
 			ResourceCost:     1,
 			Targeting:        TargetEnemyRange,
-			Range:            playerRangedRange,
+			Range:            playerRangedRange + 2,
 			RequiresTarget:   true,
 			Execute:          executeMagicMissile,
 			VisualEffectType: "Force",
@@ -1756,7 +1756,10 @@ func executeFirebolt(g *Game, targetX, targetY int) bool {
 		return false
 	}
 	dist := distance(g.Player.X, g.Player.Y, targetEnemy.X, targetEnemy.Y)
-	if dist > playerRangedRange {
+
+	actionRange := ActionTable["firebolt"].Range
+
+	if dist > actionRange {
 		g.addCombatLog("Target out of range for Firebolt.")
 		return false
 	}
@@ -1845,7 +1848,10 @@ func executeMagicMissile(g *Game, targetX, targetY int) bool {
 		return false
 	}
 	dist := distance(g.Player.X, g.Player.Y, targetEnemy.X, targetEnemy.Y)
-	if dist > playerRangedRange {
+
+	actionRange := ActionTable["magic_missile"].Range
+
+	if dist > actionRange {
 		g.addCombatLog("Target out of range for Magic Missile.")
 		return false
 	}
