@@ -639,6 +639,18 @@ func init() {
 			Execute:          executeFirebolt,
 			VisualEffectType: "Fire",
 		},
+		"arcane_recovery": {
+			ID:               "arcane_recovery",
+			Name:             "Arcane Recovery",
+			ActionType:       ActionTypeFree,
+			ResourceType:     ResourceClassFeature,
+			ResourceCost:     1,
+			Targeting:        TargetSelf,
+			Range:            0,
+			RequiresTarget:   false,
+			Execute:          nil,
+			VisualEffectType: "None",
+		},
 		"magic_missile": {
 			ID:               "magic_missile",
 			Name:             "Magic Missile",
