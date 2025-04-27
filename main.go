@@ -2750,6 +2750,21 @@ func executeExpeditiousRetreat(g *Game, targetX, targetY int) bool {
 }
 
 func (g *Game) handlePlayerInput() {
+	// --- DEBUG COMMANDS START ---
+	isDebugLevelUp := ebiten.IsKeyPressed(ebiten.KeyShift) && inpututil.IsKeyJustPressed(ebiten.KeyL)
+	if isDebugLevelUp && g.Player != nil {
+		if g.Player.Level < maxLevel {
+			g.addCombatLog("DEBUG: Forcing Level Up!")
+			g.levelUpPlayer()
+			g.InputMode = InputModeLevelUp
+			g.primedActionID = ""
+			return
+		} else {
+			g.addCombatLog("DEBUG: Already at max level!")
+		}
+	}
+	// --- DEBUG COMMANDS END ---
+
 	if inpututil.IsKeyJustPressed(ebiten.KeyC) {
 		if g.InputMode == InputModeCharacterSheet {
 			g.InputMode = InputModeMap
