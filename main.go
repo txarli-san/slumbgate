@@ -10,6 +10,7 @@ import (
 	"math"
 	"math/rand"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -168,6 +169,7 @@ type Player struct {
 	SpellSlotsL1         int
 	MaxSpellSlotsL1      int
 	KnownSpells          []string
+	KnownCantrips        []string
 	UsedReaction         bool
 	UsedArcaneRecovery   bool
 	ACBonusUntilNextTurn int
@@ -175,7 +177,12 @@ type Player struct {
 	CombatStyle          string
 	CombatTechnique      string
 	IsSlowed             bool
-	SlowDuration         int
+
+	SlowDuration               int
+	MagicArmorDuration         int
+	ExpeditiousRetreatDuration int
+	FeatherFallDuration        int
+	NextElementType            string
 }
 
 type Enemy struct {
@@ -704,6 +711,79 @@ func init() {
 			Execute:          executeMindSpike,
 			VisualEffectType: "Psychic",
 		},
+		"ray_of_frost": {
+			ID:               "ray_of_frost",
+			Name:             "Ray of Frost",
+			ActionType:       ActionTypeStandard,
+			ResourceType:     ResourceNone,
+			ResourceCost:     0,
+			Targeting:        TargetEnemyRange,
+			Range:            playerRangedRange + 1, // 6 range?
+			RequiresTarget:   true,
+			Execute:          executeRayOfFrost,
+			VisualEffectType: "Cold",
+		},
+		"shocking_grasp": {
+			ID:               "shocking_grasp",
+			Name:             "Shocking Grasp",
+			ActionType:       ActionTypeStandard,
+			ResourceType:     ResourceNone,
+			ResourceCost:     0,
+			Targeting:        TargetEnemyAdjacent,
+			Range:            1,
+			RequiresTarget:   true,
+			Execute:          executeShockingGrasp,
+			VisualEffectType: "Default",
+		},
+
+		"magic_armor": {
+			ID:               "magic_armor",
+			Name:             "Magic Armor",
+			ActionType:       ActionTypeStandard,
+			ResourceType:     ResourceSpellSlotL1,
+			ResourceCost:     1,
+			Targeting:        TargetSelf,
+			Range:            0,
+			RequiresTarget:   false,
+			Execute:          executeMagicArmor,
+			VisualEffectType: "Arcane",
+		},
+		"elemental_strike": {
+			ID:               "elemental_strike",
+			Name:             "Elemental Strike",
+			ActionType:       ActionTypeStandard,
+			ResourceType:     ResourceSpellSlotL1,
+			ResourceCost:     1,
+			Targeting:        TargetEnemyRange,
+			Range:            playerRangedRange,
+			RequiresTarget:   true,
+			Execute:          executeElementalStrike,
+			VisualEffectType: "Default",
+		},
+		"feather_fall": {
+			ID:               "feather_fall",
+			Name:             "Feather Fall",
+			ActionType:       ActionTypeStandard,
+			ResourceType:     ResourceSpellSlotL1,
+			ResourceCost:     1,
+			Targeting:        TargetSelf,
+			Range:            0,
+			RequiresTarget:   false,
+			Execute:          executeFeatherFall,
+			VisualEffectType: "Default",
+		},
+		"expeditious_retreat": {
+			ID:               "expeditious_retreat",
+			Name:             "Expeditious Retreat",
+			ActionType:       ActionTypeStandard,
+			ResourceType:     ResourceSpellSlotL1,
+			ResourceCost:     1,
+			Targeting:        TargetSelf,
+			Range:            0,
+			RequiresTarget:   false,
+			Execute:          executeExpeditiousRetreat,
+			VisualEffectType: "Default",
+		},
 	}
 }
 
@@ -811,17 +891,14 @@ func (g *Game) InitializeGameplay(playerClassName string) {
 		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Goblin Scout", SpawnPointIdx: 2}, {TypeName: "Goblin Scout", SpawnPointIdx: 3}, {TypeName: "Goblin Archer", SpawnPointIdx: 4}}, IsBossWave: false},
 		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Goblin Brute", SpawnPointIdx: 0}, {TypeName: "Goblin Archer", SpawnPointIdx: 2}, {TypeName: "Goblin Archer", SpawnPointIdx: 3}}, IsBossWave: false},
 		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Goblin Chieftain", SpawnPointIdx: 4}}, IsBossWave: true},
-
-		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Orc Warrior", SpawnPointIdx: 0}, {TypeName: "Orc Warrior", SpawnPointIdx: 1}, {TypeName: "Goblin Scout", SpawnPointIdx: 3}}, IsBossWave: false},
-		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Orc Warrior", SpawnPointIdx: 0}, {TypeName: "Orc Shaman", SpawnPointIdx: 4}, {TypeName: "Orc Warrior", SpawnPointIdx: 1}}, IsBossWave: false},
-		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Orc Brute", SpawnPointIdx: 0}, {TypeName: "Orc Shaman", SpawnPointIdx: 4}, {TypeName: "Orc Warrior", SpawnPointIdx: 2}, {TypeName: "Orc Warrior", SpawnPointIdx: 3}}, IsBossWave: false},
-		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Orc Chieftain", SpawnPointIdx: 4}, {TypeName: "Orc Brute", SpawnPointIdx: 0}, {TypeName: "Orc Brute", SpawnPointIdx: 1}, {TypeName: "Orc Shaman", SpawnPointIdx: 3}}, IsBossWave: true},
-
+		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Goblin Scout", SpawnPointIdx: 0}, {TypeName: "Goblin Scout", SpawnPointIdx: 1}, {TypeName: "Goblin Archer", SpawnPointIdx: 4}}, IsBossWave: false},
+		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Goblin Brute", SpawnPointIdx: 0}, {TypeName: "Goblin Archer", SpawnPointIdx: 4}, {TypeName: "Goblin Archer", SpawnPointIdx: 2}}, IsBossWave: false},
+		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Goblin Warlock", SpawnPointIdx: 4}, {TypeName: "Goblin Brute", SpawnPointIdx: 0}, {TypeName: "Goblin Scout", SpawnPointIdx: 2}, {TypeName: "Goblin Scout", SpawnPointIdx: 3}}, IsBossWave: false},
+		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Goblin Chieftain", SpawnPointIdx: 4}, {TypeName: "Goblin Brute", SpawnPointIdx: 0}, {TypeName: "Goblin Brute", SpawnPointIdx: 1}, {TypeName: "Goblin Warlock", SpawnPointIdx: 3}}, IsBossWave: true},
 		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Small Slime", SpawnPointIdx: 0}, {TypeName: "Small Slime", SpawnPointIdx: 1}, {TypeName: "Spore Mushroom", SpawnPointIdx: 4}}, IsBossWave: false},
 		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Tough Slime", SpawnPointIdx: 0}, {TypeName: "Tough Slime", SpawnPointIdx: 1}, {TypeName: "Spore Mushroom", SpawnPointIdx: 2}, {TypeName: "Spore Mushroom", SpawnPointIdx: 3}}, IsBossWave: false},
 		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Goo Spitter", SpawnPointIdx: 4}, {TypeName: "Tough Slime", SpawnPointIdx: 0}, {TypeName: "Tough Slime", SpawnPointIdx: 1}, {TypeName: "Small Slime", SpawnPointIdx: 2}, {TypeName: "Small Slime", SpawnPointIdx: 3}}, IsBossWave: false},
 		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Elder Spore Mushroom", SpawnPointIdx: 4}, {TypeName: "Goo Spitter", SpawnPointIdx: 2}, {TypeName: "Goo Spitter", SpawnPointIdx: 3}, {TypeName: "Tough Slime", SpawnPointIdx: 0}, {TypeName: "Tough Slime", SpawnPointIdx: 1}}, IsBossWave: true},
-
 		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Centaur", SpawnPointIdx: 2}, {TypeName: "Centaur", SpawnPointIdx: 3}, {TypeName: "Druid", SpawnPointIdx: 4}}, IsBossWave: false},
 		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Dire Wolf", SpawnPointIdx: 0}, {TypeName: "Faun", SpawnPointIdx: 2}, {TypeName: "Faun", SpawnPointIdx: 3}, {TypeName: "Druid", SpawnPointIdx: 4}}, IsBossWave: false},
 		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Centaur", SpawnPointIdx: 2}, {TypeName: "Centaur", SpawnPointIdx: 3}, {TypeName: "Naga", SpawnPointIdx: 1}, {TypeName: "Druid", SpawnPointIdx: 4}}, IsBossWave: false},
@@ -839,14 +916,12 @@ func (g *Game) InitializeGameplay(playerClassName string) {
 		g.rogueSheet = ebiten.NewImage(spriteSize*sheetWidthInSprites, spriteSize*10)
 		g.rogueSheet.Fill(color.NRGBA{R: 50, G: 50, B: 50, A: 255})
 	}
-
 	g.monsterSheet, err = loadImage(monsterSheetPath)
 	if err != nil {
 		log.Printf("Error loading monster sheet: %v. Using fallback.", err)
 		g.monsterSheet = ebiten.NewImage(spriteSize*sheetWidthInSprites, spriteSize*15)
 		g.monsterSheet.Fill(color.NRGBA{R: 100, G: 100, B: 100, A: 255})
 	}
-
 	tileSheet, err := loadImage(tilePath)
 	if err != nil {
 		log.Printf("Error loading tile sheet: %v. Creating fallback tile.", err)
@@ -868,9 +943,12 @@ func (g *Game) InitializeGameplay(playerClassName string) {
 	}
 
 	playerSprite := getSpriteFromSheet(g.rogueSheet, classDef.SpriteSheetX, classDef.SpriteSheetY)
-
 	playerStr, playerDex, playerCon := 10, 10, 10
 	playerInt, playerWis, playerCha := 10, 10, 10
+	startLevel := 1
+	knownSpells := make([]string, 0)
+	knownCantrips := make([]string, 0)
+	maxSlotsL1 := 0
 
 	if playerClassName == "Fighter" {
 		playerStr, playerDex, playerCon = 16, 14, 14
@@ -878,12 +956,13 @@ func (g *Game) InitializeGameplay(playerClassName string) {
 	} else if playerClassName == "Mage" {
 		playerStr, playerDex, playerCon = 8, 14, 14
 		playerInt, playerWis, playerCha = 16, 10, 8
+		knownCantrips = append(knownCantrips, "firebolt")
+		knownSpells = append(knownSpells, "magic_missile", "shield")
+		maxSlotsL1 = 2
 	}
 
 	playerConMod := getModifier(playerCon)
 	playerDexMod := getModifier(playerDex)
-
-	startLevel := 1
 	playerMaxHP := classDef.HitDieSize + playerConMod
 	playerAC := 10 + playerDexMod
 
@@ -893,8 +972,7 @@ func (g *Game) InitializeGameplay(playerClassName string) {
 			HP: playerMaxHP, MaxHP: playerMaxHP, AC: playerAC,
 			Strength: playerStr, Dexterity: playerDex, Constitution: playerCon,
 			Intelligence: playerInt, Wisdom: playerWis, Charisma: playerCha,
-			Sprite: playerSprite, Name: "Player",
-			CurrentAlpha: 1.0,
+			Sprite: playerSprite, Name: "Player", CurrentAlpha: 1.0,
 		},
 		Level:                startLevel,
 		Class:                playerClassName,
@@ -903,17 +981,22 @@ func (g *Game) InitializeGameplay(playerClassName string) {
 		ClassResources:       make(map[string]int),
 		MaxHitDice:           startLevel,
 		HitDice:              startLevel,
-		MaxSpellSlotsL1:      0,
-		SpellSlotsL1:         0,
-		KnownSpells:          make([]string, 0),
+		MaxSpellSlotsL1:      maxSlotsL1,
+		SpellSlotsL1:         maxSlotsL1,
+		KnownSpells:          knownSpells,
+		KnownCantrips:        knownCantrips,
 		UsedReaction:         false,
 		UsedArcaneRecovery:   false,
 		ACBonusUntilNextTurn: 0,
 		LastSpellCastID:      "",
+		CombatStyle:          "",
+		CombatTechnique:      "",
+		IsSlowed:             false,
+		SlowDuration:         0,
+		NextElementType:      "Fire",
 	}
 
 	g.initializePlayerResources()
-	g.Player.SpellSlotsL1 = g.Player.MaxSpellSlotsL1
 
 	g.CurrentTurn = PlayerTurn
 	g.SpawnNextWave()
@@ -963,16 +1046,14 @@ func (g *Game) refreshLevelUpResources() {
 	for actionID, classAction := range classDef.ClassActions {
 		if classAction.RefreshesOn == RestTypeNever {
 			if g.Player.Level >= classAction.RequiredLevel {
-				currentUses := g.Player.ClassResources[actionID]
+				currentUses := 0
+				if val, ok := g.Player.ClassResources[actionID]; ok {
+					currentUses = val
+				}
 				maxUses := classAction.UsesPerRest
-
-				if currentUses < maxUses {
+				if currentUses < maxUses || g.Player.Level == classAction.RequiredLevel {
 					g.Player.ClassResources[actionID] = maxUses
 					logMsg += fmt.Sprintf("%s, ", classAction.Name)
-					refreshedSomething = true
-				} else if g.Player.Level == classAction.RequiredLevel {
-					g.Player.ClassResources[actionID] = maxUses
-					logMsg += fmt.Sprintf("%s (Unlocked!), ", classAction.Name)
 					refreshedSomething = true
 				}
 			}
@@ -985,7 +1066,7 @@ func (g *Game) refreshLevelUpResources() {
 		if g.Player.Level >= 1 {
 			newMaxSlots = 2
 		}
-		if g.Player.Level >= 2 {
+		if g.Player.Level >= 3 {
 			newMaxSlots = 3
 		}
 
@@ -1166,6 +1247,9 @@ func (g *Game) levelUpPlayer() {
 }
 
 func (g *Game) startPlayerTurn() {
+	currentACBonus := 0
+	currentMoveBonus := 0
+
 	if g.Player.IsSlowed {
 		g.Player.SlowDuration--
 		if g.Player.SlowDuration <= 0 {
@@ -1173,18 +1257,40 @@ func (g *Game) startPlayerTurn() {
 			g.addCombatLog("Slow effect wears off.")
 		}
 	}
+	if g.Player.MagicArmorDuration > 0 {
+		g.Player.MagicArmorDuration--
+		if g.Player.MagicArmorDuration <= 0 {
+			g.addCombatLog("Magic Armor fades.")
+		} else {
+			currentACBonus += 2
+		}
+	}
+	if g.Player.ExpeditiousRetreatDuration > 0 {
+		g.Player.ExpeditiousRetreatDuration--
+		if g.Player.ExpeditiousRetreatDuration <= 0 {
+			g.addCombatLog("Expeditious Retreat ends.")
+		} else {
+			currentMoveBonus += 3
+		}
+	}
+	if g.Player.FeatherFallDuration > 0 {
+		g.Player.FeatherFallDuration--
+		if g.Player.FeatherFallDuration <= 0 {
+			g.addCombatLog("Feather Fall ends.")
+		}
+	}
 
 	g.CurrentTurn = PlayerTurn
-	g.Player.MovementPoints = g.Player.MaxMovementPoints
+	g.Player.MovementPoints = g.Player.MaxMovementPoints + currentMoveBonus
 	if g.Player.IsSlowed {
-		g.Player.MovementPoints = max(1, g.Player.MaxMovementPoints/2)
+		g.Player.MovementPoints = max(1, g.Player.MovementPoints/2)
 	}
 
 	g.Player.ActionTaken = false
 	g.Player.BonusActionTaken = false
 	g.Player.IsDisengaging = false
 	g.Player.UsedReaction = false
-	g.Player.ACBonusUntilNextTurn = 0
+	g.Player.ACBonusUntilNextTurn = currentACBonus
 	g.InputMode = InputModeMap
 	g.primedActionID = ""
 }
@@ -1525,12 +1631,21 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 	attackPenalty := 0
 	damageMultiplier := 1.0
 
+	if isPlayerDefending && g.Player.FeatherFallDuration > 0 {
+		if rand.Intn(2) == 0 {
+			g.addCombatLog("Player nimbly dodges (Feather Fall)!")
+			g.FloatingTexts = append(g.FloatingTexts, &FloatingText{
+				Text: "Dodge!", X: float64(g.MapOffsetX + defender.X*tileSize + (defender.Width*tileSize)/2), Y: float64(g.MapOffsetY+defender.Y*tileSize) - 15, Life: 30, MaxLife: 30, Color: colorWhite, VelocityY: -0.5,
+			})
+			return false, false
+		}
+	}
+
 	if isPlayerAttacking {
 		if g.Player.CombatTechnique == "Power Attack" {
 			attackPenalty = -2
 			damageMultiplier = 1.5
 		}
-
 		switch attackType {
 		case "ranged":
 			attackAbilityMod = getModifier(attacker.Dexterity)
@@ -1553,7 +1668,6 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 				break
 			}
 		}
-
 		if foundDef {
 			switch enemyDef.AttackAbilityMod {
 			case "STR":
@@ -1611,9 +1725,7 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 	if attackPenalty != 0 {
 		penaltyString = fmt.Sprintf("%d", attackPenalty)
 	}
-
 	rollString := fmt.Sprintf("%d%s%s%s(%s)=%d", roll, profString, modString, penaltyString, abilityName, attackRoll)
-
 	attackVerb := "attacks"
 	if attackType == "ranged" {
 		attackVerb = "shoots"
@@ -1622,9 +1734,8 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 		}
 	}
 	logMsg := fmt.Sprintf("%s %s %s(AC%d). Roll: %s.", attacker.Name, attackVerb, defender.Name, effectiveAC, rollString)
-
 	if isPlayerDefending && g.Player.ACBonusUntilNextTurn > 0 {
-		logMsg = fmt.Sprintf("%s %s %s(AC%d+%d Shield=%d). Roll: %s.", attacker.Name, attackVerb, defender.Name, defender.AC, g.Player.ACBonusUntilNextTurn, effectiveAC, rollString)
+		logMsg = fmt.Sprintf("%s %s %s(AC%d+%d Buff=%d). Roll: %s.", attacker.Name, attackVerb, defender.Name, defender.AC, g.Player.ACBonusUntilNextTurn, effectiveAC, rollString)
 	}
 
 	textSpawnX := float64(g.MapOffsetX + defender.X*tileSize + (defender.Width*tileSize)/2)
@@ -1644,7 +1755,6 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 		if !playerKnowsShield && g.Player.Class == "Mage" {
 			playerKnowsShield = true
 		}
-
 		if playerKnowsShield && g.Player.SpellSlotsL1 > 0 {
 			g.addCombatLog("Hit detected! Use Shield reaction? [Y/N]")
 			g.reactionPending = true
@@ -1656,26 +1766,19 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 
 	if isFumble {
 		logMsg += " FUMBLE! Miss!"
-		g.FloatingTexts = append(g.FloatingTexts, &FloatingText{
-			Text: "FUMBLE!",
-			X:    textSpawnX, Y: textSpawnY - 15, Life: textLifetime / 2, MaxLife: textLifetime / 2, Color: color.NRGBA{R: 150, G: 0, B: 0, A: 255}, VelocityY: -0.5,
-		})
+		g.FloatingTexts = append(g.FloatingTexts, &FloatingText{Text: "FUMBLE!", X: textSpawnX, Y: textSpawnY - 15, Life: textLifetime / 2, MaxLife: textLifetime / 2, Color: color.NRGBA{R: 150, G: 0, B: 0, A: 255}, VelocityY: -0.5})
 	} else if hit {
 		attackLanded = true
 		attacker.AttackBumpTimer = attackBumpDuration
-
 		var damage int
-		damageRoll1 := 0
-		damageRoll2 := 0
+		damageRoll1, damageRoll2 := 0, 0
 		damageLog := ""
-		baseDamage := 0
-		styleDamageBonus := 0
-
+		baseDamage, styleDamageBonus := 0, 0
 		if isCrit {
 			logMsg += " CRITICAL!"
 		}
 
-		if isPlayerAttacking {
+		if isPlayerAttacking { // Player DMG Calculation
 			switch attackType {
 			case "ranged":
 				damageRoll1 = rand.Intn(6) + 1
@@ -1688,7 +1791,7 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 				} else {
 					damageLog = fmt.Sprintf(" (1d6[%d]%+d)", damageRoll1, attackAbilityMod)
 				}
-			default: // melee
+			default:
 				damageRoll1 = rand.Intn(8) + 1
 				if isCrit {
 					damageRoll2 = rand.Intn(8) + 1
@@ -1707,7 +1810,7 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 				}
 				damageLog += ")"
 			}
-		} else { // Enemy Attacking
+		} else { // Enemy DMG Calculation
 			if enemyDef != nil && enemyDef.AttackDiceNum > 0 && enemyDef.AttackDiceSize > 0 {
 				totalDiceRoll := 0
 				diceRolls := []int{}
@@ -1715,14 +1818,12 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 				if isCrit {
 					numDiceToRoll *= 2
 				}
-
 				for i := 0; i < numDiceToRoll; i++ {
 					roll := rand.Intn(enemyDef.AttackDiceSize) + 1
 					totalDiceRoll += roll
 					diceRolls = append(diceRolls, roll)
 				}
 				baseDamage = totalDiceRoll + attackAbilityMod
-
 				rollsStr := ""
 				for i, r := range diceRolls {
 					rollsStr += fmt.Sprintf("%d", r)
@@ -1731,7 +1832,6 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 					}
 				}
 				damageLog = fmt.Sprintf(" (%dd%d[%s]%+d)", numDiceToRoll, enemyDef.AttackDiceSize, rollsStr, attackAbilityMod)
-
 			} else {
 				baseDamage = max(1, attackAbilityMod)
 				if isCrit {
@@ -1743,7 +1843,6 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 
 		damage = int(float64(max(1, baseDamage)) * damageMultiplier)
 		actualDamage := min(damage, defender.HP)
-
 		defender.HP -= actualDamage
 		logMsg += fmt.Sprintf(" Hit! Deals %d%s dmg.", actualDamage, damageLog)
 		if damageMultiplier != 1.0 {
@@ -1754,9 +1853,7 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 			g.Player.IsSlowed = true
 			g.Player.SlowDuration = 2
 			logMsg += " Player is Slowed!"
-			g.FloatingTexts = append(g.FloatingTexts, &FloatingText{
-				Text: "Slowed!", X: textSpawnX, Y: textSpawnY + 15, Life: textLifetime, MaxLife: textLifetime, Color: visualEffectColors["Cold"], VelocityY: -0.5,
-			})
+			g.FloatingTexts = append(g.FloatingTexts, &FloatingText{Text: "Slowed!", X: textSpawnX, Y: textSpawnY + 15, Life: textLifetime, MaxLife: textLifetime, Color: visualEffectColors["Cold"], VelocityY: -0.5})
 		}
 
 		ftColor := visualEffectColors["Default"]
@@ -1770,15 +1867,8 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 			hitTextColor = color.NRGBA{R: 255, G: 215, B: 0, A: 255}
 			hitText = "CRITICAL!"
 		}
-
-		g.FloatingTexts = append(g.FloatingTexts, &FloatingText{
-			Text: fmt.Sprintf("-%d", actualDamage),
-			X:    textSpawnX, Y: textSpawnY, Life: textLifetime, MaxLife: textLifetime, Color: ftColor, VelocityY: -0.5,
-		})
-		g.FloatingTexts = append(g.FloatingTexts, &FloatingText{
-			Text: hitText,
-			X:    textSpawnX, Y: textSpawnY - 15, Life: textLifetime / 2, MaxLife: textLifetime / 2, Color: hitTextColor, VelocityY: -0.5,
-		})
+		g.FloatingTexts = append(g.FloatingTexts, &FloatingText{Text: fmt.Sprintf("-%d", actualDamage), X: textSpawnX, Y: textSpawnY, Life: textLifetime, MaxLife: textLifetime, Color: ftColor, VelocityY: -0.5})
+		g.FloatingTexts = append(g.FloatingTexts, &FloatingText{Text: hitText, X: textSpawnX, Y: textSpawnY - 15, Life: textLifetime / 2, MaxLife: textLifetime / 2, Color: hitTextColor, VelocityY: -0.5})
 
 		if defender.HP <= 0 {
 			logMsg += fmt.Sprintf(" %s dies!", defender.Name)
@@ -1790,10 +1880,7 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 		}
 	} else if !isFumble {
 		logMsg += " Miss!"
-		g.FloatingTexts = append(g.FloatingTexts, &FloatingText{
-			Text: "Miss!",
-			X:    textSpawnX, Y: textSpawnY - 15, Life: textLifetime / 2, MaxLife: textLifetime / 2, Color: colorGray, VelocityY: -0.5,
-		})
+		g.FloatingTexts = append(g.FloatingTexts, &FloatingText{Text: "Miss!", X: textSpawnX, Y: textSpawnY - 15, Life: textLifetime / 2, MaxLife: textLifetime / 2, Color: colorGray, VelocityY: -0.5})
 	}
 	g.addCombatLog(logMsg)
 	return killed, attackLanded
@@ -2410,6 +2497,246 @@ func executeMindSpike(g *Game, targetX, targetY int) bool {
 	return true
 }
 
+func executeRayOfFrost(g *Game, targetX, targetY int) bool {
+	targetEnemy := g.getEnemyAt(targetX, targetY)
+	actionDef := ActionTable["ray_of_frost"]
+	if targetEnemy == nil {
+		g.addCombatLog("Invalid target.")
+		return false
+	}
+	dist := distance(g.Player.X, g.Player.Y, targetEnemy.X, targetEnemy.Y)
+	if dist > actionDef.Range {
+		g.addCombatLog("Target out of range.")
+		return false
+	}
+
+	g.addCombatLog(fmt.Sprintf("Casting Ray of Frost at %s!", targetEnemy.Name))
+	// casterAbilityMod := getModifier(g.Player.Wisdom)
+	attackTotal, roll, isCrit := spellAttackRoll(g)
+	hit := isCrit || attackTotal >= targetEnemy.AC
+	attackLog := fmt.Sprintf(" (Roll %d + INT %d + Prof %d = %d vs AC %d)",
+		roll, getModifier(g.Player.Intelligence), g.Player.ProficiencyBonus, attackTotal, targetEnemy.AC)
+
+	textSpawnX := float64(g.MapOffsetX + targetEnemy.X*tileSize + (targetEnemy.Width*tileSize)/2)
+	textSpawnY := float64(g.MapOffsetY + targetEnemy.Y*tileSize)
+
+	if hit {
+		g.Player.AttackBumpTimer = attackBumpDuration
+		damageRoll1 := rand.Intn(8) + 1
+		damageRoll2 := 0
+		if isCrit {
+			damageRoll2 = rand.Intn(8) + 1
+		}
+		damage := damageRoll1 + damageRoll2
+		damage = max(1, damage)
+		actualDamage := min(damage, targetEnemy.HP)
+		targetEnemy.HP -= actualDamage
+
+		dmgLog := ""
+		if isCrit {
+			dmgLog = fmt.Sprintf(" CRIT! Deals %d (2d8[%d,%d]) cold dmg.", actualDamage, damageRoll1, damageRoll2)
+		} else {
+			dmgLog = fmt.Sprintf(" Hit! Deals %d (1d8[%d]) cold dmg.", actualDamage, damageRoll1)
+		}
+		logMsg := attackLog + dmgLog
+		g.addCombatLog(logMsg)
+
+		ftColor := visualEffectColors["Cold"]
+		hitTextColor := colorWhite
+		hitText := "Hit!"
+		if isCrit {
+			ftColor = color.NRGBA{R: 255, G: 165, B: 0, A: 255}
+			hitTextColor = color.NRGBA{R: 255, G: 215, B: 0, A: 255}
+			hitText = "CRITICAL!"
+		}
+		g.FloatingTexts = append(g.FloatingTexts, &FloatingText{Text: fmt.Sprintf("-%d", actualDamage), X: textSpawnX, Y: textSpawnY, Life: 60, MaxLife: 60, Color: ftColor, VelocityY: -0.5})
+		g.FloatingTexts = append(g.FloatingTexts, &FloatingText{Text: hitText, X: textSpawnX, Y: textSpawnY - 15, Life: 30, MaxLife: 30, Color: hitTextColor, VelocityY: -0.5})
+
+		if targetEnemy.HP <= 0 {
+			g.addCombatLog(fmt.Sprintf("%s dies!", targetEnemy.Name))
+			targetEnemy.IsDying = true
+		}
+	} else {
+		g.addCombatLog(attackLog + " Miss!")
+		g.FloatingTexts = append(g.FloatingTexts, &FloatingText{Text: "Miss!", X: textSpawnX, Y: textSpawnY - 15, Life: 30, MaxLife: 30, Color: colorGray, VelocityY: -0.5})
+	}
+	return true
+}
+
+func executeShockingGrasp(g *Game, targetX, targetY int) bool {
+	targetEnemy := g.getEnemyAt(targetX, targetY)
+	if targetEnemy == nil || !isAdjacentToEntity(g.Player.X, g.Player.Y, &targetEnemy.Entity) {
+		g.addCombatLog("Invalid target (or not adjacent).")
+		return false
+	}
+
+	g.addCombatLog(fmt.Sprintf("Casting Shocking Grasp on %s!", targetEnemy.Name))
+	casterAbilityMod := getModifier(g.Player.Intelligence)
+	attackTotal, roll, isCrit := spellAttackRoll(g)
+	hit := isCrit || attackTotal >= targetEnemy.AC
+	attackLog := fmt.Sprintf(" (Roll %d + INT %d + Prof %d = %d vs AC %d)",
+		roll, casterAbilityMod, g.Player.ProficiencyBonus, attackTotal, targetEnemy.AC)
+
+	textSpawnX := float64(g.MapOffsetX + targetEnemy.X*tileSize + (targetEnemy.Width*tileSize)/2)
+	textSpawnY := float64(g.MapOffsetY + targetEnemy.Y*tileSize)
+
+	if hit {
+		g.Player.AttackBumpTimer = attackBumpDuration
+		damageRoll1 := rand.Intn(8) + 1
+		damageRoll2 := 0
+		if isCrit {
+			damageRoll2 = rand.Intn(8) + 1
+		}
+		damage := damageRoll1 + damageRoll2
+		damage = max(1, damage)
+		actualDamage := min(damage, targetEnemy.HP)
+		targetEnemy.HP -= actualDamage
+
+		dmgLog := ""
+		if isCrit {
+			dmgLog = fmt.Sprintf(" CRIT! Deals %d (2d8[%d,%d]) lightning dmg.", actualDamage, damageRoll1, damageRoll2)
+		} else {
+			dmgLog = fmt.Sprintf(" Hit! Deals %d (1d8[%d]) lightning dmg.", actualDamage, damageRoll1)
+		}
+		logMsg := attackLog + dmgLog
+
+		g.addCombatLog(logMsg)
+
+		ftColor := colorYellow
+		hitTextColor := colorWhite
+		hitText := "Hit!"
+		if isCrit {
+			ftColor = color.NRGBA{R: 255, G: 165, B: 0, A: 255}
+			hitTextColor = color.NRGBA{R: 255, G: 215, B: 0, A: 255}
+			hitText = "CRITICAL!"
+		}
+		g.FloatingTexts = append(g.FloatingTexts, &FloatingText{Text: fmt.Sprintf("-%d", actualDamage), X: textSpawnX, Y: textSpawnY, Life: 60, MaxLife: 60, Color: ftColor, VelocityY: -0.5})
+		g.FloatingTexts = append(g.FloatingTexts, &FloatingText{Text: hitText, X: textSpawnX, Y: textSpawnY - 15, Life: 30, MaxLife: 30, Color: hitTextColor, VelocityY: -0.5})
+
+		if targetEnemy.HP <= 0 {
+			g.addCombatLog(fmt.Sprintf("%s dies!", targetEnemy.Name))
+			targetEnemy.IsDying = true
+		}
+	} else {
+		g.addCombatLog(attackLog + " Miss!")
+		g.FloatingTexts = append(g.FloatingTexts, &FloatingText{Text: "Miss!", X: textSpawnX, Y: textSpawnY - 15, Life: 30, MaxLife: 30, Color: colorGray, VelocityY: -0.5})
+	}
+	return true
+}
+
+func executeMagicArmor(g *Game, targetX, targetY int) bool {
+	g.addCombatLog("Casting Magic Armor!")
+	g.Player.MagicArmorDuration = 3
+	g.FloatingTexts = append(g.FloatingTexts, &FloatingText{
+		Text: "+2 AC!", X: float64(g.MapOffsetX + g.Player.X*tileSize + (g.Player.Width*tileSize)/2), Y: float64(g.MapOffsetY+g.Player.Y*tileSize) - 15, Life: 60, MaxLife: 60, Color: visualEffectColors["Arcane"], VelocityY: -0.5,
+	})
+	return true
+}
+
+func executeElementalStrike(g *Game, targetX, targetY int) bool {
+	targetEnemy := g.getEnemyAt(targetX, targetY)
+	actionDef := ActionTable["elemental_strike"]
+	if targetEnemy == nil {
+		g.addCombatLog("Invalid target.")
+		return false
+	}
+	dist := distance(g.Player.X, g.Player.Y, targetEnemy.X, targetEnemy.Y)
+	if dist > actionDef.Range {
+		g.addCombatLog("Target out of range.")
+		return false
+	}
+
+	currentElement := g.Player.NextElementType
+	g.addCombatLog(fmt.Sprintf("Casting Elemental Strike (%s) at %s!", currentElement, targetEnemy.Name))
+
+	casterAbilityMod := getModifier(g.Player.Intelligence)
+	attackTotal, roll, isCrit := spellAttackRoll(g)
+	hit := isCrit || attackTotal >= targetEnemy.AC
+	attackLog := fmt.Sprintf(" (Roll %d + INT %d + Prof %d = %d vs AC %d)",
+		roll, casterAbilityMod, g.Player.ProficiencyBonus, attackTotal, targetEnemy.AC)
+
+	textSpawnX := float64(g.MapOffsetX + targetEnemy.X*tileSize + (targetEnemy.Width*tileSize)/2)
+	textSpawnY := float64(g.MapOffsetY + targetEnemy.Y*tileSize)
+	elementColor := visualEffectColors["Default"]
+	if currentElement == "Fire" {
+		elementColor = visualEffectColors["Fire"]
+	}
+	if currentElement == "Cold" {
+		elementColor = visualEffectColors["Cold"]
+	}
+	if currentElement == "Lightning" {
+		elementColor = colorYellow
+	}
+	if hit {
+		g.Player.AttackBumpTimer = attackBumpDuration
+		d1, d2, d3 := rand.Intn(8)+1, rand.Intn(8)+1, rand.Intn(8)+1
+		critD1, critD2, critD3 := 0, 0, 0
+		if isCrit {
+			critD1, critD2, critD3 = rand.Intn(8)+1, rand.Intn(8)+1, rand.Intn(8)+1
+		}
+		damage := d1 + d2 + d3 + critD1 + critD2 + critD3
+		damage = max(1, damage)
+		actualDamage := min(damage, targetEnemy.HP)
+		targetEnemy.HP -= actualDamage
+
+		dmgLog := ""
+		if isCrit {
+			dmgLog = fmt.Sprintf(" CRIT! Deals %d (6d8[%d,%d,%d,%d,%d,%d]) %s dmg.", actualDamage, d1, d2, d3, critD1, critD2, critD3, currentElement)
+		} else {
+			dmgLog = fmt.Sprintf(" Hit! Deals %d (3d8[%d,%d,%d]) %s dmg.", actualDamage, d1, d2, d3, currentElement)
+		}
+		g.addCombatLog(attackLog + dmgLog)
+
+		hitTextColor := colorWhite
+		hitText := "Hit!"
+		if isCrit {
+			elementColor = color.NRGBA{R: 255, G: 165, B: 0, A: 255}
+			hitTextColor = color.NRGBA{R: 255, G: 215, B: 0, A: 255}
+			hitText = "CRITICAL!"
+		}
+		g.FloatingTexts = append(g.FloatingTexts, &FloatingText{Text: fmt.Sprintf("-%d", actualDamage), X: textSpawnX, Y: textSpawnY, Life: 60, MaxLife: 60, Color: elementColor, VelocityY: -0.5})
+		g.FloatingTexts = append(g.FloatingTexts, &FloatingText{Text: hitText, X: textSpawnX, Y: textSpawnY - 15, Life: 30, MaxLife: 30, Color: hitTextColor, VelocityY: -0.5})
+
+		if targetEnemy.HP <= 0 {
+			g.addCombatLog(fmt.Sprintf("%s dies!", targetEnemy.Name))
+			targetEnemy.IsDying = true
+		}
+	} else {
+		g.addCombatLog(attackLog + " Miss!")
+		g.FloatingTexts = append(g.FloatingTexts, &FloatingText{Text: "Miss!", X: textSpawnX, Y: textSpawnY - 15, Life: 30, MaxLife: 30, Color: colorGray, VelocityY: -0.5})
+	}
+
+	if currentElement == "Fire" {
+		g.Player.NextElementType = "Cold"
+	}
+	if currentElement == "Cold" {
+		g.Player.NextElementType = "Lightning"
+	}
+	if currentElement == "Lightning" {
+		g.Player.NextElementType = "Fire"
+	}
+
+	return true
+}
+
+func executeFeatherFall(g *Game, targetX, targetY int) bool {
+	g.addCombatLog("Casting Feather Fall!")
+	g.Player.FeatherFallDuration = 2
+	g.FloatingTexts = append(g.FloatingTexts, &FloatingText{
+		Text: "Evasive!", X: float64(g.MapOffsetX + g.Player.X*tileSize + (g.Player.Width*tileSize)/2), Y: float64(g.MapOffsetY+g.Player.Y*tileSize) - 15, Life: 60, MaxLife: 60, Color: colorWhite, VelocityY: -0.5,
+	})
+	return true
+}
+
+func executeExpeditiousRetreat(g *Game, targetX, targetY int) bool {
+	g.addCombatLog("Casting Expeditious Retreat!")
+	g.Player.ExpeditiousRetreatDuration = 2
+	g.FloatingTexts = append(g.FloatingTexts, &FloatingText{
+		Text: "Speedy!", X: float64(g.MapOffsetX + g.Player.X*tileSize + (g.Player.Width*tileSize)/2), Y: float64(g.MapOffsetY+g.Player.Y*tileSize) - 15, Life: 60, MaxLife: 60, Color: colorYellow, VelocityY: -0.5,
+	})
+	return true
+}
+
 func (g *Game) handlePlayerInput() {
 	if inpututil.IsKeyJustPressed(ebiten.KeyC) {
 		if g.InputMode == InputModeCharacterSheet {
@@ -2441,100 +2768,130 @@ func (g *Game) handlePlayerInput() {
 
 	case InputModeLevelUp:
 		madeChoice := false
+		levelUpPendingChoices := false
 
-		if g.Player.Class == "Mage" && g.Player.Level == 2 && len(g.Player.KnownSpells) == 0 {
-			level2Spells := []string{"arcane_blink", "burning_hands", "frost_nova", "mind_spike"}
-			spellIndex := -1
-
-			if inpututil.IsKeyJustPressed(ebiten.Key1) {
-				spellIndex = 0
-			}
-			if inpututil.IsKeyJustPressed(ebiten.Key2) {
-				spellIndex = 1
-			}
-			if inpututil.IsKeyJustPressed(ebiten.Key3) {
-				spellIndex = 2
-			}
-			if inpututil.IsKeyJustPressed(ebiten.Key4) {
-				spellIndex = 3
-			}
-
-			if spellIndex != -1 {
-				chosenSpellID := level2Spells[spellIndex]
-				g.Player.KnownSpells = append(g.Player.KnownSpells, chosenSpellID)
-				chosenSpellName := ActionTable[chosenSpellID].Name
-				g.addCombatLog(fmt.Sprintf("Learned %s!", chosenSpellName))
-				madeChoice = true
-			}
-
-		} else if g.Player.Class == "Fighter" && g.Player.Level == 3 && g.Player.CombatStyle == "" {
-			choiceIndex := -1
-			if inpututil.IsKeyJustPressed(ebiten.Key1) {
-				choiceIndex = 0
-			} // Gladiator
-			if inpututil.IsKeyJustPressed(ebiten.Key2) {
-				choiceIndex = 1
-			} // Ranger
-			if inpututil.IsKeyJustPressed(ebiten.Key3) {
-				choiceIndex = 2
-			} // Juggernaut
-
-			if choiceIndex != -1 {
-				styles := []string{"Gladiator", "Ranger", "Juggernaut"}
-				g.Player.CombatStyle = styles[choiceIndex]
-				g.addCombatLog(fmt.Sprintf("Chosen Combat Style: %s!", g.Player.CombatStyle))
-				if g.Player.CombatStyle == "Juggernaut" {
-					g.Player.AC += 2
-					g.addCombatLog("Gained +2 AC!")
+		if g.Player.Class == "Mage" {
+			if g.Player.Level == 2 && len(g.Player.KnownSpells) < 3 {
+				levelUpPendingChoices = true
+				spellIndex := -1
+				if inpututil.IsKeyJustPressed(ebiten.Key1) {
+					spellIndex = 0
+				} // Arcane Blink
+				if inpututil.IsKeyJustPressed(ebiten.Key2) {
+					spellIndex = 1
+				} // Burning Hands
+				if inpututil.IsKeyJustPressed(ebiten.Key3) {
+					spellIndex = 2
+				} // Frost Nova
+				if inpututil.IsKeyJustPressed(ebiten.Key4) {
+					spellIndex = 3
+				} // Mind Spike
+				if spellIndex != -1 {
+					level2Spells := []string{"arcane_blink", "burning_hands", "frost_nova", "mind_spike"}
+					chosenSpellID := level2Spells[spellIndex]
+					g.Player.KnownSpells = append(g.Player.KnownSpells, chosenSpellID)
+					chosenSpellName := ActionTable[chosenSpellID].Name
+					g.addCombatLog(fmt.Sprintf("Learned %s!", chosenSpellName))
+					madeChoice = true
 				}
-				madeChoice = true
-			}
-		} else if g.Player.Class == "Fighter" && g.Player.Level == 4 && g.Player.CombatTechnique == "" {
-			choiceIndex := -1
-			if inpututil.IsKeyJustPressed(ebiten.Key1) {
-				choiceIndex = 0
-			} // Power Attack
-			if inpututil.IsKeyJustPressed(ebiten.Key2) {
-				choiceIndex = 1
-			} // Defensive Stance
-			if inpututil.IsKeyJustPressed(ebiten.Key3) {
-				choiceIndex = 2
-			} // Quick Strike
-
-			if choiceIndex != -1 {
-				techniques := []string{"Power Attack", "Defensive Stance", "Quick Strike"}
-				g.Player.CombatTechnique = techniques[choiceIndex]
-				g.addCombatLog(fmt.Sprintf("Chosen Combat Technique: %s!", g.Player.CombatTechnique))
-				if g.Player.CombatTechnique == "Defensive Stance" {
-					g.Player.AC += 2
-					g.Player.MaxMovementPoints -= 1
-					g.addCombatLog("Gained +2 AC, Max Movement reduced by 1!")
+			} else if g.Player.Level == 3 && len(g.Player.KnownCantrips) < 2 {
+				levelUpPendingChoices = true
+				cantripIndex := -1
+				if inpututil.IsKeyJustPressed(ebiten.Key1) {
+					cantripIndex = 0
+				} // Ray of Frost
+				if inpututil.IsKeyJustPressed(ebiten.Key2) {
+					cantripIndex = 1
+				} // Shocking Grasp
+				if cantripIndex != -1 {
+					level3Cantrips := []string{"ray_of_frost", "shocking_grasp"}
+					chosenCantripID := level3Cantrips[cantripIndex]
+					g.Player.KnownCantrips = append(g.Player.KnownCantrips, chosenCantripID)
+					chosenCantripName := ActionTable[chosenCantripID].Name
+					g.addCombatLog(fmt.Sprintf("Learned Cantrip: %s!", chosenCantripName))
+					madeChoice = true
 				}
-				madeChoice = true
+			} else if g.Player.Level == 4 && len(g.Player.KnownSpells) < 4 {
+				levelUpPendingChoices = true
+				spellIndex := -1
+				if inpututil.IsKeyJustPressed(ebiten.Key1) {
+					spellIndex = 0
+				} // Magic Armor
+				if inpututil.IsKeyJustPressed(ebiten.Key2) {
+					spellIndex = 1
+				} // Elemental Strike
+				if inpututil.IsKeyJustPressed(ebiten.Key3) {
+					spellIndex = 2
+				} // Feather Fall
+				if inpututil.IsKeyJustPressed(ebiten.Key4) {
+					spellIndex = 3
+				} // Expeditious Retreat
+				if spellIndex != -1 {
+					level4Spells := []string{"magic_armor", "elemental_strike", "feather_fall", "expeditious_retreat"}
+					chosenSpellID := level4Spells[spellIndex]
+					g.Player.KnownSpells = append(g.Player.KnownSpells, chosenSpellID)
+					chosenSpellName := ActionTable[chosenSpellID].Name
+					g.addCombatLog(fmt.Sprintf("Learned %s!", chosenSpellName))
+					madeChoice = true
+				}
+			}
+		} else if g.Player.Class == "Fighter" {
+			if g.Player.Level == 3 && g.Player.CombatStyle == "" {
+				levelUpPendingChoices = true
+				choiceIndex := -1
+				if inpututil.IsKeyJustPressed(ebiten.Key1) {
+					choiceIndex = 0
+				} // Gladiator
+				if inpututil.IsKeyJustPressed(ebiten.Key2) {
+					choiceIndex = 1
+				} // Ranger
+				if inpututil.IsKeyJustPressed(ebiten.Key3) {
+					choiceIndex = 2
+				} // Juggernaut
+				if choiceIndex != -1 {
+					styles := []string{"Gladiator", "Ranger", "Juggernaut"}
+					g.Player.CombatStyle = styles[choiceIndex]
+					g.addCombatLog(fmt.Sprintf("Chosen Combat Style: %s!", g.Player.CombatStyle))
+					if g.Player.CombatStyle == "Juggernaut" {
+						g.Player.AC += 2
+						g.addCombatLog("Gained +2 AC!")
+					}
+					madeChoice = true
+				}
+			} else if g.Player.Level == 4 && g.Player.CombatTechnique == "" {
+				levelUpPendingChoices = true
+				choiceIndex := -1
+				if inpututil.IsKeyJustPressed(ebiten.Key1) {
+					choiceIndex = 0
+				} // Power Attack
+				if inpututil.IsKeyJustPressed(ebiten.Key2) {
+					choiceIndex = 1
+				} // Defensive Stance
+				if inpututil.IsKeyJustPressed(ebiten.Key3) {
+					choiceIndex = 2
+				} // Quick Strike
+				if choiceIndex != -1 {
+					techniques := []string{"Power Attack", "Defensive Stance", "Quick Strike"}
+					g.Player.CombatTechnique = techniques[choiceIndex]
+					g.addCombatLog(fmt.Sprintf("Chosen Combat Technique: %s!", g.Player.CombatTechnique))
+					if g.Player.CombatTechnique == "Defensive Stance" {
+						g.Player.AC += 2
+						g.Player.MaxMovementPoints -= 1
+						g.addCombatLog("Gained +2 AC, Max Movement reduced by 1!")
+					}
+					madeChoice = true
+				}
 			}
 		}
 
-		if !madeChoice {
-			levelUpPendingChoices := false
-			if g.Player.Class == "Mage" && g.Player.Level == 2 && len(g.Player.KnownSpells) == 0 {
-				levelUpPendingChoices = true
-			}
-			if g.Player.Class == "Fighter" && g.Player.Level == 3 && g.Player.CombatStyle == "" {
-				levelUpPendingChoices = true
-			}
-			if g.Player.Class == "Fighter" && g.Player.Level == 4 && g.Player.CombatTechnique == "" {
-				levelUpPendingChoices = true
-			}
-
-			if !levelUpPendingChoices && inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
-				g.addCombatLog("Level up acknowledged. Preparing for next challenge...")
-				g.longRest()
-				if g.CurrentWaveIndex+1 < len(g.WaveDefinitions) {
-					g.startNextWave()
-				} else {
-					g.addCombatLog("All challenges overcome! VICTORY!")
-					g.setGameOver(true)
-				}
+		if !madeChoice && !levelUpPendingChoices && inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
+			g.addCombatLog("Level up complete. Preparing for next challenge...")
+			g.longRest()
+			if g.CurrentWaveIndex+1 < len(g.WaveDefinitions) {
+				g.startNextWave()
+			} else {
+				g.addCombatLog("All challenges overcome! VICTORY!")
+				g.setGameOver(true)
 			}
 		}
 		return
@@ -2568,11 +2925,9 @@ func (g *Game) handlePlayerInput() {
 				g.selectedActionIndex = 0
 			}
 		}
-
 		if inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
 			if g.selectedActionIndex >= 0 && g.selectedActionIndex < len(g.availableActions) {
 				selectedActionDef := g.availableActions[g.selectedActionIndex]
-
 				if !selectedActionDef.RequiresTarget {
 					g.executeAction(selectedActionDef, -1, -1)
 					if g.CurrentGameState == StatePlaying && selectedActionDef.ID != "wait" && g.InputMode != InputModeRestPrompt && g.InputMode != InputModeLevelUp {
@@ -2585,7 +2940,6 @@ func (g *Game) handlePlayerInput() {
 				}
 			}
 		}
-
 		if inpututil.IsKeyJustPressed(ebiten.KeyTab) || inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
 			g.InputMode = InputModeMap
 			g.primedActionID = ""
@@ -2616,7 +2970,6 @@ func (g *Game) handlePlayerInput() {
 			}
 			return
 		}
-
 		actionExecutedByClick := false
 		if g.primedActionID != "" {
 			actionDef, exists := ActionTable[g.primedActionID]
@@ -2633,7 +2986,6 @@ func (g *Game) handlePlayerInput() {
 				case ActionTypeFree, ActionTypeReaction:
 					canUseAction = true
 				}
-
 				if !canUseAction {
 					g.addCombatLog(fmt.Sprintf("Cannot target for %s: %s already used.", actionDef.Name, actionDef.ActionType.String()))
 					g.primedActionID = ""
@@ -2642,7 +2994,6 @@ func (g *Game) handlePlayerInput() {
 						cursorX, cursorY := ebiten.CursorPosition()
 						gridX := (cursorX - g.MapOffsetX) / tileSize
 						gridY := (cursorY - g.MapOffsetY) / tileSize
-
 						if gridX >= 0 && gridX < mapWidth && gridY >= 0 && gridY < mapHeight {
 							actionExecutedByClick = g.executeAction(actionDef, gridX, gridY)
 							g.primedActionID = ""
@@ -2657,13 +3008,11 @@ func (g *Game) handlePlayerInput() {
 				}
 			}
 		}
-
 		if actionExecutedByClick {
 			if g.CurrentGameState != StatePlaying || g.InputMode == InputModeRestPrompt || g.InputMode == InputModeLevelUp {
 				return
 			}
 		}
-
 		if g.primedActionID == "" && inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
 			waitAction, exists := ActionTable["wait"]
 			if exists {
@@ -2674,12 +3023,10 @@ func (g *Game) handlePlayerInput() {
 			}
 			return
 		}
-
 		if g.primedActionID == "" && g.Player.MovementPoints > 0 {
 			moved := false
 			startX, startY := g.Player.X, g.Player.Y
 			targetX, targetY := startX, startY
-
 			if inpututil.IsKeyJustPressed(ebiten.KeyArrowUp) {
 				targetY--
 				moved = true
@@ -2696,7 +3043,6 @@ func (g *Game) handlePlayerInput() {
 				targetX++
 				moved = true
 			}
-
 			if moved {
 				if targetX >= 0 && targetX+g.Player.Width <= mapWidth && targetY >= 0 && targetY+g.Player.Height <= mapHeight {
 					if !g.isTileFullyBlocked(targetX, targetY, g.Player.Width, g.Player.Height, -1) {
@@ -2723,7 +3069,6 @@ func (g *Game) handlePlayerInput() {
 								}
 							}
 						}
-
 						if g.Player.HP > 0 && !g.Player.IsDying {
 							g.Player.X = targetX
 							g.Player.Y = targetY
@@ -2746,9 +3091,6 @@ func (g *Game) buildAvailableActions() {
 
 	alwaysAvailable := map[string]bool{"wait": true}
 	if g.Player.Class == "Mage" {
-		alwaysAvailable["firebolt"] = true
-		alwaysAvailable["magic_missile"] = true
-
 	} else {
 		alwaysAvailable["melee_attack"] = true
 		alwaysAvailable["ranged_attack"] = true
@@ -2761,7 +3103,11 @@ func (g *Game) buildAvailableActions() {
 			possibleActions[id] = true
 		}
 	}
-
+	for _, cantripID := range g.Player.KnownCantrips {
+		if _, exists := ActionTable[cantripID]; exists {
+			possibleActions[cantripID] = true
+		}
+	}
 	for _, spellID := range g.Player.KnownSpells {
 		if _, exists := ActionTable[spellID]; exists {
 			possibleActions[spellID] = true
@@ -2826,14 +3172,13 @@ func (g *Game) buildAvailableActions() {
 				}
 			}
 		}
+
 		if !isAvailable {
 			continue
 		}
-
 		if actionDef.ID == "disengage" && !isPlayerAdjacentToEnemy(g) {
 			isAvailable = false
 		}
-
 		if isAvailable {
 			tempAvailableActions = append(tempAvailableActions, actionDef)
 		}
@@ -3300,12 +3645,10 @@ func (g *Game) DrawPlaying(screen *ebiten.Image) {
 			}
 		}
 	}
-
 	if g.CurrentTurn == PlayerTurn && g.InputMode == InputModeMap {
 		cursorX, cursorY := ebiten.CursorPosition()
 		gridX := (cursorX - g.MapOffsetX) / tileSize
 		gridY := (cursorY - g.MapOffsetY) / tileSize
-
 		if gridX >= 0 && gridX < mapWidth && gridY >= 0 && gridY < mapHeight {
 			hoverScreenX := float32(mapOffsetX + gridX*tileSize)
 			hoverScreenY := float32(mapOffsetY + gridY*tileSize)
@@ -3313,13 +3656,11 @@ func (g *Game) DrawPlaying(screen *ebiten.Image) {
 			vector.StrokeRect(screen, hoverScreenX, hoverScreenY, float32(tileSize), float32(tileSize), 1, hoverColor, false)
 		}
 	}
-
 	if g.CurrentTurn == PlayerTurn && g.primedActionID != "" && g.RangeOverlayTile != nil {
 		actionDef, exists := ActionTable[g.primedActionID]
 		if exists && actionDef.RequiresTarget && actionDef.Range > 0 && g.Player != nil {
 			overlayOpts := &ebiten.DrawImageOptions{}
 			originX, originY := g.Player.X, g.Player.Y
-
 			for x := 0; x < mapWidth; x++ {
 				for y := 0; y < mapHeight; y++ {
 					dist := distance(originX, originY, x, y)
@@ -3329,7 +3670,6 @@ func (g *Game) DrawPlaying(screen *ebiten.Image) {
 					} else {
 						isInRange = dist > 0 && dist <= actionDef.Range
 					}
-
 					if isInRange {
 						screenX := float64(mapOffsetX + x*tileSize)
 						screenY := float64(mapOffsetY + y*tileSize)
@@ -3351,14 +3691,12 @@ func (g *Game) DrawPlaying(screen *ebiten.Image) {
 	if g.Player != nil && (!g.Player.IsDying || g.Player.CurrentAlpha > 0) {
 		entitiesToDraw = append(entitiesToDraw, &g.Player.Entity)
 	}
-
 	sort.Slice(entitiesToDraw, func(i, j int) bool {
 		if entitiesToDraw[i].Y != entitiesToDraw[j].Y {
 			return entitiesToDraw[i].Y < entitiesToDraw[j].Y
 		}
 		return entitiesToDraw[i].X < entitiesToDraw[j].X
 	})
-
 	entityOpts := &ebiten.DrawImageOptions{}
 	for _, entity := range entitiesToDraw {
 		if entity.Sprite == nil {
@@ -3382,7 +3720,6 @@ func (g *Game) DrawPlaying(screen *ebiten.Image) {
 			entityOpts.ColorM.Scale(1, 1, 1, entity.CurrentAlpha)
 		}
 		screen.DrawImage(entity.Sprite, entityOpts)
-
 		if entity.CurrentAlpha > 0 && entity.MaxHP > 0 {
 			hpBarBaseX := float64(mapOffsetX+entity.X*tileSize) + bumpOffsetX
 			hpBarBaseY := float64(mapOffsetY + (entity.Y+entity.Height)*tileSize)
@@ -3418,7 +3755,7 @@ func (g *Game) DrawPlaying(screen *ebiten.Image) {
 		effectiveAC := g.Player.AC + g.Player.ACBonusUntilNextTurn
 		acString := fmt.Sprintf("%d", g.Player.AC)
 		if g.Player.ACBonusUntilNextTurn > 0 {
-			acString = fmt.Sprintf("%d (%d+%d)", effectiveAC, g.Player.AC, g.Player.ACBonusUntilNextTurn)
+			acString = fmt.Sprintf("%d (+%d Buff)", effectiveAC, g.Player.ACBonusUntilNextTurn)
 		}
 		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("HP: %d/%d AC: %s", playerHpVal, g.Player.MaxHP, acString), 10, uiStartY+uiLineHeight*1)
 		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Move: %d/%d", g.Player.MovementPoints, g.Player.MaxMovementPoints), 10, uiStartY+uiLineHeight*2)
@@ -3453,13 +3790,24 @@ func (g *Game) DrawPlaying(screen *ebiten.Image) {
 		ebitenutil.DebugPrintAt(screen, primedActionText, 10, uiStartY+uiLineHeight*7)
 		statusText := ""
 		if g.Player.IsDisengaging {
-			statusText = "Status: Disengaging"
+			statusText += "Disengaging "
+		}
+		if g.Player.IsSlowed {
+			statusText += "Slowed "
+		}
+		if g.Player.MagicArmorDuration > 0 {
+			statusText += "MagicArmor "
+		}
+		if g.Player.ExpeditiousRetreatDuration > 0 {
+			statusText += "Speedy "
+		}
+		if g.Player.FeatherFallDuration > 0 {
+			statusText += "Evasive "
 		}
 		if statusText != "" {
-			ebitenutil.DebugPrintAt(screen, statusText, 10, uiStartY+uiLineHeight*8)
+			ebitenutil.DebugPrintAt(screen, "Status: "+statusText, 10, uiStartY+uiLineHeight*8)
 		}
 	}
-
 	if g.InputMode == InputModeActionSelect {
 		menuW, menuH := screenWidth/2, screenHeight/2+20
 		menuX, menuY := (screenWidth-menuW)/2, (screenHeight-menuH)/2
@@ -3498,7 +3846,6 @@ func (g *Game) DrawPlaying(screen *ebiten.Image) {
 			text.Draw(screen, actionText, basicfont.Face7x13, itemX, itemY, itemColor)
 		}
 	}
-
 	if g.InputMode == InputModeCharacterSheet && g.Player != nil {
 		menuW, menuH := screenWidth/2+40, screenHeight/2+60
 		menuX, menuY := (screenWidth-menuW)/2, (screenHeight-menuH)/2
@@ -3535,7 +3882,7 @@ func (g *Game) DrawPlaying(screen *ebiten.Image) {
 			text.Draw(screen, fmt.Sprintf("Technique: %s", g.Player.CombatTechnique), basicfont.Face7x13, col1X, infoStartY+(lineNum*infoLineHeight), colorWhite)
 			lineNum++
 		}
-		lineNum++
+		lineNum = max(lineNum, 8)
 		if g.Player.Class == "Mage" {
 			intMod := getModifier(g.Player.Intelligence)
 			dc := spellSaveDC(g)
@@ -3590,6 +3937,18 @@ func (g *Game) DrawPlaying(screen *ebiten.Image) {
 				}
 			}
 		}
+		if len(g.Player.KnownCantrips) > 0 {
+			text.Draw(screen, "Known Cantrips:", basicfont.Face7x13, col1X, infoStartY+(lineNum*infoLineHeight), colorGray)
+			lineNum++
+			for _, cantripID := range g.Player.KnownCantrips {
+				spellName := "??"
+				if spellDef, exists := ActionTable[cantripID]; exists {
+					spellName = spellDef.Name
+				}
+				text.Draw(screen, fmt.Sprintf(" - %s", spellName), basicfont.Face7x13, col1X+5, infoStartY+(lineNum*infoLineHeight), colorWhite)
+				lineNum++
+			}
+		}
 		if len(g.Player.KnownSpells) > 0 {
 			text.Draw(screen, "Known Spells:", basicfont.Face7x13, col1X, infoStartY+(lineNum*infoLineHeight), colorGray)
 			lineNum++
@@ -3627,7 +3986,8 @@ func (g *Game) DrawPlaying(screen *ebiten.Image) {
 			isRestPrompt, isLevelUpMsg, isReactionPrompt := false, false, false
 			if g.Player != nil {
 				isRestPrompt = g.InputMode == InputModeRestPrompt && i == len(g.CombatLog)-1 && msg == fmt.Sprintf("Wave Cleared! Spend 1 Hit Die (of %d) to heal? [Y/N]", g.Player.HitDice)
-				isLevelUpMsg = g.InputMode == InputModeLevelUp && i == len(g.CombatLog)-1 && msg == fmt.Sprintf("LEVEL UP! Reached Level %d!", g.Player.Level)
+				levelUpMsgPattern := "LEVEL UP! Reached Level"
+				isLevelUpMsg = g.InputMode == InputModeLevelUp && i == len(g.CombatLog)-1 && (strings.HasPrefix(msg, levelUpMsgPattern) || strings.HasPrefix(msg, "Learned") || strings.HasPrefix(msg, "Chosen"))
 			}
 			isReactionPrompt = g.InputMode == InputModeReactionPrompt && i == len(g.CombatLog)-1
 			var msgColor color.Color = colorWhite
@@ -3651,7 +4011,7 @@ func (g *Game) DrawPlaying(screen *ebiten.Image) {
 	}
 
 	if g.InputMode == InputModeLevelUp && g.Player != nil {
-		menuW, menuH := screenWidth/2, screenHeight/3
+		menuW, menuH := screenWidth/2, screenHeight/3+20
 		menuX, menuY := (screenWidth-menuW)/2, (screenHeight-menuH)/2
 		vector.DrawFilledRect(screen, float32(menuX), float32(menuY), float32(menuW), float32(menuH), color.NRGBA{R: 20, G: 30, B: 20, A: 230}, false)
 		vector.StrokeRect(screen, float32(menuX), float32(menuY), float32(menuW), float32(menuH), 2, colorWhite, false)
@@ -3664,41 +4024,70 @@ func (g *Game) DrawPlaying(screen *ebiten.Image) {
 		lineStartY := titleY + 25
 		lineNum := 0
 		lineSpacing := 15
+		choiceX := titleX
 
 		choicePending := false
-		if g.Player.Class == "Mage" && g.Player.Level == 2 && len(g.Player.KnownSpells) == 0 {
-			choicePending = true
-			spellChoiceText := "Choose a Level 1 Spell:"
-			text.Draw(screen, spellChoiceText, basicfont.Face7x13, titleX, lineStartY+(lineNum*lineSpacing), colorYellow)
-			lineNum++
-			level2Spells := []string{"arcane_blink", "burning_hands", "frost_nova", "mind_spike"}
-			for i, spellID := range level2Spells {
-				spellName := ActionTable[spellID].Name
-				choiceLine := fmt.Sprintf("[%d] %s", i+1, spellName)
-				text.Draw(screen, choiceLine, basicfont.Face7x13, titleX, lineStartY+(lineNum*lineSpacing), colorWhite)
+		if g.Player.Class == "Mage" {
+			if g.Player.Level == 2 && len(g.Player.KnownSpells) < 3 {
+				choicePending = true
+				spellChoiceText := "Choose L1 Spell:"
+				text.Draw(screen, spellChoiceText, basicfont.Face7x13, choiceX, lineStartY+(lineNum*lineSpacing), colorYellow)
 				lineNum++
+				level2Spells := []string{"arcane_blink", "burning_hands", "frost_nova", "mind_spike"}
+				for i, spellID := range level2Spells {
+					spellName := ActionTable[spellID].Name
+					choiceLine := fmt.Sprintf("[%d] %s", i+1, spellName)
+					text.Draw(screen, choiceLine, basicfont.Face7x13, choiceX, lineStartY+(lineNum*lineSpacing), colorWhite)
+					lineNum++
+				}
+			} else if g.Player.Level == 3 && len(g.Player.KnownCantrips) < 2 {
+				choicePending = true
+				cantripChoiceText := "Choose Cantrip:"
+				text.Draw(screen, cantripChoiceText, basicfont.Face7x13, choiceX, lineStartY+(lineNum*lineSpacing), colorYellow)
+				lineNum++
+				level3Cantrips := []string{"ray_of_frost", "shocking_grasp"}
+				for i, cantripID := range level3Cantrips {
+					cantripName := ActionTable[cantripID].Name
+					choiceLine := fmt.Sprintf("[%d] %s", i+1, cantripName)
+					text.Draw(screen, choiceLine, basicfont.Face7x13, choiceX, lineStartY+(lineNum*lineSpacing), colorWhite)
+					lineNum++
+				}
+			} else if g.Player.Level == 4 && len(g.Player.KnownSpells) < 4 {
+				choicePending = true
+				spellChoiceText := "Choose L1 Spell:"
+				text.Draw(screen, spellChoiceText, basicfont.Face7x13, choiceX, lineStartY+(lineNum*lineSpacing), colorYellow)
+				lineNum++
+				level4Spells := []string{"magic_armor", "elemental_strike", "feather_fall", "expeditious_retreat"}
+				for i, spellID := range level4Spells {
+					spellName := ActionTable[spellID].Name
+					choiceLine := fmt.Sprintf("[%d] %s", i+1, spellName)
+					text.Draw(screen, choiceLine, basicfont.Face7x13, choiceX, lineStartY+(lineNum*lineSpacing), colorWhite)
+					lineNum++
+				}
 			}
-		} else if g.Player.Class == "Fighter" && g.Player.Level == 3 && g.Player.CombatStyle == "" {
-			choicePending = true
-			styleChoiceText := "Choose a Combat Style:"
-			text.Draw(screen, styleChoiceText, basicfont.Face7x13, titleX, lineStartY+(lineNum*lineSpacing), colorYellow)
-			lineNum++
-			styles := []string{"Gladiator (+2 Melee Dmg)", "Ranger (+2 Ranged Hit)", "Juggernaut (+2 AC)"}
-			for i, styleDesc := range styles {
-				choiceLine := fmt.Sprintf("[%d] %s", i+1, styleDesc)
-				text.Draw(screen, choiceLine, basicfont.Face7x13, titleX, lineStartY+(lineNum*lineSpacing), colorWhite)
+		} else if g.Player.Class == "Fighter" {
+			if g.Player.Level == 3 && g.Player.CombatStyle == "" {
+				choicePending = true
+				styleChoiceText := "Choose Combat Style:"
+				text.Draw(screen, styleChoiceText, basicfont.Face7x13, choiceX, lineStartY+(lineNum*lineSpacing), colorYellow)
 				lineNum++
-			}
-		} else if g.Player.Class == "Fighter" && g.Player.Level == 4 && g.Player.CombatTechnique == "" {
-			choicePending = true
-			techChoiceText := "Choose a Combat Technique:"
-			text.Draw(screen, techChoiceText, basicfont.Face7x13, titleX, lineStartY+(lineNum*lineSpacing), colorYellow)
-			lineNum++
-			techniques := []string{"Power Attack (-2 Hit/+50% Dmg)", "Defensive Stance (+2 AC/-1 Move)", "Quick Strike (Bonus Atk/Half Dmg)"}
-			for i, techDesc := range techniques {
-				choiceLine := fmt.Sprintf("[%d] %s", i+1, techDesc)
-				text.Draw(screen, choiceLine, basicfont.Face7x13, titleX, lineStartY+(lineNum*lineSpacing), colorWhite)
+				styles := []string{"Gladiator (+2 Melee Dmg)", "Ranger (+2 Ranged Hit)", "Juggernaut (+2 AC)"}
+				for i, styleDesc := range styles {
+					choiceLine := fmt.Sprintf("[%d] %s", i+1, styleDesc)
+					text.Draw(screen, choiceLine, basicfont.Face7x13, choiceX, lineStartY+(lineNum*lineSpacing), colorWhite)
+					lineNum++
+				}
+			} else if g.Player.Level == 4 && g.Player.CombatTechnique == "" {
+				choicePending = true
+				techChoiceText := "Choose Combat Technique:"
+				text.Draw(screen, techChoiceText, basicfont.Face7x13, choiceX, lineStartY+(lineNum*lineSpacing), colorYellow)
 				lineNum++
+				techniques := []string{"Power Attack (-2 Hit/+50% Dmg)", "Defensive Stance (+2 AC/-1 Move)", "Quick Strike (Bonus Atk/Half Dmg)"}
+				for i, techDesc := range techniques {
+					choiceLine := fmt.Sprintf("[%d] %s", i+1, techDesc)
+					text.Draw(screen, choiceLine, basicfont.Face7x13, choiceX, lineStartY+(lineNum*lineSpacing), colorWhite)
+					lineNum++
+				}
 			}
 		}
 
