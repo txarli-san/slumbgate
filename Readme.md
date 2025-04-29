@@ -78,3 +78,6 @@ GOOS=darwin GOARCH=arm64 go build -o slumbgate .
 ```bash
 GOOS=linux GOARCH=amd64 go build -o slumbgate .
 ```
+
+## Assets
+Shout-out to sethbb.itch.io/32rogues
