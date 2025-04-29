@@ -598,17 +598,26 @@ func (g *Game) DrawGameOver(screen *ebiten.Image) {
 	if g.isVictory {
 		gameOverMsg = "VICTORY!"
 	}
+	quitMsg := "Press [Q] to Quit"
 
 	msgFont := basicfont.Face7x13
-	bounds := text.BoundString(msgFont, gameOverMsg)
-	msgX := (screenWidth - bounds.Dx()) / 2
-	msgY := (screenHeight - bounds.Dy()) / 2
+	msgBounds := text.BoundString(msgFont, gameOverMsg)
+	quitBounds := text.BoundString(msgFont, quitMsg)
+
+	msgX := (screenWidth - msgBounds.Dx()) / 2
+	msgY := (screenHeight / 2) - msgBounds.Dy()
+
+	quitX := (screenWidth - quitBounds.Dx()) / 2
+	quitY := (screenHeight / 2) + 5
 
 	overlayColor := color.NRGBA{R: 0, G: 0, B: 0, A: 180}
 	vector.DrawFilledRect(screen, 0, 0, float32(screenWidth), float32(screenHeight), overlayColor, false)
 
 	text.Draw(screen, gameOverMsg, msgFont, msgX+1, msgY+1, colorBlack)
 	text.Draw(screen, gameOverMsg, msgFont, msgX, msgY, colorWhite)
+
+	text.Draw(screen, quitMsg, msgFont, quitX+1, quitY+1, colorBlack)
+	text.Draw(screen, quitMsg, msgFont, quitX, quitY, colorGray)
 }
 
 func StartScreen() *Game {

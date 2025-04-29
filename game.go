@@ -706,10 +706,25 @@ func (g *Game) buildAvailableActions() {
 		}
 	}
 
+	quitActionDef, exists := ActionTable["accept_defeat"]
+	if exists {
+		tempAvailableActions = append(tempAvailableActions, quitActionDef)
+	} else {
+		log.Println("Warning: Quit action 'accept_defeat' not found in ActionTable")
+	}
+
 	sort.Slice(tempAvailableActions, func(i, j int) bool {
 		if tempAvailableActions[i].ActionType != tempAvailableActions[j].ActionType {
 			return tempAvailableActions[i].ActionType < tempAvailableActions[j].ActionType
 		}
+
+		if tempAvailableActions[i].ID == "accept_defeat" {
+			return false
+		}
+		if tempAvailableActions[j].ID == "accept_defeat" {
+			return true
+		}
+
 		return tempAvailableActions[i].Name < tempAvailableActions[j].Name
 	})
 
@@ -730,6 +745,17 @@ func (g *Game) cleanupDeadEnemies() {
 }
 
 func (g *Game) Update() error {
+	if g.PendingQuit {
+		return ebiten.Termination
+	}
+
+	if g.CurrentGameState == StateGameOverScreen {
+		if inpututil.IsKeyJustPressed(ebiten.KeyQ) {
+			return ebiten.Termination
+		}
+		return nil
+	}
+
 	activeTexts := make([]*FloatingText, 0, len(g.FloatingTexts))
 	for _, ft := range g.FloatingTexts {
 		ft.Life--
@@ -838,4 +864,10 @@ func (g *Game) UpdatePlaying() {
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
 	return screenWidth, screenHeight
+}
+
+func executeQuitGame(g *Game, targetX, targetY int) bool {
+	g.addCombatLog("Shame...")
+	g.PendingQuit = true
+	return true
 }

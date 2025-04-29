@@ -468,5 +468,17 @@ func init() {
 			Execute:          executeExpeditiousRetreat,
 			VisualEffectType: "Default",
 		},
+		"accept_defeat": {
+			ID:               "accept_defeat",
+			Name:             "Accept Defeat (Quit Game)",
+			ActionType:       ActionTypeFree,
+			ResourceType:     ResourceNone,
+			ResourceCost:     0,
+			Targeting:        TargetNone,
+			Range:            0,
+			RequiresTarget:   false,
+			Execute:          executeQuitGame,
+			VisualEffectType: "None",
+		},
 	}
 }

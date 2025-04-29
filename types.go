@@ -123,6 +123,7 @@ type Game struct {
 	selectableClasses         []SelectableClass
 	classSelectionIndex       int
 	isVictory                 bool
+	PendingQuit               bool
 }
 
 type ActionExecuteFunc func(g *Game, targetX, targetY int) bool
