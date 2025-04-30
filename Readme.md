@@ -39,7 +39,6 @@ Uses Ebiten. Assets embedded.
 
 ## Known Issues / Bugs / Rough Edges
 
-- **Mage Shield:** Has a weird behavior while trying to move out of mele range, need test and fix.
 - **AI is Primitive:** Enemies just follow simple rules. Easily exploitable. No real tactics. Pathfinding surely breaks on weird maps.
 - **Thin Content:** Only 2 classes playable. Enemy variety is mostly stat-based. Needs more meaningful differences.
 - **Unbalanced:** Combat difficulty is completely un-tuned. Probably swings wildly.
