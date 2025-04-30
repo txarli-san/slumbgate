@@ -102,3 +102,14 @@ const (
 	RestTypeCombat
 	RestTypeNever
 )
+
+type EnemyTurnPhase int
+
+const (
+	PhaseEnemyStartTurn EnemyTurnPhase = iota
+	PhaseEnemyDecideAction
+	PhaseEnemyMove
+	PhaseEnemyAction
+	PhaseEnemyPausedForReaction
+	PhaseEnemyDone
+)

@@ -8,7 +8,6 @@ import (
 )
 
 func (g *Game) handlePlayerInput() {
-	// --- DEBUG COMMANDS START ---
 	isDebugLevelUp := ebiten.IsKeyPressed(ebiten.KeyShift) && inpututil.IsKeyJustPressed(ebiten.KeyL)
 	if isDebugLevelUp && g.Player != nil {
 		if g.Player.Level < maxLevel {
@@ -21,7 +20,6 @@ func (g *Game) handlePlayerInput() {
 			g.addCombatLog("DEBUG: Already at max level!")
 		}
 	}
-	// --- DEBUG COMMANDS END ---
 
 	if inpututil.IsKeyJustPressed(ebiten.KeyC) {
 		if g.InputMode == InputModeCharacterSheet {
@@ -45,6 +43,7 @@ func (g *Game) handlePlayerInput() {
 			g.addCombatLog("Attack resolved (after Shield).")
 		} else if inpututil.IsKeyJustPressed(ebiten.KeyN) {
 			g.addCombatLog("Declined Shield reaction.")
+			g.Player.UsedReaction = true
 			g.reactionPending = false
 			g.InputMode = InputModeMap
 			g.addCombatLog("Attack resolved.")
@@ -61,16 +60,16 @@ func (g *Game) handlePlayerInput() {
 				spellIndex := -1
 				if inpututil.IsKeyJustPressed(ebiten.Key1) {
 					spellIndex = 0
-				} // Arcane Blink
+				}
 				if inpututil.IsKeyJustPressed(ebiten.Key2) {
 					spellIndex = 1
-				} // Burning Hands
+				}
 				if inpututil.IsKeyJustPressed(ebiten.Key3) {
 					spellIndex = 2
-				} // Frost Nova
+				}
 				if inpututil.IsKeyJustPressed(ebiten.Key4) {
 					spellIndex = 3
-				} // Mind Spike
+				}
 				if spellIndex != -1 {
 					level2Spells := []string{"arcane_blink", "burning_hands", "frost_nova", "mind_spike"}
 					chosenSpellID := level2Spells[spellIndex]
@@ -84,10 +83,10 @@ func (g *Game) handlePlayerInput() {
 				cantripIndex := -1
 				if inpututil.IsKeyJustPressed(ebiten.Key1) {
 					cantripIndex = 0
-				} // Ray of Frost
+				}
 				if inpututil.IsKeyJustPressed(ebiten.Key2) {
 					cantripIndex = 1
-				} // Shocking Grasp
+				}
 				if cantripIndex != -1 {
 					level3Cantrips := []string{"ray_of_frost", "shocking_grasp"}
 					chosenCantripID := level3Cantrips[cantripIndex]
@@ -101,16 +100,16 @@ func (g *Game) handlePlayerInput() {
 				spellIndex := -1
 				if inpututil.IsKeyJustPressed(ebiten.Key1) {
 					spellIndex = 0
-				} // Magic Armor
+				}
 				if inpututil.IsKeyJustPressed(ebiten.Key2) {
 					spellIndex = 1
-				} // Elemental Strike
+				}
 				if inpututil.IsKeyJustPressed(ebiten.Key3) {
 					spellIndex = 2
-				} // Feather Fall
+				}
 				if inpututil.IsKeyJustPressed(ebiten.Key4) {
 					spellIndex = 3
-				} // Expeditious Retreat
+				}
 				if spellIndex != -1 {
 					level4Spells := []string{"magic_armor", "elemental_strike", "feather_fall", "expeditious_retreat"}
 					chosenSpellID := level4Spells[spellIndex]
@@ -126,13 +125,13 @@ func (g *Game) handlePlayerInput() {
 				choiceIndex := -1
 				if inpututil.IsKeyJustPressed(ebiten.Key1) {
 					choiceIndex = 0
-				} // Gladiator
+				}
 				if inpututil.IsKeyJustPressed(ebiten.Key2) {
 					choiceIndex = 1
-				} // Ranger
+				}
 				if inpututil.IsKeyJustPressed(ebiten.Key3) {
 					choiceIndex = 2
-				} // Juggernaut
+				}
 				if choiceIndex != -1 {
 					styles := []string{"Gladiator", "Ranger", "Juggernaut"}
 					g.Player.CombatStyle = styles[choiceIndex]
@@ -148,13 +147,13 @@ func (g *Game) handlePlayerInput() {
 				choiceIndex := -1
 				if inpututil.IsKeyJustPressed(ebiten.Key1) {
 					choiceIndex = 0
-				} // Power Attack
+				}
 				if inpututil.IsKeyJustPressed(ebiten.Key2) {
 					choiceIndex = 1
-				} // Defensive Stance
+				}
 				if inpututil.IsKeyJustPressed(ebiten.Key3) {
 					choiceIndex = 2
-				} // Quick Strike
+				}
 				if choiceIndex != -1 {
 					techniques := []string{"Power Attack", "Defensive Stance", "Quick Strike"}
 					g.Player.CombatTechnique = techniques[choiceIndex]
@@ -332,32 +331,48 @@ func (g *Game) handlePlayerInput() {
 				if targetX >= 0 && targetX+g.Player.Width <= mapWidth && targetY >= 0 && targetY+g.Player.Height <= mapHeight {
 					if !g.isTileFullyBlocked(targetX, targetY, g.Player.Width, g.Player.Height, -1) {
 						performAoOCheck := !g.Player.IsDisengaging
+						currentStartX, currentStartY := startX, startY
+						currentTargetX, currentTargetY := targetX, targetY
+						moveInterrupted := false
+
 						if performAoOCheck {
 							for _, enemy := range g.Enemies {
 								if enemy.IsDying || enemy.HP <= 0 {
 									continue
 								}
-								wasAdj := isAdjacentToEntity(startX, startY, &enemy.Entity)
-								isStillAdj := isAdjacentToEntity(targetX, targetY, &enemy.Entity)
+								wasAdj := isAdjacentToEntity(currentStartX, currentStartY, &enemy.Entity)
+								isStillAdj := isAdjacentToEntity(currentTargetX, currentTargetY, &enemy.Entity)
 								if wasAdj && !isStillAdj {
-									if g.Player.HP > 0 && !g.Player.IsDying && !g.Player.UsedReaction {
+									if g.Player.HP > 0 && !g.Player.IsDying {
 										g.addCombatLog(fmt.Sprintf("%s makes an Opportunity Attack!", enemy.Name))
 										killedByAoO, _ := g.resolveAttack(&enemy.Entity, &g.Player.Entity, 0, "melee")
+
 										if g.reactionPending {
+
+											g.playerMovePending = true
+											g.pendingMoveStartX = currentStartX
+											g.pendingMoveStartY = currentStartY
+											g.pendingMoveTargetX = currentTargetX
+											g.pendingMoveTargetY = currentTargetY
+											moveInterrupted = true
 											return
 										}
 										if killedByAoO {
-											g.Player.MovementPoints--
+
+											moveInterrupted = true
 											return
 										}
 									}
 								}
 							}
 						}
-						if g.Player.HP > 0 && !g.Player.IsDying {
-							g.Player.X = targetX
-							g.Player.Y = targetY
-							g.Player.MovementPoints--
+
+						if !moveInterrupted {
+							if g.Player.HP > 0 && !g.Player.IsDying {
+								g.Player.X = currentTargetX
+								g.Player.Y = currentTargetY
+								g.Player.MovementPoints--
+							}
 						}
 					} else {
 						g.addCombatLog("Movement blocked.")

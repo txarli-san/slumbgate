@@ -97,8 +97,10 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 
 	roll := rand.Intn(20) + 1
 	effectiveAC := defender.AC
+	acBonus := 0
 	if isPlayerDefending {
-		effectiveAC += g.Player.ACBonusUntilNextTurn
+		acBonus = g.Player.ACBonusUntilNextTurn
+		effectiveAC += acBonus
 	}
 
 	attackRoll := roll + attackerProfBonus + attackAbilityMod + attackPenalty
@@ -123,9 +125,9 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 			attackVerb = "casts Bone Chill at"
 		}
 	}
-	logMsg := fmt.Sprintf("%s %s %s(AC%d). Roll: %s.", attacker.Name, attackVerb, defender.Name, effectiveAC, rollString)
-	if isPlayerDefending && g.Player.ACBonusUntilNextTurn > 0 {
-		logMsg = fmt.Sprintf("%s %s %s(AC%d+%d Buff=%d). Roll: %s.", attacker.Name, attackVerb, defender.Name, defender.AC, g.Player.ACBonusUntilNextTurn, effectiveAC, rollString)
+	logMsg := fmt.Sprintf("%s %s %s(AC%d). Roll: %s.", attacker.Name, attackVerb, defender.Name, defender.AC, rollString)
+	if isPlayerDefending && acBonus > 0 {
+		logMsg = fmt.Sprintf("%s %s %s(AC%d+%d Buff=%d). Roll: %s.", attacker.Name, attackVerb, defender.Name, defender.AC, acBonus, effectiveAC, rollString)
 	}
 
 	textSpawnX := float64(g.MapOffsetX + defender.X*tileSize + (defender.Width*tileSize)/2)
@@ -134,7 +136,7 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 	killed := false
 	attackLanded := false
 
-	if isPlayerDefending && hit && !g.Player.UsedReaction {
+	if isPlayerDefending && hit && !g.Player.UsedReaction && !g.reactionPending {
 		playerKnowsShield := false
 		for _, known := range g.Player.KnownSpells {
 			if known == "shield" {
@@ -148,8 +150,9 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 		if playerKnowsShield && g.Player.SpellSlotsL1 > 0 {
 			g.addCombatLog("Hit detected! Use Shield reaction? [Y/N]")
 			g.reactionPending = true
-			g.InputMode = InputModeReactionPrompt
+
 			g.addCombatLog(logMsg + " (Pending Reaction...)")
+
 			return false, false
 		}
 	}
@@ -168,7 +171,7 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 			logMsg += " CRITICAL!"
 		}
 
-		if isPlayerAttacking { // Player DMG Calculation
+		if isPlayerAttacking {
 			switch attackType {
 			case "ranged":
 				damageRoll1 = rand.Intn(6) + 1
@@ -200,7 +203,7 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 				}
 				damageLog += ")"
 			}
-		} else { // Enemy DMG Calculation
+		} else {
 			if enemyDef != nil && enemyDef.AttackDiceNum > 0 && enemyDef.AttackDiceSize > 0 {
 				totalDiceRoll := 0
 				diceRolls := []int{}
@@ -361,8 +364,6 @@ func (g *Game) executeAction(actionDef *ActionDefinition, targetX, targetY int) 
 
 	return success
 }
-
-// --- Execute ---
 
 func executeMeleeAttack(g *Game, targetX, targetY int) bool {
 	targetEnemy := g.getEnemyAt(targetX, targetY)
@@ -903,7 +904,7 @@ func executeRayOfFrost(g *Game, targetX, targetY int) bool {
 	}
 
 	g.addCombatLog(fmt.Sprintf("Casting Ray of Frost at %s!", targetEnemy.Name))
-	// casterAbilityMod := getModifier(g.Player.Wisdom)
+
 	attackTotal, roll, isCrit := spellAttackRoll(g)
 	hit := isCrit || attackTotal >= targetEnemy.AC
 	attackLog := fmt.Sprintf(" (Roll %d + INT %d + Prof %d = %d vs AC %d)",

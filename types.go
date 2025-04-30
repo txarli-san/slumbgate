@@ -96,6 +96,11 @@ type SelectableClass struct {
 	IsAvailable bool
 }
 
+type EnemyTurnContext struct {
+	Index int
+	Phase EnemyTurnPhase
+}
+
 type Game struct {
 	Player                    *Player
 	Enemies                   []*Enemy
@@ -124,6 +129,13 @@ type Game struct {
 	classSelectionIndex       int
 	isVictory                 bool
 	PendingQuit               bool
+	currentEnemyTurn          EnemyTurnContext
+	enemiesActedThisTurn      []bool
+	playerMovePending         bool
+	pendingMoveStartX         int
+	pendingMoveStartY         int
+	pendingMoveTargetX        int
+	pendingMoveTargetY        int
 }
 
 type ActionExecuteFunc func(g *Game, targetX, targetY int) bool

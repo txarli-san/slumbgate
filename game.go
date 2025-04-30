@@ -54,6 +54,14 @@ func (g *Game) InitGame(playerClassName string) {
 	g.FloatingTexts = make([]*FloatingText, 0)
 	g.isVictory = false
 
+	g.currentEnemyTurn = EnemyTurnContext{Index: -1, Phase: PhaseEnemyDone}
+	g.enemiesActedThisTurn = make([]bool, 0)
+	g.playerMovePending = false
+	g.pendingMoveStartX = 0
+	g.pendingMoveStartY = 0
+	g.pendingMoveTargetX = 0
+	g.pendingMoveTargetY = 0
+
 	g.WaveDefinitions = []WaveDefinition{
 		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Goblin Scout", SpawnPointIdx: 0}, {TypeName: "Goblin Scout", SpawnPointIdx: 1}}, IsBossWave: false},
 		{EnemiesToSpawn: []EnemySpawnInfo{{TypeName: "Goblin Scout", SpawnPointIdx: 2}, {TypeName: "Goblin Scout", SpawnPointIdx: 3}, {TypeName: "Goblin Archer", SpawnPointIdx: 4}}, IsBossWave: false},
@@ -133,6 +141,9 @@ func (g *Game) InitGame(playerClassName string) {
 	playerDexMod := getModifier(playerDex)
 	playerMaxHP := classDef.HitDieSize + playerConMod
 	playerAC := 10 + playerDexMod
+	if playerClassName == "Fighter" {
+		playerAC += 2
+	}
 
 	g.Player = &Player{
 		Entity: Entity{
@@ -733,14 +744,55 @@ func (g *Game) buildAvailableActions() {
 
 func (g *Game) cleanupDeadEnemies() {
 	initialCount := len(g.Enemies)
+	if g.currentEnemyTurn.Index >= 0 && g.currentEnemyTurn.Index < initialCount {
+		currentEnemy := g.Enemies[g.currentEnemyTurn.Index]
+		if currentEnemy.IsDying && currentEnemy.CurrentAlpha <= 0 {
+			g.currentEnemyTurn.Index = -1
+			g.currentEnemyTurn.Phase = PhaseEnemyDone
+		}
+	}
+
 	aliveEnemies := make([]*Enemy, 0, len(g.Enemies))
+	deletedCount := 0
+	originalIndexMap := make(map[*Enemy]int)
+	for i, enemy := range g.Enemies {
+		originalIndexMap[enemy] = i
+	}
+
+	activeEnemyBeforeCleanup := (*Enemy)(nil)
+	if g.currentEnemyTurn.Index >= 0 && g.currentEnemyTurn.Index < len(g.Enemies) {
+		activeEnemyBeforeCleanup = g.Enemies[g.currentEnemyTurn.Index]
+	}
+
 	for _, enemy := range g.Enemies {
 		if !enemy.IsDying || enemy.CurrentAlpha > 0 {
 			aliveEnemies = append(aliveEnemies, enemy)
+		} else {
+			if originalIndexMap[enemy] < g.currentEnemyTurn.Index {
+				deletedCount++
+			}
 		}
 	}
+
 	if len(aliveEnemies) != initialCount {
 		g.Enemies = aliveEnemies
+
+		if g.currentEnemyTurn.Index != -1 {
+			newIndex := -1
+			for i, enemy := range g.Enemies {
+				if enemy == activeEnemyBeforeCleanup {
+					newIndex = i
+					break
+				}
+			}
+			g.currentEnemyTurn.Index = newIndex
+			if newIndex == -1 {
+				g.currentEnemyTurn.Phase = PhaseEnemyDone
+			}
+		}
+
+		g.enemiesActedThisTurn = make([]bool, len(g.Enemies))
+
 	}
 }
 
@@ -790,6 +842,8 @@ func (g *Game) Update() error {
 		}
 	}
 
+	g.cleanupDeadEnemies()
+
 	switch g.CurrentGameState {
 	case StateClassSelection:
 		if inpututil.IsKeyJustPressed(ebiten.KeyArrowUp) {
@@ -807,59 +861,141 @@ func (g *Game) Update() error {
 		if inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
 			selected := g.selectableClasses[g.classSelectionIndex]
 			if selected.IsAvailable {
-				// Start game!
 				g.InitGame(selected.Name)
 			}
 		}
 	case StatePlaying:
 		g.UpdatePlaying()
 	case StateGameOverScreen:
-		break
+
 	}
 
 	return nil
 }
 
 func (g *Game) UpdatePlaying() {
+	if g.reactionPending && g.InputMode != InputModeReactionPrompt {
+		g.InputMode = InputModeReactionPrompt
+	}
 	if g.reactionPending {
 		g.handlePlayerInput()
 		return
+	}
+
+	if g.playerMovePending && !g.reactionPending {
+		g.completePendingPlayerMove()
 	}
 
 	if g.CurrentTurn == GameOver || g.CurrentGameState == StateGameOverScreen {
 		return
 	}
 
-	if g.InputMode == InputModeLevelUp {
+	if g.InputMode == InputModeLevelUp || g.InputMode == InputModeRestPrompt || g.InputMode == InputModeCharacterSheet {
 		g.handlePlayerInput()
 		return
 	}
-	if g.InputMode == InputModeRestPrompt {
-		g.handlePlayerInput()
-		return
-	}
-
-	if g.CurrentTurn == PlayerTurn || g.InputMode == InputModeActionSelect || g.InputMode == InputModeCharacterSheet {
+	if g.InputMode == InputModeActionSelect {
 		g.handlePlayerInput()
 	}
 
-	if g.CurrentGameState != StatePlaying || g.InputMode == InputModeLevelUp || g.InputMode == InputModeRestPrompt {
-		return
+	if g.CurrentTurn == PlayerTurn {
+		if g.InputMode == InputModeMap {
+			g.handlePlayerInput()
+		}
 	}
 
 	if g.CurrentTurn == EnemyTurn {
-		g.handleEnemyTurns()
-		if g.reactionPending {
-			return
-		}
-		if g.Player.IsDying && g.Player.CurrentAlpha <= 0 && g.CurrentGameState != StateGameOverScreen {
-			g.setGameOver(false)
-			return
-		}
-		if g.InputMode != InputModeRestPrompt && g.InputMode != InputModeLevelUp {
-			g.endEnemyTurn()
+		if g.currentEnemyTurn.Index == -1 {
+			g.startProcessingNextEnemy()
+		} else {
+			g.stepEnemyTurn()
 		}
 	}
+
+	if g.Player != nil && g.Player.IsDying && g.Player.CurrentAlpha <= 0 && g.CurrentGameState != StateGameOverScreen {
+		g.setGameOver(false)
+		return
+	}
+}
+
+func (g *Game) startProcessingNextEnemy() {
+	foundNext := false
+	for i := 0; i < len(g.Enemies); i++ {
+		enemy := g.Enemies[i]
+		isValid := enemy != nil && !enemy.IsDying && enemy.HP > 0
+		hasActed := i < len(g.enemiesActedThisTurn) && g.enemiesActedThisTurn[i]
+
+		if isValid && !hasActed {
+			g.currentEnemyTurn.Index = i
+			g.currentEnemyTurn.Phase = PhaseEnemyStartTurn
+
+			foundNext = true
+			break
+		}
+	}
+
+	if !foundNext {
+		g.currentEnemyTurn.Index = -1
+		g.endEnemyTurn()
+	}
+}
+
+func (g *Game) completePendingPlayerMove() {
+	if g.Player == nil || g.Player.IsDying || g.Player.HP <= 0 {
+		g.playerMovePending = false
+		return
+	}
+
+	startX := g.pendingMoveStartX
+	startY := g.pendingMoveStartY
+	targetX := g.pendingMoveTargetX
+	targetY := g.pendingMoveTargetY
+
+	if g.Player.MovementPoints <= 0 {
+		g.addCombatLog("Cannot complete pending move: No movement points left.")
+
+		g.playerMovePending = false
+		return
+	}
+
+	if g.isTileFullyBlocked(targetX, targetY, g.Player.Width, g.Player.Height, -1) {
+		g.addCombatLog("Cannot complete pending move: Target tile now blocked.")
+
+		g.playerMovePending = false
+		return
+	}
+
+	performAoOCheck := !g.Player.IsDisengaging
+	if performAoOCheck {
+		for _, enemy := range g.Enemies {
+			if enemy.IsDying || enemy.HP <= 0 {
+				continue
+			}
+			wasAdj := isAdjacentToEntity(startX, startY, &enemy.Entity)
+			isStillAdj := isAdjacentToEntity(targetX, targetY, &enemy.Entity)
+			if wasAdj && !isStillAdj {
+				if g.Player.HP > 0 && !g.Player.IsDying {
+					g.addCombatLog(fmt.Sprintf("%s makes an Opportunity Attack! (Completing move)", enemy.Name))
+					killedByAoO, _ := g.resolveAttack(&enemy.Entity, &g.Player.Entity, 0, "melee")
+
+					if killedByAoO {
+
+						g.playerMovePending = false
+						return
+					}
+				}
+			}
+		}
+	}
+
+	if g.Player.HP > 0 && !g.Player.IsDying {
+		g.Player.X = targetX
+		g.Player.Y = targetY
+		g.Player.MovementPoints--
+		g.addCombatLog("Completed delayed movement.")
+	}
+
+	g.playerMovePending = false
 }
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {

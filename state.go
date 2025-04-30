@@ -68,6 +68,8 @@ func (g *Game) endPlayerTurn() {
 
 func (g *Game) startEnemyTurn() {
 	g.CurrentTurn = EnemyTurn
+	g.currentEnemyTurn = EnemyTurnContext{Index: -1, Phase: PhaseEnemyDone}
+	g.enemiesActedThisTurn = make([]bool, len(g.Enemies))
 }
 
 func (g *Game) endEnemyTurn() {
@@ -76,7 +78,6 @@ func (g *Game) endEnemyTurn() {
 	if g.Player.IsDying && g.Player.CurrentAlpha <= 0 {
 		if g.CurrentGameState != StateGameOverScreen {
 			g.addCombatLog("Player has faded away! Game Over.")
-			g.setGameOver(false)
 		}
 		return
 	}
@@ -87,7 +88,6 @@ func (g *Game) endEnemyTurn() {
 	if len(g.Enemies) == 0 {
 		if g.Player.IsDying {
 			if g.CurrentGameState != StateGameOverScreen {
-				g.setGameOver(false)
 			}
 			return
 		}
@@ -97,7 +97,6 @@ func (g *Game) endEnemyTurn() {
 			g.startPlayerTurn()
 		} else {
 			if g.CurrentGameState != StateGameOverScreen {
-				g.setGameOver(false)
 			}
 		}
 	}

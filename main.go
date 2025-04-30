@@ -14,7 +14,7 @@ func main() {
 	game := StartScreen()
 	ebiten.SetWindowSize(screenWidth*2, screenHeight*2)
 	ebiten.SetWindowTitle("Slumb Gate")
-	ebiten.SetFullscreen(true)
+	ebiten.SetFullscreen(false)
 	if err := ebiten.RunGame(game); err != nil {
 		log.Fatal(err)
 	}

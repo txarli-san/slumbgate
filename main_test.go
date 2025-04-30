@@ -384,7 +384,8 @@ func TestFindRetreatStep_Cornered(t *testing.T) {
 	if found != expectedFound {
 		t.Errorf("findRetreatStep Cornered failed: expected found %t, got %t", expectedFound, found)
 	}
-	if !((nextX == expectedX1 && nextY == expectedY1) || (nextX == expectedX2 && nextY == expectedY2)) {
+
+	if found && !((nextX == expectedX1 && nextY == expectedY1) || (nextX == expectedX2 && nextY == expectedY2)) {
 		t.Errorf("findRetreatStep Cornered failed: expected (%d,%d) or (%d,%d), got (%d,%d)",
 			expectedX1, expectedY1, expectedX2, expectedY2, nextX, nextY)
 	}
