@@ -1,5 +1,7 @@
 # Slumb Gate - Dev Notes / README
 
+![slumb-gate](https://github.com/user-attachments/assets/4a652a0b-5798-47b8-907c-4afd68fdeb77)
+
 ## Current Status
 
 Go/Ebiten turn-based dungeon thing. It runs. You move, enemies move, violence happens, stuff dies. Has a wave system, Fighter/Mage classes, leveling, basic rests.
