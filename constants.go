@@ -113,3 +113,11 @@ const (
 	PhaseEnemyPausedForReaction
 	PhaseEnemyDone
 )
+
+const (
+	ConditionSlowed             = "Slowed"
+	ConditionMagicArmor         = "MagicArmor"
+	ConditionFeatherFall        = "FeatherFall"
+	ConditionExpeditiousRetreat = "ExpeditiousRetreat"
+	ConditionShielded           = "Shielded"
+)

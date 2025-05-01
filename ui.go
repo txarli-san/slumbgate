@@ -227,11 +227,14 @@ func (g *Game) DrawPlaying(screen *ebiten.Image) {
 		ebitenutil.DebugPrintAt(screen, waveText, screenWidth-waveTextWidth-10, statusStartY)
 		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Turn: %s", g.CurrentTurn.String()), 10, uiStartY)
 		playerHpVal := max(0, g.Player.HP)
-		effectiveAC := g.Player.AC + g.Player.ACBonusUntilNextTurn
+
+		effectiveAC := GetEffectiveAC(&g.Player.Entity)
 		acString := fmt.Sprintf("%d", g.Player.AC)
-		if g.Player.ACBonusUntilNextTurn > 0 {
-			acString = fmt.Sprintf("%d (+%d Buff)", effectiveAC, g.Player.ACBonusUntilNextTurn)
+		acBonusFromConditions := effectiveAC - g.Player.AC
+		if acBonusFromConditions > 0 {
+			acString = fmt.Sprintf("%d (+%d Buff)", effectiveAC, acBonusFromConditions)
 		}
+
 		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("HP: %d/%d AC: %s", playerHpVal, g.Player.MaxHP, acString), 10, uiStartY+uiLineHeight*1)
 		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Move: %d/%d", g.Player.MovementPoints, g.Player.MaxMovementPoints), 10, uiStartY+uiLineHeight*2)
 		if g.Player.Class == "Mage" {
@@ -263,22 +266,27 @@ func (g *Game) DrawPlaying(screen *ebiten.Image) {
 			}
 		}
 		ebitenutil.DebugPrintAt(screen, primedActionText, 10, uiStartY+uiLineHeight*7)
+
 		statusText := ""
+		for _, cond := range g.Player.Conditions {
+			switch cond.Name {
+			case ConditionSlowed:
+				statusText += "Slowed "
+			case ConditionMagicArmor:
+				statusText += "MagicArmor "
+			case ConditionExpeditiousRetreat:
+				statusText += "Speedy "
+			case ConditionFeatherFall:
+				statusText += "Evasive "
+			case ConditionShielded:
+				statusText += "Shielded "
+
+			}
+		}
 		if g.Player.IsDisengaging {
 			statusText += "Disengaging "
 		}
-		if g.Player.IsSlowed {
-			statusText += "Slowed "
-		}
-		if g.Player.MagicArmorDuration > 0 {
-			statusText += "MagicArmor "
-		}
-		if g.Player.ExpeditiousRetreatDuration > 0 {
-			statusText += "Speedy "
-		}
-		if g.Player.FeatherFallDuration > 0 {
-			statusText += "Evasive "
-		}
+
 		if statusText != "" {
 			ebitenutil.DebugPrintAt(screen, "Status: "+statusText, 10, uiStartY+uiLineHeight*8)
 		}
@@ -333,7 +341,7 @@ func (g *Game) DrawPlaying(screen *ebiten.Image) {
 		lineNum := 0
 		text.Draw(screen, fmt.Sprintf("HP: %d / %d", max(0, g.Player.HP), g.Player.MaxHP), basicfont.Face7x13, col1X, infoStartY+(lineNum*infoLineHeight), colorWhite)
 		lineNum++
-		text.Draw(screen, fmt.Sprintf("AC: %d", g.Player.AC), basicfont.Face7x13, col1X, infoStartY+(lineNum*infoLineHeight), colorWhite)
+		text.Draw(screen, fmt.Sprintf("AC: %d", GetEffectiveAC(&g.Player.Entity)), basicfont.Face7x13, col1X, infoStartY+(lineNum*infoLineHeight), colorWhite)
 		lineNum++
 		text.Draw(screen, fmt.Sprintf("Movement: %d", g.Player.MaxMovementPoints), basicfont.Face7x13, col1X, infoStartY+(lineNum*infoLineHeight), colorWhite)
 		lineNum++

@@ -173,3 +173,17 @@ func TickConditions(e *Entity) {
 	}
 	e.Conditions = nextConditions
 }
+
+func GetEffectiveAC(e *Entity) int {
+	if e == nil {
+		return 0
+	}
+	baseAC := e.AC
+	bonusAC := 0
+	for _, cond := range e.Conditions {
+		if value, ok := cond.Data["ACBonus"].(int); ok {
+			bonusAC += value
+		}
+	}
+	return baseAC + bonusAC
+}

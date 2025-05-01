@@ -21,7 +21,7 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 	attackPenalty := 0
 	damageMultiplier := 1.0
 
-	if isPlayerDefending && g.Player.FeatherFallDuration > 0 {
+	if isPlayerDefending && HasCondition(defender, ConditionFeatherFall) {
 		if rand.Intn(2) == 0 {
 			g.addCombatLog("Player nimbly dodges (Feather Fall)!")
 			g.FloatingTexts = append(g.FloatingTexts, &FloatingText{
@@ -96,12 +96,7 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 	}
 
 	roll := rand.Intn(20) + 1
-	effectiveAC := defender.AC
-	acBonus := 0
-	if isPlayerDefending {
-		acBonus = g.Player.ACBonusUntilNextTurn
-		effectiveAC += acBonus
-	}
+	effectiveAC := GetEffectiveAC(defender)
 
 	attackRoll := roll + attackerProfBonus + attackAbilityMod + attackPenalty
 	isCrit := roll == 20
@@ -125,10 +120,7 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 			attackVerb = "casts Bone Chill at"
 		}
 	}
-	logMsg := fmt.Sprintf("%s %s %s(AC%d). Roll: %s.", attacker.Name, attackVerb, defender.Name, defender.AC, rollString)
-	if isPlayerDefending && acBonus > 0 {
-		logMsg = fmt.Sprintf("%s %s %s(AC%d+%d Buff=%d). Roll: %s.", attacker.Name, attackVerb, defender.Name, defender.AC, acBonus, effectiveAC, rollString)
-	}
+	logMsg := fmt.Sprintf("%s %s %s(AC%d). Roll: %s.", attacker.Name, attackVerb, defender.Name, effectiveAC, rollString)
 
 	textSpawnX := float64(g.MapOffsetX + defender.X*tileSize + (defender.Width*tileSize)/2)
 	textSpawnY := float64(g.MapOffsetY + defender.Y*tileSize)
@@ -243,8 +235,7 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 		}
 
 		if isPlayerDefending && !isPlayerAttacking && attacker.Name == "Orc Shaman" {
-			g.Player.IsSlowed = true
-			g.Player.SlowDuration = 2
+			ApplyCondition(defender, Condition{Name: ConditionSlowed, Duration: 2})
 			logMsg += " Player is Slowed!"
 			g.FloatingTexts = append(g.FloatingTexts, &FloatingText{Text: "Slowed!", X: textSpawnX, Y: textSpawnY + 15, Life: textLifetime, MaxLife: textLifetime, Color: visualEffectColors["Cold"], VelocityY: -0.5})
 		}
@@ -465,7 +456,7 @@ func executeQuickStrike(g *Game, targetX, targetY int) bool {
 	isCrit := roll == 20
 	isFumble := roll == 1
 	attackRoll := roll + g.Player.ProficiencyBonus + attackAbilityMod
-	effectiveAC := targetEnemy.AC
+	effectiveAC := GetEffectiveAC(&targetEnemy.Entity)
 
 	rollString := fmt.Sprintf("%d+%d+%d(STR)=%d", roll, g.Player.ProficiencyBonus, attackAbilityMod, attackRoll)
 	logMsg := fmt.Sprintf("Player Quick Strikes %s(AC%d). Roll: %s.", targetEnemy.Name, effectiveAC, rollString)
@@ -544,9 +535,10 @@ func executeFirebolt(g *Game, targetX, targetY int) bool {
 
 	g.addCombatLog(fmt.Sprintf("Casting Firebolt at %s!", targetEnemy.Name))
 	attackTotal, roll, isCrit := spellAttackRoll(g)
-	hit := isCrit || attackTotal >= targetEnemy.AC
+	effectiveAC := GetEffectiveAC(&targetEnemy.Entity)
+	hit := isCrit || attackTotal >= effectiveAC
 	attackLog := fmt.Sprintf(" (Roll %d + INT %d + Prof %d = %d vs AC %d)",
-		roll, getModifier(g.Player.Intelligence), g.Player.ProficiencyBonus, attackTotal, targetEnemy.AC)
+		roll, getModifier(g.Player.Intelligence), g.Player.ProficiencyBonus, attackTotal, effectiveAC)
 
 	textSpawnX := float64(g.MapOffsetX + targetEnemy.X*tileSize + (targetEnemy.Width*tileSize)/2)
 	textSpawnY := float64(g.MapOffsetY + targetEnemy.Y*tileSize)
@@ -676,7 +668,7 @@ func executeMagicMissile(g *Game, targetX, targetY int) bool {
 
 func executeShield(g *Game, targetX, targetY int) bool {
 	g.addCombatLog("Used Reaction: Shield!")
-	g.Player.ACBonusUntilNextTurn = 5
+	ApplyCondition(&g.Player.Entity, Condition{Name: ConditionShielded, Duration: 1, Data: map[string]any{"ACBonus": 5}})
 	g.FloatingTexts = append(g.FloatingTexts, &FloatingText{
 		Text:      "+5 AC!",
 		X:         float64(g.MapOffsetX + g.Player.X*tileSize + (g.Player.Width*tileSize)/2),
@@ -814,9 +806,10 @@ func executeMindSpike(g *Game, targetX, targetY int) bool {
 
 	g.addCombatLog(fmt.Sprintf("Casting Mind Spike at %s!", targetEnemy.Name))
 	attackTotal, roll, isCrit := spellAttackRoll(g)
-	hit := isCrit || attackTotal >= targetEnemy.AC
+	effectiveAC := GetEffectiveAC(&targetEnemy.Entity)
+	hit := isCrit || attackTotal >= effectiveAC
 	attackLog := fmt.Sprintf(" (Roll %d + INT %d + Prof %d = %d vs AC %d)",
-		roll, getModifier(g.Player.Intelligence), g.Player.ProficiencyBonus, attackTotal, targetEnemy.AC)
+		roll, getModifier(g.Player.Intelligence), g.Player.ProficiencyBonus, attackTotal, effectiveAC)
 
 	textSpawnX := float64(g.MapOffsetX + targetEnemy.X*tileSize + (targetEnemy.Width*tileSize)/2)
 	textSpawnY := float64(g.MapOffsetY + targetEnemy.Y*tileSize)
@@ -906,9 +899,10 @@ func executeRayOfFrost(g *Game, targetX, targetY int) bool {
 	g.addCombatLog(fmt.Sprintf("Casting Ray of Frost at %s!", targetEnemy.Name))
 
 	attackTotal, roll, isCrit := spellAttackRoll(g)
-	hit := isCrit || attackTotal >= targetEnemy.AC
+	effectiveAC := GetEffectiveAC(&targetEnemy.Entity)
+	hit := isCrit || attackTotal >= effectiveAC
 	attackLog := fmt.Sprintf(" (Roll %d + INT %d + Prof %d = %d vs AC %d)",
-		roll, getModifier(g.Player.Intelligence), g.Player.ProficiencyBonus, attackTotal, targetEnemy.AC)
+		roll, getModifier(g.Player.Intelligence), g.Player.ProficiencyBonus, attackTotal, effectiveAC)
 
 	textSpawnX := float64(g.MapOffsetX + targetEnemy.X*tileSize + (targetEnemy.Width*tileSize)/2)
 	textSpawnY := float64(g.MapOffsetY + targetEnemy.Y*tileSize)
@@ -966,9 +960,10 @@ func executeShockingGrasp(g *Game, targetX, targetY int) bool {
 	g.addCombatLog(fmt.Sprintf("Casting Shocking Grasp on %s!", targetEnemy.Name))
 	casterAbilityMod := getModifier(g.Player.Intelligence)
 	attackTotal, roll, isCrit := spellAttackRoll(g)
-	hit := isCrit || attackTotal >= targetEnemy.AC
+	effectiveAC := GetEffectiveAC(&targetEnemy.Entity)
+	hit := isCrit || attackTotal >= effectiveAC
 	attackLog := fmt.Sprintf(" (Roll %d + INT %d + Prof %d = %d vs AC %d)",
-		roll, casterAbilityMod, g.Player.ProficiencyBonus, attackTotal, targetEnemy.AC)
+		roll, casterAbilityMod, g.Player.ProficiencyBonus, attackTotal, effectiveAC)
 
 	textSpawnX := float64(g.MapOffsetX + targetEnemy.X*tileSize + (targetEnemy.Width*tileSize)/2)
 	textSpawnY := float64(g.MapOffsetY + targetEnemy.Y*tileSize)
@@ -1019,7 +1014,7 @@ func executeShockingGrasp(g *Game, targetX, targetY int) bool {
 
 func executeMagicArmor(g *Game, targetX, targetY int) bool {
 	g.addCombatLog("Casting Magic Armor!")
-	g.Player.MagicArmorDuration = 3
+	ApplyCondition(&g.Player.Entity, Condition{Name: ConditionMagicArmor, Duration: 3, Data: map[string]any{"ACBonus": 2}})
 	g.FloatingTexts = append(g.FloatingTexts, &FloatingText{
 		Text: "+2 AC!", X: float64(g.MapOffsetX + g.Player.X*tileSize + (g.Player.Width*tileSize)/2), Y: float64(g.MapOffsetY+g.Player.Y*tileSize) - 15, Life: 60, MaxLife: 60, Color: visualEffectColors["Arcane"], VelocityY: -0.5,
 	})
@@ -1044,9 +1039,10 @@ func executeElementalStrike(g *Game, targetX, targetY int) bool {
 
 	casterAbilityMod := getModifier(g.Player.Intelligence)
 	attackTotal, roll, isCrit := spellAttackRoll(g)
-	hit := isCrit || attackTotal >= targetEnemy.AC
+	effectiveAC := GetEffectiveAC(&targetEnemy.Entity)
+	hit := isCrit || attackTotal >= effectiveAC
 	attackLog := fmt.Sprintf(" (Roll %d + INT %d + Prof %d = %d vs AC %d)",
-		roll, casterAbilityMod, g.Player.ProficiencyBonus, attackTotal, targetEnemy.AC)
+		roll, casterAbilityMod, g.Player.ProficiencyBonus, attackTotal, effectiveAC)
 
 	textSpawnX := float64(g.MapOffsetX + targetEnemy.X*tileSize + (targetEnemy.Width*tileSize)/2)
 	textSpawnY := float64(g.MapOffsetY + targetEnemy.Y*tileSize)
@@ -1114,7 +1110,7 @@ func executeElementalStrike(g *Game, targetX, targetY int) bool {
 
 func executeFeatherFall(g *Game, targetX, targetY int) bool {
 	g.addCombatLog("Casting Feather Fall!")
-	g.Player.FeatherFallDuration = 2
+	ApplyCondition(&g.Player.Entity, Condition{Name: ConditionFeatherFall, Duration: 2})
 	g.FloatingTexts = append(g.FloatingTexts, &FloatingText{
 		Text: "Evasive!", X: float64(g.MapOffsetX + g.Player.X*tileSize + (g.Player.Width*tileSize)/2), Y: float64(g.MapOffsetY+g.Player.Y*tileSize) - 15, Life: 60, MaxLife: 60, Color: colorWhite, VelocityY: -0.5,
 	})
@@ -1123,7 +1119,7 @@ func executeFeatherFall(g *Game, targetX, targetY int) bool {
 
 func executeExpeditiousRetreat(g *Game, targetX, targetY int) bool {
 	g.addCombatLog("Casting Expeditious Retreat!")
-	g.Player.ExpeditiousRetreatDuration = 2
+	ApplyCondition(&g.Player.Entity, Condition{Name: ConditionExpeditiousRetreat, Duration: 2, Data: map[string]any{"MoveBonus": 3}})
 	g.FloatingTexts = append(g.FloatingTexts, &FloatingText{
 		Text: "Speedy!", X: float64(g.MapOffsetX + g.Player.X*tileSize + (g.Player.Width*tileSize)/2), Y: float64(g.MapOffsetY+g.Player.Y*tileSize) - 15, Life: 60, MaxLife: 60, Color: colorYellow, VelocityY: -0.5,
 	})

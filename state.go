@@ -7,52 +7,25 @@ func (g *Game) startPlayerTurn() {
 		return
 	}
 
-	TickConditions(&g.Player.Entity)
-
-	currentACBonus := 0
-	currentMoveBonus := 0
-
-	if g.Player.IsSlowed {
-		g.Player.SlowDuration--
-		if g.Player.SlowDuration <= 0 {
-			g.Player.IsSlowed = false
-			g.addCombatLog("Slow effect wears off.")
-		}
-	}
-	if g.Player.MagicArmorDuration > 0 {
-		g.Player.MagicArmorDuration--
-		if g.Player.MagicArmorDuration <= 0 {
-			g.addCombatLog("Magic Armor fades.")
-		} else {
-			currentACBonus += 2
-		}
-	}
-	if g.Player.ExpeditiousRetreatDuration > 0 {
-		g.Player.ExpeditiousRetreatDuration--
-		if g.Player.ExpeditiousRetreatDuration <= 0 {
-			g.addCombatLog("Expeditious Retreat ends.")
-		} else {
-			currentMoveBonus += 3
-		}
-	}
-	if g.Player.FeatherFallDuration > 0 {
-		g.Player.FeatherFallDuration--
-		if g.Player.FeatherFallDuration <= 0 {
-			g.addCombatLog("Feather Fall ends.")
-		}
-	}
-
 	g.CurrentTurn = PlayerTurn
-	g.Player.MovementPoints = g.Player.MaxMovementPoints + currentMoveBonus
-	if g.Player.IsSlowed {
+	g.Player.MovementPoints = g.Player.MaxMovementPoints
+
+	if cond := GetCondition(&g.Player.Entity, ConditionExpeditiousRetreat); cond != nil {
+		if bonus, ok := cond.Data["MoveBonus"].(int); ok {
+			g.Player.MovementPoints += bonus
+		}
+	}
+
+	if HasCondition(&g.Player.Entity, ConditionSlowed) {
 		g.Player.MovementPoints = max(1, g.Player.MovementPoints/2)
 	}
+
+	TickConditions(&g.Player.Entity)
 
 	g.Player.ActionTaken = false
 	g.Player.BonusActionTaken = false
 	g.Player.IsDisengaging = false
 	g.Player.UsedReaction = false
-	g.Player.ACBonusUntilNextTurn = currentACBonus
 	g.InputMode = InputModeMap
 	g.primedActionID = ""
 }

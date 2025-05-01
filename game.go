@@ -124,7 +124,6 @@ func (g *Game) InitGame(playerClassName string) {
 	startLevel := 1
 	knownSpells := make([]string, 0)
 	knownCantrips := make([]string, 0)
-	maxSlotsL1 := 0
 
 	if playerClassName == "Fighter" {
 		playerStr, playerDex, playerCon = 16, 14, 14
@@ -134,7 +133,6 @@ func (g *Game) InitGame(playerClassName string) {
 		playerInt, playerWis, playerCha = 16, 10, 8
 		knownCantrips = append(knownCantrips, "firebolt")
 		knownSpells = append(knownSpells, "magic_missile", "shield")
-		maxSlotsL1 = 2
 	}
 
 	playerConMod := getModifier(playerCon)
@@ -154,29 +152,25 @@ func (g *Game) InitGame(playerClassName string) {
 			Sprite: playerSprite, Name: "Player", CurrentAlpha: 1.0,
 			Conditions: make([]Condition, 0),
 		},
-		Level:                startLevel,
-		Class:                playerClassName,
-		ProficiencyBonus:     calculateProficiencyBonus(startLevel),
-		MaxMovementPoints:    playerBaseMovement,
-		ClassResources:       make(map[string]int),
-		MaxHitDice:           startLevel,
-		HitDice:              startLevel,
-		MaxSpellSlotsL1:      maxSlotsL1,
-		SpellSlotsL1:         maxSlotsL1,
-		KnownSpells:          knownSpells,
-		KnownCantrips:        knownCantrips,
-		UsedReaction:         false,
-		UsedArcaneRecovery:   false,
-		ACBonusUntilNextTurn: 0,
-		LastSpellCastID:      "",
-		CombatStyle:          "",
-		CombatTechnique:      "",
-		IsSlowed:             false,
-		SlowDuration:         0,
-		NextElementType:      "Fire",
+		Level:              startLevel,
+		Class:              playerClassName,
+		ProficiencyBonus:   calculateProficiencyBonus(startLevel),
+		MaxMovementPoints:  playerBaseMovement,
+		ClassResources:     make(map[string]int),
+		MaxHitDice:         startLevel,
+		HitDice:            startLevel,
+		KnownSpells:        knownSpells,
+		KnownCantrips:      knownCantrips,
+		UsedReaction:       false,
+		UsedArcaneRecovery: false,
+		LastSpellCastID:    "",
+		CombatStyle:        "",
+		CombatTechnique:    "",
+		NextElementType:    "Fire",
 	}
 
 	g.initializePlayerResources()
+	g.Player.SpellSlotsL1 = g.Player.MaxSpellSlotsL1
 
 	g.CurrentTurn = PlayerTurn
 	g.SpawnNextWave()
@@ -203,14 +197,17 @@ func (g *Game) initializePlayerResources() {
 		}
 	}
 	if g.Player.Class == "Mage" {
-		g.Player.MaxSpellSlotsL1 = 0
+		newMaxSlots := 0
 		if g.Player.Level >= 1 {
-			g.Player.MaxSpellSlotsL1 = 2
+			newMaxSlots = 2
 		}
 		if g.Player.Level >= 2 {
-			g.Player.MaxSpellSlotsL1 = 3
+			newMaxSlots = 3
 		}
-
+		if g.Player.Level >= 3 {
+			newMaxSlots = 4
+		}
+		g.Player.MaxSpellSlotsL1 = newMaxSlots
 	}
 }
 
@@ -246,8 +243,11 @@ func (g *Game) refreshLevelUpResources() {
 		if g.Player.Level >= 1 {
 			newMaxSlots = 2
 		}
-		if g.Player.Level >= 3 {
+		if g.Player.Level >= 2 {
 			newMaxSlots = 3
+		}
+		if g.Player.Level >= 3 {
+			newMaxSlots = 4
 		}
 
 		if newMaxSlots > oldMaxSlots {

@@ -65,6 +65,9 @@ func createTestPlayerWithClass(level int, className string, initialResources map
 		if level >= 2 {
 			maxSlotsL1 = 3
 		}
+		if level >= 3 {
+			maxSlotsL1 = 4
+		}
 	}
 
 	g.Player = &Player{
@@ -76,20 +79,19 @@ func createTestPlayerWithClass(level int, className string, initialResources map
 			Name: "TestPlayer", CurrentAlpha: 1.0,
 			Conditions: make([]Condition, 0),
 		},
-		Level:                level,
-		Class:                className,
-		ProficiencyBonus:     calculateProficiencyBonus(level),
-		MaxMovementPoints:    playerBaseMovement,
-		ClassResources:       make(map[string]int),
-		MaxHitDice:           level,
-		HitDice:              level,
-		MaxSpellSlotsL1:      maxSlotsL1,
-		SpellSlotsL1:         maxSlotsL1,
-		KnownSpells:          knownSpells,
-		UsedReaction:         false,
-		UsedArcaneRecovery:   false,
-		ACBonusUntilNextTurn: 0,
-		LastSpellCastID:      "",
+		Level:              level,
+		Class:              className,
+		ProficiencyBonus:   calculateProficiencyBonus(level),
+		MaxMovementPoints:  playerBaseMovement,
+		ClassResources:     make(map[string]int),
+		MaxHitDice:         level,
+		HitDice:            level,
+		MaxSpellSlotsL1:    maxSlotsL1,
+		SpellSlotsL1:       maxSlotsL1,
+		KnownSpells:        knownSpells,
+		UsedReaction:       false,
+		UsedArcaneRecovery: false,
+		LastSpellCastID:    "",
 	}
 
 	g.initializePlayerResources()
@@ -120,8 +122,7 @@ func createTestPlayerWithClass(level int, className string, initialResources map
 
 		g.spawnEnemyFromDef(enemyX, enemyY, enemyDef, sprite)
 	}
-	g.CurrentTurn = PlayerTurn
-	g.startPlayerTurn()
+
 	return g
 }
 
@@ -828,7 +829,7 @@ func TestMoveAoOReactionAccepted(t *testing.T) {
 			attackMissedWithShield = true
 		}
 		if !attackMissedWithShield {
-			t.Errorf("Player HP changed unexpectedly after accepting Shield (HP:%d, Initial:%d). Check if Shield correctly caused a miss vs AC %d.", g.Player.HP, initialHP, g.Player.AC+5)
+			t.Errorf("Player HP changed unexpectedly after accepting Shield (HP:%d, Initial:%d). Check if Shield correctly caused a miss vs AC %d.", g.Player.HP, initialHP, GetEffectiveAC(&g.Player.Entity))
 		} else {
 			t.Logf("Player HP changed (HP:%d, Initial:%d) despite Shield - potential issue or high damage roll?", g.Player.HP, initialHP)
 		}
@@ -839,8 +840,8 @@ func TestMoveAoOReactionAccepted(t *testing.T) {
 	if !g.Player.UsedReaction {
 		t.Error("Player UsedReaction should be true after accepting Shield")
 	}
-	if g.Player.ACBonusUntilNextTurn != 5 {
-		t.Errorf("Player AC Bonus not set correctly after Shield, got %d", g.Player.ACBonusUntilNextTurn)
+	if !HasCondition(&g.Player.Entity, ConditionShielded) {
+		t.Errorf("Player does not have Shielded condition after using Shield")
 	}
 	if g.Player.X != targetPos.X || g.Player.Y != targetPos.Y {
 		t.Errorf("Player position incorrect after accepting Shield, Pos: (%d,%d), Target: (%d,%d)", g.Player.X, g.Player.Y, targetPos.X, targetPos.Y)
@@ -1140,4 +1141,179 @@ func TestConditionHelpersNilEntity(t *testing.T) {
 	if GetCondition(e, "Test") != nil {
 		t.Error("GetCondition(nil) returned non-nil")
 	}
+}
+
+func TestGetEffectiveAC(t *testing.T) {
+	e := &Entity{AC: 10, Conditions: make([]Condition, 0)}
+
+	if GetEffectiveAC(e) != 10 {
+		t.Errorf("GetEffectiveAC failed for base AC: expected 10, got %d", GetEffectiveAC(e))
+	}
+
+	ApplyCondition(e, Condition{Name: ConditionMagicArmor, Duration: 3, Data: map[string]any{"ACBonus": 2}})
+	if GetEffectiveAC(e) != 12 {
+		t.Errorf("GetEffectiveAC failed for MagicArmor bonus: expected 12, got %d", GetEffectiveAC(e))
+	}
+
+	ApplyCondition(e, Condition{Name: ConditionShielded, Duration: 1, Data: map[string]any{"ACBonus": 5}})
+	if GetEffectiveAC(e) != 17 {
+		t.Errorf("GetEffectiveAC failed for stacked MagicArmor+Shielded bonus: expected 17, got %d", GetEffectiveAC(e))
+	}
+
+	ApplyCondition(e, Condition{Name: "Debuff", Duration: 2, Data: map[string]any{"ACBonus": -1}})
+	if GetEffectiveAC(e) != 16 {
+		t.Errorf("GetEffectiveAC failed for stacked bonuses + penalty: expected 16, got %d", GetEffectiveAC(e))
+	}
+
+	RemoveCondition(e, ConditionMagicArmor)
+	if GetEffectiveAC(e) != 14 {
+		t.Errorf("GetEffectiveAC failed after removing MagicArmor: expected 14, got %d", GetEffectiveAC(e))
+	}
+
+	RemoveCondition(e, ConditionShielded)
+	RemoveCondition(e, "Debuff")
+	if GetEffectiveAC(e) != 10 {
+		t.Errorf("GetEffectiveAC failed after removing all conditions: expected 10, got %d", GetEffectiveAC(e))
+	}
+}
+
+func TestStartPlayerTurnMovementConditions(t *testing.T) {
+	initialPos := image.Point{X: 5, Y: 5}
+	g := createTestPlayerWithClass(1, "Mage", nil, nil, nil, initialPos)
+	p := g.Player
+	baseMove := p.MaxMovementPoints
+
+	g.startPlayerTurn()
+	if p.MovementPoints != baseMove {
+		t.Errorf("Base movement incorrect: expected %d, got %d", baseMove, p.MovementPoints)
+	}
+	p.Conditions = make([]Condition, 0)
+
+	ApplyCondition(&p.Entity, Condition{Name: ConditionSlowed, Duration: 2})
+	g.startPlayerTurn()
+	if p.MovementPoints != max(1, baseMove/2) {
+		t.Errorf("Slowed movement incorrect: expected %d, got %d", max(1, baseMove/2), p.MovementPoints)
+	}
+	p.Conditions = make([]Condition, 0)
+
+	ApplyCondition(&p.Entity, Condition{Name: ConditionExpeditiousRetreat, Duration: 2, Data: map[string]any{"MoveBonus": 3}})
+	g.startPlayerTurn()
+	if p.MovementPoints != baseMove+3 {
+		t.Errorf("Expeditious Retreat movement incorrect: expected %d, got %d", baseMove+3, p.MovementPoints)
+	}
+	p.Conditions = make([]Condition, 0)
+
+	ApplyCondition(&p.Entity, Condition{Name: ConditionExpeditiousRetreat, Duration: 2, Data: map[string]any{"MoveBonus": 3}})
+	ApplyCondition(&p.Entity, Condition{Name: ConditionSlowed, Duration: 2})
+	g.startPlayerTurn()
+	expectedMove := max(1, (baseMove+3)/2)
+	if p.MovementPoints != expectedMove {
+		t.Errorf("Slowed + Expeditious Retreat movement incorrect: expected %d, got %d", expectedMove, p.MovementPoints)
+	}
+}
+
+func TestSpellExecutionAppliesConditions(t *testing.T) {
+	initialPos := image.Point{X: 5, Y: 5}
+
+	g := createTestPlayerWithClass(4, "Mage", nil, []string{"magic_armor", "shield", "expeditious_retreat", "feather_fall"}, nil, initialPos)
+	p := g.Player
+
+	if p.MaxSpellSlotsL1 < 4 {
+		t.Fatalf("Test setup error: Mage L4 should have 4 L1 slots, has %d", p.MaxSpellSlotsL1)
+	}
+	p.SpellSlotsL1 = p.MaxSpellSlotsL1
+
+	if !ActionTable["magic_armor"].Execute(g, -1, -1) {
+		t.Fatalf("executeMagicArmor failed to execute")
+	}
+	if !HasCondition(&p.Entity, ConditionMagicArmor) {
+		t.Errorf("executeMagicArmor did not apply %s condition", ConditionMagicArmor)
+	}
+	condMA := GetCondition(&p.Entity, ConditionMagicArmor)
+	if condMA == nil || condMA.Duration != 3 || condMA.Data["ACBonus"] != 2 {
+		t.Errorf("executeMagicArmor applied condition with wrong data: %+v", condMA)
+	}
+	RemoveCondition(&p.Entity, ConditionMagicArmor)
+
+	if !ActionTable["shield"].Execute(g, -1, -1) {
+		t.Fatalf("executeShield failed to execute")
+	}
+	if !HasCondition(&p.Entity, ConditionShielded) {
+		t.Errorf("executeShield did not apply %s condition", ConditionShielded)
+	}
+	condSh := GetCondition(&p.Entity, ConditionShielded)
+	if condSh == nil || condSh.Duration != 1 || condSh.Data["ACBonus"] != 5 {
+		t.Errorf("executeShield applied condition with wrong data: %+v", condSh)
+	}
+	RemoveCondition(&p.Entity, ConditionShielded)
+
+	if !ActionTable["expeditious_retreat"].Execute(g, -1, -1) {
+		t.Fatalf("executeExpeditiousRetreat failed to execute")
+	}
+	if !HasCondition(&p.Entity, ConditionExpeditiousRetreat) {
+		t.Errorf("executeExpeditiousRetreat did not apply %s condition", ConditionExpeditiousRetreat)
+	}
+	condER := GetCondition(&p.Entity, ConditionExpeditiousRetreat)
+	if condER == nil || condER.Duration != 2 || condER.Data["MoveBonus"] != 3 {
+		t.Errorf("executeExpeditiousRetreat applied condition with wrong data: %+v", condER)
+	}
+	RemoveCondition(&p.Entity, ConditionExpeditiousRetreat)
+
+	if !ActionTable["feather_fall"].Execute(g, -1, -1) {
+		t.Fatalf("executeFeatherFall failed to execute")
+	}
+	if !HasCondition(&p.Entity, ConditionFeatherFall) {
+		t.Errorf("executeFeatherFall did not apply %s condition", ConditionFeatherFall)
+	}
+	condFF := GetCondition(&p.Entity, ConditionFeatherFall)
+	if condFF == nil || condFF.Duration != 2 {
+		t.Errorf("executeFeatherFall applied condition with wrong duration: %+v", condFF)
+	}
+	RemoveCondition(&p.Entity, ConditionFeatherFall)
+}
+
+func TestFeatherFallDodgeCheck(t *testing.T) {
+	rand.Seed(1)
+	initialPos := image.Point{X: 5, Y: 5}
+	enemyInfo := []EnemySpawnInfo{{TypeName: "Melee Skeleton"}}
+
+	g := createTestPlayerWithClass(1, "Fighter", nil, nil, enemyInfo, initialPos)
+	p := g.Player
+	if len(g.Enemies) == 0 {
+		t.Fatal("Test setup error: Enemy did not spawn")
+	}
+	enemy := g.Enemies[0]
+	enemy.X = p.X + 1
+	enemy.Y = p.Y
+
+	ApplyCondition(&p.Entity, Condition{Name: ConditionFeatherFall, Duration: 10})
+
+	dodgedCount := 0
+	hitCount := 0
+	attempts := 100
+
+	for i := 0; i < attempts; i++ {
+		p.HP = p.MaxHP
+
+		g.CombatLog = make([]string, 0, combatLogLength)
+		_, hitLanded := g.resolveAttack(&enemy.Entity, &p.Entity, 0, "melee")
+		if !HasCondition(&p.Entity, ConditionFeatherFall) {
+			t.Fatalf("FeatherFall condition removed unexpectedly during test loop")
+		}
+		logLen := len(g.CombatLog)
+		if logLen > 0 && strings.Contains(g.CombatLog[logLen-1], "dodges") {
+			dodgedCount++
+		} else if hitLanded {
+			hitCount++
+		} else {
+		}
+	}
+
+	if dodgedCount == 0 {
+		t.Errorf("FeatherFall did not trigger any dodges in %d attempts", attempts)
+	}
+	if hitCount == 0 && dodgedCount < attempts {
+		t.Logf("Warning: FeatherFall dodge test might be inconclusive if attack roll always missed base AC.")
+	}
+	t.Logf("FeatherFall test: Dodged %d / %d times", dodgedCount, attempts)
 }

@@ -38,34 +38,27 @@ type Entity struct {
 
 type Player struct {
 	Entity
-	Level                int
-	Class                string
-	ProficiencyBonus     int
-	MovementPoints       int
-	MaxMovementPoints    int
-	ActionTaken          bool
-	BonusActionTaken     bool
-	IsDisengaging        bool
-	ClassResources       map[string]int
-	HitDice              int
-	MaxHitDice           int
-	SpellSlotsL1         int
-	MaxSpellSlotsL1      int
-	KnownSpells          []string
-	KnownCantrips        []string
-	UsedReaction         bool
-	UsedArcaneRecovery   bool
-	ACBonusUntilNextTurn int
-	LastSpellCastID      string
-	CombatStyle          string
-	CombatTechnique      string
-	IsSlowed             bool
-
-	SlowDuration               int
-	MagicArmorDuration         int
-	ExpeditiousRetreatDuration int
-	FeatherFallDuration        int
-	NextElementType            string
+	Level              int
+	Class              string
+	ProficiencyBonus   int
+	MovementPoints     int
+	MaxMovementPoints  int
+	ActionTaken        bool
+	BonusActionTaken   bool
+	IsDisengaging      bool
+	ClassResources     map[string]int
+	HitDice            int
+	MaxHitDice         int
+	SpellSlotsL1       int
+	MaxSpellSlotsL1    int
+	KnownSpells        []string
+	KnownCantrips      []string
+	UsedReaction       bool
+	UsedArcaneRecovery bool
+	LastSpellCastID    string
+	CombatStyle        string
+	CombatTechnique    string
+	NextElementType    string
 }
 
 type Enemy struct {
