@@ -340,6 +340,9 @@ func (g *Game) handlePlayerInput() {
 								if enemy.IsDying || enemy.HP <= 0 {
 									continue
 								}
+								if HasCondition(&enemy.Entity, ConditionNoReactions) {
+									continue
+								}
 								wasAdj := isAdjacentToEntity(currentStartX, currentStartY, &enemy.Entity)
 								isStillAdj := isAdjacentToEntity(currentTargetX, currentTargetY, &enemy.Entity)
 								if wasAdj && !isStillAdj {

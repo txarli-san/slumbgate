@@ -120,4 +120,5 @@ const (
 	ConditionFeatherFall        = "FeatherFall"
 	ConditionExpeditiousRetreat = "ExpeditiousRetreat"
 	ConditionShielded           = "Shielded"
+	ConditionNoReactions        = "NoReactions"
 )

@@ -906,6 +906,7 @@ func executeRayOfFrost(g *Game, targetX, targetY int) bool {
 
 	textSpawnX := float64(g.MapOffsetX + targetEnemy.X*tileSize + (targetEnemy.Width*tileSize)/2)
 	textSpawnY := float64(g.MapOffsetY + targetEnemy.Y*tileSize)
+	logMsg := ""
 
 	if hit {
 		g.Player.AttackBumpTimer = attackBumpDuration
@@ -925,8 +926,10 @@ func executeRayOfFrost(g *Game, targetX, targetY int) bool {
 		} else {
 			dmgLog = fmt.Sprintf(" Hit! Deals %d (1d8[%d]) cold dmg.", actualDamage, damageRoll1)
 		}
-		logMsg := attackLog + dmgLog
-		g.addCombatLog(logMsg)
+		logMsg = attackLog + dmgLog
+
+		ApplyCondition(&targetEnemy.Entity, Condition{Name: ConditionSlowed, Duration: 2})
+		logMsg += fmt.Sprintf(" %s's speed is reduced!", targetEnemy.Name)
 
 		ftColor := visualEffectColors["Cold"]
 		hitTextColor := colorWhite
@@ -940,13 +943,14 @@ func executeRayOfFrost(g *Game, targetX, targetY int) bool {
 		g.FloatingTexts = append(g.FloatingTexts, &FloatingText{Text: hitText, X: textSpawnX, Y: textSpawnY - 15, Life: 30, MaxLife: 30, Color: hitTextColor, VelocityY: -0.5})
 
 		if targetEnemy.HP <= 0 {
-			g.addCombatLog(fmt.Sprintf("%s dies!", targetEnemy.Name))
+			logMsg += fmt.Sprintf(" %s dies!", targetEnemy.Name)
 			targetEnemy.IsDying = true
 		}
 	} else {
-		g.addCombatLog(attackLog + " Miss!")
+		logMsg = attackLog + " Miss!"
 		g.FloatingTexts = append(g.FloatingTexts, &FloatingText{Text: "Miss!", X: textSpawnX, Y: textSpawnY - 15, Life: 30, MaxLife: 30, Color: colorGray, VelocityY: -0.5})
 	}
+	g.addCombatLog(logMsg)
 	return true
 }
 
@@ -967,6 +971,7 @@ func executeShockingGrasp(g *Game, targetX, targetY int) bool {
 
 	textSpawnX := float64(g.MapOffsetX + targetEnemy.X*tileSize + (targetEnemy.Width*tileSize)/2)
 	textSpawnY := float64(g.MapOffsetY + targetEnemy.Y*tileSize)
+	logMsg := ""
 
 	if hit {
 		g.Player.AttackBumpTimer = attackBumpDuration
@@ -986,9 +991,10 @@ func executeShockingGrasp(g *Game, targetX, targetY int) bool {
 		} else {
 			dmgLog = fmt.Sprintf(" Hit! Deals %d (1d8[%d]) lightning dmg.", actualDamage, damageRoll1)
 		}
-		logMsg := attackLog + dmgLog
+		logMsg = attackLog + dmgLog
 
-		g.addCombatLog(logMsg)
+		ApplyCondition(&targetEnemy.Entity, Condition{Name: ConditionNoReactions, Duration: 1})
+		logMsg += fmt.Sprintf(" %s cannot take reactions!", targetEnemy.Name)
 
 		ftColor := colorYellow
 		hitTextColor := colorWhite
@@ -1002,13 +1008,14 @@ func executeShockingGrasp(g *Game, targetX, targetY int) bool {
 		g.FloatingTexts = append(g.FloatingTexts, &FloatingText{Text: hitText, X: textSpawnX, Y: textSpawnY - 15, Life: 30, MaxLife: 30, Color: hitTextColor, VelocityY: -0.5})
 
 		if targetEnemy.HP <= 0 {
-			g.addCombatLog(fmt.Sprintf("%s dies!", targetEnemy.Name))
+			logMsg += fmt.Sprintf(" %s dies!", targetEnemy.Name)
 			targetEnemy.IsDying = true
 		}
 	} else {
-		g.addCombatLog(attackLog + " Miss!")
+		logMsg = attackLog + " Miss!"
 		g.FloatingTexts = append(g.FloatingTexts, &FloatingText{Text: "Miss!", X: textSpawnX, Y: textSpawnY - 15, Life: 30, MaxLife: 30, Color: colorGray, VelocityY: -0.5})
 	}
+	g.addCombatLog(logMsg)
 	return true
 }
 

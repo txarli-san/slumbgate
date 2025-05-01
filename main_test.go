@@ -1317,3 +1317,87 @@ func TestFeatherFallDodgeCheck(t *testing.T) {
 	}
 	t.Logf("FeatherFall test: Dodged %d / %d times", dodgedCount, attempts)
 }
+
+func TestCantripConditions(t *testing.T) {
+	initialPos := image.Point{X: 5, Y: 5}
+	enemyInfo := []EnemySpawnInfo{{TypeName: "Goblin Scout"}}
+	g := createTestPlayerWithClass(3, "Mage", nil, nil, enemyInfo, initialPos)
+	p := g.Player
+	if len(g.Enemies) == 0 {
+		t.Fatal("Test setup error: Enemy did not spawn")
+	}
+	enemy := g.Enemies[0]
+	enemy.HP = 100
+	enemy.AC = 0
+
+	if !ActionTable["ray_of_frost"].Execute(g, enemy.X, enemy.Y) {
+		t.Fatalf("executeRayOfFrost failed to execute or missed AC 0")
+	}
+	if !HasCondition(&enemy.Entity, ConditionSlowed) {
+		t.Errorf("executeRayOfFrost did not apply %s condition on hit", ConditionSlowed)
+	} else {
+		cond := GetCondition(&enemy.Entity, ConditionSlowed)
+		if cond.Duration != 2 {
+			t.Errorf("executeRayOfFrost applied %s with wrong duration: expected 2, got %d", ConditionSlowed, cond.Duration)
+		}
+	}
+	RemoveCondition(&enemy.Entity, ConditionSlowed)
+
+	p.X = enemy.X - 1
+	p.Y = enemy.Y
+	if !ActionTable["shocking_grasp"].Execute(g, enemy.X, enemy.Y) {
+		t.Fatalf("executeShockingGrasp failed to execute or missed AC 0")
+	}
+	if !HasCondition(&enemy.Entity, ConditionNoReactions) {
+		t.Errorf("executeShockingGrasp did not apply %s condition on hit", ConditionNoReactions)
+	} else {
+		cond := GetCondition(&enemy.Entity, ConditionNoReactions)
+		if cond.Duration != 1 {
+			t.Errorf("executeShockingGrasp applied %s with wrong duration: expected 1, got %d", ConditionNoReactions, cond.Duration)
+		}
+	}
+}
+
+func TestNoReactionsPreventsAoO(t *testing.T) {
+	initialPos := image.Point{X: 5, Y: 5}
+	enemyInfo := []EnemySpawnInfo{{TypeName: "Melee Skeleton"}}
+	g := createTestPlayerWithClass(1, "Mage", nil, nil, enemyInfo, initialPos)
+	p := g.Player
+	if len(g.Enemies) == 0 {
+		t.Fatal("Test setup error: Enemy did not spawn")
+	}
+	enemy := g.Enemies[0]
+	enemy.X = p.X + 1
+	enemy.Y = p.Y
+
+	ApplyCondition(&enemy.Entity, Condition{Name: ConditionNoReactions, Duration: 1})
+	g.CombatLog = make([]string, 0, combatLogLength)
+	g.InputMode = InputModeMap
+	g.Player.MovementPoints = 1
+
+	g.handlePlayerInput()
+
+	if p.X != initialPos.X || p.Y != initialPos.Y {
+		t.Errorf("Player moved unexpectedly during AoO prevention test")
+	}
+
+	g.Player.X = initialPos.X
+	g.Player.Y = initialPos.Y + 1
+
+	g.handlePlayerInput()
+
+	foundAoOLog := false
+	for _, msg := range g.CombatLog {
+		if strings.Contains(msg, "Opportunity Attack") {
+			foundAoOLog = true
+			break
+		}
+	}
+	if foundAoOLog {
+		t.Errorf("Enemy made an Opportunity Attack despite having %s condition", ConditionNoReactions)
+	}
+
+	if p.X != initialPos.X || p.Y != initialPos.Y+1 {
+		t.Errorf("Player failed to move away from enemy with NoReactions condition")
+	}
+}
