@@ -6,6 +6,13 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
+type Condition struct {
+	Name     string
+	Duration int
+	Source   *Entity
+	Data     map[string]any
+}
+
 type Entity struct {
 	X               int
 	Y               int
@@ -26,6 +33,7 @@ type Entity struct {
 	AttackBumpTimer int
 	IsDying         bool
 	CurrentAlpha    float64
+	Conditions      []Condition
 }
 
 type Player struct {

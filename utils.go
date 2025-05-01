@@ -101,3 +101,75 @@ func minF(a, b float32) float32 {
 	}
 	return b
 }
+
+func ApplyCondition(e *Entity, c Condition) {
+	if e == nil {
+		return
+	}
+	found := false
+	for i := range e.Conditions {
+		if e.Conditions[i].Name == c.Name {
+			e.Conditions[i] = c
+			found = true
+			break
+		}
+	}
+	if !found {
+		e.Conditions = append(e.Conditions, c)
+	}
+}
+
+func RemoveCondition(e *Entity, name string) {
+	if e == nil {
+		return
+	}
+	nextConditions := make([]Condition, 0, len(e.Conditions))
+	for _, cond := range e.Conditions {
+		if cond.Name != name {
+			nextConditions = append(nextConditions, cond)
+		}
+	}
+	e.Conditions = nextConditions
+}
+
+func HasCondition(e *Entity, name string) bool {
+	if e == nil {
+		return false
+	}
+	for _, cond := range e.Conditions {
+		if cond.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func GetCondition(e *Entity, name string) *Condition {
+	if e == nil {
+		return nil
+	}
+	for i := range e.Conditions {
+		if e.Conditions[i].Name == name {
+			return &e.Conditions[i]
+		}
+	}
+	return nil
+}
+
+func TickConditions(e *Entity) {
+	if e == nil {
+		return
+	}
+	nextConditions := make([]Condition, 0, len(e.Conditions))
+	for _, cond := range e.Conditions {
+
+		if cond.Duration > 0 {
+			cond.Duration--
+		}
+
+		if cond.Duration != 0 {
+			nextConditions = append(nextConditions, cond)
+		}
+	}
+	e.Conditions = nextConditions
+}

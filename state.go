@@ -3,6 +3,12 @@ package main
 import "fmt"
 
 func (g *Game) startPlayerTurn() {
+	if g.Player == nil || g.Player.IsDying {
+		return
+	}
+
+	TickConditions(&g.Player.Entity)
+
 	currentACBonus := 0
 	currentMoveBonus := 0
 

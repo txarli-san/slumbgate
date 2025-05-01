@@ -152,6 +152,7 @@ func (g *Game) InitGame(playerClassName string) {
 			Strength: playerStr, Dexterity: playerDex, Constitution: playerCon,
 			Intelligence: playerInt, Wisdom: playerWis, Charisma: playerCha,
 			Sprite: playerSprite, Name: "Player", CurrentAlpha: 1.0,
+			Conditions: make([]Condition, 0),
 		},
 		Level:                startLevel,
 		Class:                playerClassName,
@@ -531,6 +532,7 @@ func (g *Game) spawnEnemyFromDef(x, y int, def EnemyDefinition, sprite *ebiten.I
 			Intelligence: def.Int, Wisdom: def.Wis, Charisma: def.Cha,
 			Sprite: sprite, Name: def.Name,
 			CurrentAlpha: 1.0,
+			Conditions:   make([]Condition, 0),
 		},
 		MaxMovementPoints: def.Move,
 		AttackType:        def.AttackType,
@@ -554,6 +556,7 @@ func (g *Game) spawnEnemy(x, y int, name string, baseHp, ac, str, dex, con, inte
 			Intelligence: intel, Wisdom: wis, Charisma: cha,
 			Sprite: sprite, Name: name,
 			CurrentAlpha: 1.0,
+			Conditions:   make([]Condition, 0),
 		},
 		MaxMovementPoints: move,
 	}

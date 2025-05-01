@@ -42,6 +42,7 @@ func (g *Game) stepEnemyTurn() {
 
 	switch g.currentEnemyTurn.Phase {
 	case PhaseEnemyStartTurn:
+		TickConditions(&enemy.Entity)
 		enemy.MovementPoints = enemy.MaxMovementPoints
 		enemy.ActionAvailable = true
 		g.currentEnemyTurn.Phase = PhaseEnemyDecideAction

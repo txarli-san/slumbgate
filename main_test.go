@@ -13,7 +13,7 @@ import (
 func setupTestGamePathfinding(playerPos image.Point, blockers []image.Point) *Game {
 	g := &Game{
 		Player: &Player{
-			Entity: Entity{X: playerPos.X, Y: playerPos.Y, Width: 1, Height: 1, HP: 10, MaxHP: 10, CurrentAlpha: 1.0},
+			Entity: Entity{X: playerPos.X, Y: playerPos.Y, Width: 1, Height: 1, HP: 10, MaxHP: 10, CurrentAlpha: 1.0, Conditions: make([]Condition, 0)},
 		},
 		Enemies:       make([]*Enemy, 0),
 		FloatingTexts: make([]*FloatingText, 0),
@@ -21,7 +21,7 @@ func setupTestGamePathfinding(playerPos image.Point, blockers []image.Point) *Ga
 	}
 	for i, pos := range blockers {
 		g.Enemies = append(g.Enemies, &Enemy{
-			Entity: Entity{Name: fmt.Sprintf("Blocker%d", i), X: pos.X, Y: pos.Y, Width: 1, Height: 1, HP: 1, MaxHP: 1, CurrentAlpha: 1.0},
+			Entity: Entity{Name: fmt.Sprintf("Blocker%d", i), X: pos.X, Y: pos.Y, Width: 1, Height: 1, HP: 1, MaxHP: 1, CurrentAlpha: 1.0, Conditions: make([]Condition, 0)},
 		})
 	}
 	return g
@@ -74,6 +74,7 @@ func createTestPlayerWithClass(level int, className string, initialResources map
 			Strength: playerStr, Dexterity: playerDex, Constitution: playerCon,
 			Intelligence: playerInt, Wisdom: playerWis, Charisma: playerCha,
 			Name: "TestPlayer", CurrentAlpha: 1.0,
+			Conditions: make([]Condition, 0),
 		},
 		Level:                level,
 		Class:                className,
@@ -988,5 +989,155 @@ func TestPlayerDeathGameOverState(t *testing.T) {
 	}
 	if g.CurrentTurn != GameOver {
 		t.Errorf("Game.CurrentTurn was not GameOver after endEnemyTurn. Got: %v", g.CurrentTurn)
+	}
+}
+
+func TestApplyCondition(t *testing.T) {
+	e := &Entity{Conditions: make([]Condition, 0)}
+	cond1 := Condition{Name: "Test1", Duration: 3}
+	cond2 := Condition{Name: "Test2", Duration: 2}
+	cond1b := Condition{Name: "Test1", Duration: 5, Data: map[string]any{"Value": 10}}
+
+	ApplyCondition(e, cond1)
+	if len(e.Conditions) != 1 || e.Conditions[0].Name != "Test1" || e.Conditions[0].Duration != 3 {
+		t.Errorf("ApplyCondition failed for first condition: got %+v", e.Conditions)
+	}
+
+	ApplyCondition(e, cond2)
+	if len(e.Conditions) != 2 || !HasCondition(e, "Test1") || !HasCondition(e, "Test2") {
+		t.Errorf("ApplyCondition failed for second distinct condition: got %+v", e.Conditions)
+	}
+
+	ApplyCondition(e, cond1b)
+	if len(e.Conditions) != 2 {
+		t.Errorf("ApplyCondition failed to replace existing condition (length changed): got %+v", e.Conditions)
+	}
+	foundCond1 := GetCondition(e, "Test1")
+	if foundCond1 == nil || foundCond1.Duration != 5 || foundCond1.Data == nil || foundCond1.Data["Value"] != 10 {
+		t.Errorf("ApplyCondition failed to replace existing condition (content wrong): got %+v", foundCond1)
+	}
+	if !HasCondition(e, "Test2") {
+		t.Errorf("ApplyCondition removed unrelated condition during replace: Test2 missing")
+	}
+}
+
+func TestRemoveCondition(t *testing.T) {
+	e := &Entity{Conditions: make([]Condition, 0)}
+	cond1 := Condition{Name: "Test1", Duration: 3}
+	cond2 := Condition{Name: "Test2", Duration: 2}
+
+	ApplyCondition(e, cond1)
+	ApplyCondition(e, cond2)
+
+	RemoveCondition(e, "Test1")
+	if len(e.Conditions) != 1 || HasCondition(e, "Test1") || !HasCondition(e, "Test2") {
+		t.Errorf("RemoveCondition failed to remove Test1: got %+v", e.Conditions)
+	}
+
+	RemoveCondition(e, "NonExistent")
+	if len(e.Conditions) != 1 || !HasCondition(e, "Test2") {
+		t.Errorf("RemoveCondition changed slice when removing non-existent: got %+v", e.Conditions)
+	}
+
+	RemoveCondition(e, "Test2")
+	if len(e.Conditions) != 0 || HasCondition(e, "Test2") {
+		t.Errorf("RemoveCondition failed to remove Test2: got %+v", e.Conditions)
+	}
+}
+
+func TestHasGetCondition(t *testing.T) {
+	e := &Entity{Conditions: make([]Condition, 0)}
+	cond1 := Condition{Name: "Test1", Duration: 3, Data: map[string]any{"Value": 5}}
+
+	if HasCondition(e, "Test1") {
+		t.Errorf("HasCondition returned true for empty slice")
+	}
+	if GetCondition(e, "Test1") != nil {
+		t.Errorf("GetCondition returned non-nil for empty slice")
+	}
+
+	ApplyCondition(e, cond1)
+
+	if !HasCondition(e, "Test1") {
+		t.Errorf("HasCondition returned false after applying Test1")
+	}
+	if HasCondition(e, "Test2") {
+		t.Errorf("HasCondition returned true for non-existent Test2")
+	}
+
+	retrievedCond := GetCondition(e, "Test1")
+	if retrievedCond == nil {
+		t.Fatalf("GetCondition returned nil after applying Test1")
+	}
+	if retrievedCond.Name != "Test1" || retrievedCond.Duration != 3 || retrievedCond.Data["Value"] != 5 {
+		t.Errorf("GetCondition returned condition with incorrect data: %+v", retrievedCond)
+	}
+	if GetCondition(e, "Test2") != nil {
+		t.Errorf("GetCondition returned non-nil for non-existent Test2")
+	}
+}
+
+func TestTickConditions(t *testing.T) {
+	e := &Entity{Conditions: make([]Condition, 0)}
+	cond1 := Condition{Name: "Test1", Duration: 3}
+	cond2 := Condition{Name: "Test2", Duration: 1}
+	cond3 := Condition{Name: "Test3", Duration: 2}
+
+	ApplyCondition(e, cond1)
+	ApplyCondition(e, cond2)
+	ApplyCondition(e, cond3)
+
+	TickConditions(e)
+
+	if !HasCondition(e, "Test1") || GetCondition(e, "Test1").Duration != 2 {
+		t.Errorf("TickConditions failed for Test1 (Dur 3->2): %+v", GetCondition(e, "Test1"))
+	}
+	if HasCondition(e, "Test2") {
+		t.Errorf("TickConditions failed to remove Test2 (Dur 1->0)")
+	}
+	if !HasCondition(e, "Test3") || GetCondition(e, "Test3").Duration != 1 {
+		t.Errorf("TickConditions failed for Test3 (Dur 2->1): %+v", GetCondition(e, "Test3"))
+	}
+	if len(e.Conditions) != 2 {
+		t.Errorf("TickConditions resulted in wrong number of conditions: expected 2, got %d", len(e.Conditions))
+	}
+
+	TickConditions(e)
+
+	if !HasCondition(e, "Test1") || GetCondition(e, "Test1").Duration != 1 {
+		t.Errorf("Second TickConditions failed for Test1 (Dur 2->1): %+v", GetCondition(e, "Test1"))
+	}
+	if HasCondition(e, "Test3") {
+		t.Errorf("Second TickConditions failed to remove Test3 (Dur 1->0)")
+	}
+	if len(e.Conditions) != 1 {
+		t.Errorf("Second TickConditions resulted in wrong number of conditions: expected 1, got %d", len(e.Conditions))
+	}
+
+	TickConditions(e)
+
+	if HasCondition(e, "Test1") {
+		t.Errorf("Third TickConditions failed to remove Test1 (Dur 1->0)")
+	}
+	if len(e.Conditions) != 0 {
+		t.Errorf("Third TickConditions resulted in wrong number of conditions: expected 0, got %d", len(e.Conditions))
+	}
+}
+
+func TestTickConditionsNilEntity(t *testing.T) {
+	var e *Entity = nil
+	TickConditions(e)
+}
+
+func TestConditionHelpersNilEntity(t *testing.T) {
+	var e *Entity = nil
+	cond := Condition{Name: "Test", Duration: 1}
+	ApplyCondition(e, cond)
+	RemoveCondition(e, "Test")
+	if HasCondition(e, "Test") {
+		t.Error("HasCondition(nil) returned true")
+	}
+	if GetCondition(e, "Test") != nil {
+		t.Error("GetCondition(nil) returned non-nil")
 	}
 }
