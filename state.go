@@ -20,7 +20,7 @@ func (g *Game) startPlayerTurn() {
 		g.Player.MovementPoints = max(1, g.Player.MovementPoints/2)
 	}
 
-	TickConditions(&g.Player.Entity)
+	TickConditions(g, &g.Player.Entity)
 
 	g.Player.ActionTaken = false
 	g.Player.BonusActionTaken = false

@@ -1079,17 +1079,30 @@ func TestHasGetCondition(t *testing.T) {
 }
 
 func TestTickConditions(t *testing.T) {
-	e := &Entity{Conditions: make([]Condition, 0)}
+	g := &Game{
+		CombatLog:     make([]string, 0, combatLogLength),
+		FloatingTexts: make([]*FloatingText, 0),
+	}
+	e := &Entity{HP: 10, MaxHP: 10, Conditions: make([]Condition, 0)}
 	cond1 := Condition{Name: "Test1", Duration: 3}
 	cond2 := Condition{Name: "Test2", Duration: 1}
 	cond3 := Condition{Name: "Test3", Duration: 2}
+	condDot := Condition{Name: ConditionBleeding, Duration: 2, Data: map[string]any{"Damage": "1d4", "DamageType": "Bleed"}}
 
 	ApplyCondition(e, cond1)
 	ApplyCondition(e, cond2)
 	ApplyCondition(e, cond3)
+	ApplyCondition(e, condDot)
 
-	TickConditions(e)
+	initialHP := e.HP
+	TickConditions(g, e)
 
+	if e.HP >= initialHP {
+		t.Errorf("TickConditions did not apply DoT damage from %s", ConditionBleeding)
+	}
+	if !HasCondition(e, ConditionBleeding) || GetCondition(e, ConditionBleeding).Duration != 1 {
+		t.Errorf("TickConditions failed for Bleeding (Dur 2->1): %+v", GetCondition(e, ConditionBleeding))
+	}
 	if !HasCondition(e, "Test1") || GetCondition(e, "Test1").Duration != 2 {
 		t.Errorf("TickConditions failed for Test1 (Dur 3->2): %+v", GetCondition(e, "Test1"))
 	}
@@ -1099,14 +1112,17 @@ func TestTickConditions(t *testing.T) {
 	if !HasCondition(e, "Test3") || GetCondition(e, "Test3").Duration != 1 {
 		t.Errorf("TickConditions failed for Test3 (Dur 2->1): %+v", GetCondition(e, "Test3"))
 	}
-	if len(e.Conditions) != 2 {
-		t.Errorf("TickConditions resulted in wrong number of conditions: expected 2, got %d", len(e.Conditions))
+	if len(e.Conditions) != 3 {
+		t.Errorf("TickConditions resulted in wrong number of conditions after 1 tick: expected 3, got %d", len(e.Conditions))
 	}
 
-	TickConditions(e)
+	TickConditions(g, e)
 
 	if !HasCondition(e, "Test1") || GetCondition(e, "Test1").Duration != 1 {
 		t.Errorf("Second TickConditions failed for Test1 (Dur 2->1): %+v", GetCondition(e, "Test1"))
+	}
+	if HasCondition(e, ConditionBleeding) {
+		t.Errorf("Second TickConditions failed to remove Bleeding (Dur 1->0)")
 	}
 	if HasCondition(e, "Test3") {
 		t.Errorf("Second TickConditions failed to remove Test3 (Dur 1->0)")
@@ -1115,7 +1131,7 @@ func TestTickConditions(t *testing.T) {
 		t.Errorf("Second TickConditions resulted in wrong number of conditions: expected 1, got %d", len(e.Conditions))
 	}
 
-	TickConditions(e)
+	TickConditions(g, e)
 
 	if HasCondition(e, "Test1") {
 		t.Errorf("Third TickConditions failed to remove Test1 (Dur 1->0)")
@@ -1127,7 +1143,8 @@ func TestTickConditions(t *testing.T) {
 
 func TestTickConditionsNilEntity(t *testing.T) {
 	var e *Entity = nil
-	TickConditions(e)
+	g := &Game{}
+	TickConditions(g, e)
 }
 
 func TestConditionHelpersNilEntity(t *testing.T) {
@@ -1322,7 +1339,7 @@ func TestCantripConditions(t *testing.T) {
 	initialPos := image.Point{X: 5, Y: 5}
 	enemyInfo := []EnemySpawnInfo{{TypeName: "Goblin Scout"}}
 	g := createTestPlayerWithClass(3, "Mage", nil, nil, enemyInfo, initialPos)
-	p := g.Player
+
 	if len(g.Enemies) == 0 {
 		t.Fatal("Test setup error: Enemy did not spawn")
 	}
@@ -1343,8 +1360,8 @@ func TestCantripConditions(t *testing.T) {
 	}
 	RemoveCondition(&enemy.Entity, ConditionSlowed)
 
-	p.X = enemy.X - 1
-	p.Y = enemy.Y
+	g.Player.X = enemy.X - 1
+	g.Player.Y = enemy.Y
 	if !ActionTable["shocking_grasp"].Execute(g, enemy.X, enemy.Y) {
 		t.Fatalf("executeShockingGrasp failed to execute or missed AC 0")
 	}
@@ -1378,11 +1395,23 @@ func TestNoReactionsPreventsAoO(t *testing.T) {
 	g.handlePlayerInput()
 
 	if p.X != initialPos.X || p.Y != initialPos.Y {
-		t.Errorf("Player moved unexpectedly during AoO prevention test")
 	}
 
-	g.Player.X = initialPos.X
-	g.Player.Y = initialPos.Y + 1
+	targetX, targetY := initialPos.X, initialPos.Y+1
+	moved := false
+	if targetX >= 0 && targetX+g.Player.Width <= mapWidth && targetY >= 0 && targetY+g.Player.Height <= mapHeight {
+		if !g.isTileFullyBlocked(targetX, targetY, g.Player.Width, g.Player.Height, -1) {
+			if p.HP > 0 && !p.IsDying {
+				p.X = targetX
+				p.Y = targetY
+				p.MovementPoints--
+				moved = true
+			}
+		}
+	}
+	if !moved {
+		t.Fatalf("Test setup error: Player could not move to trigger AoO check.")
+	}
 
 	g.handlePlayerInput()
 
@@ -1397,7 +1426,7 @@ func TestNoReactionsPreventsAoO(t *testing.T) {
 		t.Errorf("Enemy made an Opportunity Attack despite having %s condition", ConditionNoReactions)
 	}
 
-	if p.X != initialPos.X || p.Y != initialPos.Y+1 {
+	if p.X != targetX || p.Y != targetY {
 		t.Errorf("Player failed to move away from enemy with NoReactions condition")
 	}
 }

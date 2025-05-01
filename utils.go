@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"math"
 	"math/rand"
 )
@@ -156,22 +157,79 @@ func GetCondition(e *Entity, name string) *Condition {
 	return nil
 }
 
-func TickConditions(e *Entity) {
-	if e == nil {
+func TickConditions(g *Game, e *Entity) {
+	if e == nil || g == nil {
 		return
 	}
-	nextConditions := make([]Condition, 0, len(e.Conditions))
-	for _, cond := range e.Conditions {
 
-		if cond.Duration > 0 {
-			cond.Duration--
+	nextConditions := make([]Condition, 0, len(e.Conditions))
+	entityDiedFromDot := false
+
+	for _, cond := range e.Conditions {
+		currentCond := cond
+
+		if dmgDice, ok := currentCond.Data["Damage"].(string); ok {
+			if e.HP > 0 && !e.IsDying {
+				var roll int
+				switch dmgDice {
+				case "1d4":
+					roll = rand.Intn(4) + 1
+				case "1d6":
+					roll = rand.Intn(6) + 1
+				default:
+					roll = 0
+				}
+
+				if roll > 0 {
+					actualDamage := min(roll, e.HP)
+					e.HP -= actualDamage
+					dmgType := "damage"
+					if dt, ok := currentCond.Data["DamageType"].(string); ok {
+						dmgType = dt
+					}
+					logMsg := fmt.Sprintf("%s takes %d %s damage from %s!", e.Name, actualDamage, dmgType, currentCond.Name)
+					g.addCombatLog(logMsg)
+
+					ftColor := visualEffectColors["Default"]
+					if ftc, ok := visualEffectColors[dmgType]; ok {
+						ftColor = ftc
+					}
+
+					g.FloatingTexts = append(g.FloatingTexts, &FloatingText{
+						Text:      fmt.Sprintf("-%d (%s)", actualDamage, currentCond.Name),
+						X:         float64(g.MapOffsetX + e.X*tileSize + (e.Width*tileSize)/2),
+						Y:         float64(g.MapOffsetY + e.Y*tileSize),
+						Life:      60,
+						MaxLife:   60,
+						Color:     ftColor,
+						VelocityY: -0.5,
+					})
+
+					if e.HP <= 0 {
+						e.IsDying = true
+						entityDiedFromDot = true
+						g.addCombatLog(fmt.Sprintf("%s dies from %s!", e.Name, currentCond.Name))
+						if e == &g.Player.Entity {
+							g.setGameOver(false)
+						}
+					}
+				}
+			}
 		}
 
-		if cond.Duration != 0 {
-			nextConditions = append(nextConditions, cond)
+		if currentCond.Duration > 0 {
+			currentCond.Duration--
+		}
+
+		if currentCond.Duration != 0 {
+			nextConditions = append(nextConditions, currentCond)
 		}
 	}
+
 	e.Conditions = nextConditions
+	if entityDiedFromDot {
+		g.cleanupDeadEnemies()
+	}
 }
 
 func GetEffectiveAC(e *Entity) int {
@@ -186,4 +244,11 @@ func GetEffectiveAC(e *Entity) int {
 		}
 	}
 	return baseAC + bonusAC
+}
+
+func ResolveSavingThrow(roller *Entity, dc int, abilityScore int) bool {
+	roll := rand.Intn(20) + 1
+	mod := getModifier(abilityScore)
+	total := roll + mod
+	return total >= dc
 }

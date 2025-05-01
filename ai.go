@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"image"
 	"math"
 )
@@ -42,7 +43,16 @@ func (g *Game) stepEnemyTurn() {
 
 	switch g.currentEnemyTurn.Phase {
 	case PhaseEnemyStartTurn:
-		TickConditions(&enemy.Entity)
+		TickConditions(g, &enemy.Entity)
+		if HasCondition(&enemy.Entity, ConditionStunned) {
+			g.addCombatLog(fmt.Sprintf("%s is Stunned!", enemy.Name))
+			if g.currentEnemyTurn.Index >= 0 && g.currentEnemyTurn.Index < len(g.enemiesActedThisTurn) {
+				g.enemiesActedThisTurn[g.currentEnemyTurn.Index] = true
+			}
+			g.currentEnemyTurn.Phase = PhaseEnemyDone
+			g.currentEnemyTurn.Index = -1
+			return
+		}
 		enemy.MovementPoints = enemy.MaxMovementPoints
 		enemy.ActionAvailable = true
 		g.currentEnemyTurn.Phase = PhaseEnemyDecideAction

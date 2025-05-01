@@ -47,6 +47,7 @@ var visualEffectColors = map[string]color.NRGBA{
 	"Heal":    {R: 100, G: 255, B: 100, A: 255},
 	"Default": {R: 255, G: 255, B: 255, A: 255},
 	"None":    {R: 0, G: 0, B: 0, A: 0},
+	"Bleed":   {R: 180, G: 0, B: 0, A: 255},
 }
 
 type GameState int
@@ -121,4 +122,6 @@ const (
 	ConditionExpeditiousRetreat = "ExpeditiousRetreat"
 	ConditionShielded           = "Shielded"
 	ConditionNoReactions        = "NoReactions"
+	ConditionBleeding           = "Bleeding"
+	ConditionStunned            = "Stunned"
 )
