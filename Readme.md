@@ -8,17 +8,17 @@ Go/Ebiten turn-based dungeon thing. It runs. You move, enemies move, violence ha
 
 Standard Go layout. Files mostly do what they say:
 - `main.go`: Entry point.
-- `game.go`: Main loop, state, entity/wave management.
-- `types.go`: Core structs (Entity, Player, Enemy, Actions...).
-- `combat.go`: Attack logic, damage calculation, action handling.
-- `ai.go`: Basic enemy pathfinding/attack logic.
-- `input.go`: Keyboard/mouse input.
-- `ui.go`: Ebiten drawing (map, sprites, HP, log, overlays).
+- `game.go`: Main loop, state, entity/wave management, action building.
+- `types.go`: Core structs (Entity, Player, Enemy, Condition, Actions...).
+- `combat.go`: Attack logic, damage calculation, condition application, action handling.
+- `ai.go`: Basic enemy pathfinding/attack logic, stun check.
+- `input.go`: Keyboard/mouse input, technique choices, AoO checks.
+- `ui.go`: Ebiten drawing (map, sprites, HP, log, overlays, status).
 - `data.go`: Enemy/Class/Action definitions.
-- `state.go`: Turn management, game state logic (player/enemy/gameover).
-- `constants.go`: Sizes, ranges, magic numbers.
-- `utils.go`: Helpers (distance, modifiers).
-- `main_test.go`: Some pathfinding and class feature tests.
+- `state.go`: Turn management, game state logic (player/enemy/gameover), condition ticks.
+- `constants.go`: Sizes, ranges, magic numbers, condition names.
+- `utils.go`: Helpers (distance, modifiers, saves, condition management).
+- `main_test.go`: Pathfinding, class feature, and condition tests.
 
 Uses Ebiten. Assets embedded.
 
@@ -26,33 +26,35 @@ Uses Ebiten. Assets embedded.
 
 - **Core Loop:** Turn-based player vs enemy waves.
 - **Movement:** Grid movement, basic A* step pathfinding for enemies. Player uses arrow keys.
-- **Combat:** Melee/ranged attacks, AC vs Attack Roll, Crits/Fumbles. HP bars, damage numbers.
+- **Combat:** Melee/ranged attacks, AC vs Attack Roll, Crits/Fumbles. HP bars, damage numbers. Bleeding condition applied on critical hits. Saving throw mechanic implemented.
 - **Classes:**
-    - Fighter: Attacks, Second Wind, Action Surge, L3/L4 Style/Technique choices.
-    - Mage: Firebolt, Magic Missile, Shield + unlockable spells/cantrips, Spell Slots, Arcane Recovery.
-- **Actions:** Standard/Bonus/Reaction/Free action types tracked. Dash, Disengage.
-- **Enemy AI:** Minimal. Move-to-attack (melee) or maintain-range (ranged). Basic retreat logic. No special abilities used.
+    - Fighter: Attacks, Second Wind, Action Surge, L3 Style & L4 Technique choices (Stunning Strike, Defensive Stance, Quick Strike). Base +2 AC bonus.
+    - Mage: Firebolt, Magic Missile, Shield + unlockable spells/cantrips (Ray of Frost w/ Slow, Shocking Grasp w/ NoReactions), Spell Slots, Arcane Recovery.
+- **Actions:** Standard/Bonus/Reaction/Free action types tracked. Dash, Disengage. Stunning Strike technique for Fighters.
+- **Conditions System:** Refactored status effects into a core system handling duration and data.
+    - **Implemented Conditions:** Slowed (Movement halved), Shielded (+5 AC, 1 turn), MagicArmor (+2 AC, 3 turns), FeatherFall (50% dodge chance), ExpeditiousRetreat (+3 Move), NoReactions (Prevents AoO), Bleeding (1d4 DoT), Stunned (Skip Turn).
+- **Enemy AI:** Minimal. Move-to-attack (melee) or maintain-range (ranged). Basic retreat logic. Skips turn if Stunned. No special abilities used yet. Does not use AoO if target applied NoReactions.
 - **Waves:** Defined enemy groups spawn sequentially. Boss waves give level ups.
-- **UI:** Basic combat log, player status display, Tab for action menu, C for character sheet.
-- **State:** Game Over on death, Victory on clearing waves (theoretically), Short Rest prompts, Long Rest after level ups.
-- **Effects:** Shield (+AC), Slow (from Orc Shaman), Feather Fall (dodge chance), Magic Armor (+AC), Expeditious Retreat (+Move) implemented.
+- **UI:** Basic combat log, player status display (shows active conditions), Tab for action menu, C for character sheet. Effective AC displayed.
+- **State:** Game Over on death, Victory on clearing waves (theoretically), Short Rest prompts, Long Rest after level ups. Conditions tick down each turn.
 
 ## Known Issues / Bugs / Rough Edges
 
-- **AI is Primitive:** Enemies just follow simple rules. Easily exploitable. No real tactics. Pathfinding surely breaks on weird maps.
-- **Thin Content:** Only 2 classes playable. Enemy variety is mostly stat-based. Needs more meaningful differences.
-- **Unbalanced:** Combat difficulty is completely un-tuned. Probably swings wildly.
-- **Barebones UI:** Functional but ugly. But hey! is our ugly...
+- **AI is Primitive:** Enemies just follow simple rules. Easily exploitable. No real tactics or use of conditions/saves. Pathfinding surely breaks on weird maps.
+- **Thin Content:** Only 2 classes playable. Enemy variety is mostly stat-based. Needs more meaningful differences and abilities.
+- **Unbalanced:** Combat difficulty is completely un-tuned. Probably swings wildly. Bleed/Stun values likely need adjustment.
+- **Barebones UI:** Functional but ugly. But hey! is our ugly... Enemy conditions not displayed on map.
 - **Error Handling:** Likely crashes on unexpected input or state. no refunds.
-- **Hardcoded Data:** Waves, spawn points are just lists in code. Not flexible atm.
+- **Hardcoded Data:** Waves, spawn points are just lists in code. Not flexible atm. Condition damage dice (e.g., Bleed 1d4) hardcoded in `TickConditions`.
 
 ## Potential Next Steps / Ideas
 
-- **Enemy Abilities:** Top priority. Implement OnHit/OnDeath behaviors. Give enemies unique actions instead of just different stats. Should make combat way less static.
-- **Balance Pass:** Play it. Tweak numbers until it feels right. Earned difficulty, not just stat bloat.
-- **More Content:** Add classes, enemies with distinct behaviors, more spells/items. Expand the toybox.
-- **Visuals:** Maybe later. Better UI, sprites, effects. Not the main point.
+- **Enemy Abilities & AI:** Top priority. Implement OnHit/OnDeath behaviors. Give enemies unique actions (that potentially use conditions/saves) instead of just different stats. Make AI smarter about conditions.
+- **Balance Pass:** Play it. Tweak numbers (HP, AC, damage, condition durations/saves/damage) until it feels right. Earned difficulty, not just stat bloat.
+- **More Content:** Add classes, enemies with distinct behaviors, more spells/items/conditions. Expand the toybox.
+- **Visuals:** Maybe later. Better UI, sprites, effects. Add condition icons on map. Not the main point.
 - **Map Generation/Variety:** Static 10x10 grid gets old fast. Needs procedural maps or at least more layouts.
+- **Refactor `TickConditions`?:** Current DoT logic is basic. Might need refactoring if more complex damage types or interactions are added. Passing `*Game` to `utils.go` isn't ideal long-term.
 
 ## Build / Run
 
