@@ -155,7 +155,7 @@ func (g *Game) handlePlayerInput() {
 					choiceIndex = 2
 				}
 				if choiceIndex != -1 {
-					techniques := []string{"Power Attack", "Defensive Stance", "Quick Strike"}
+					techniques := []string{"Stunning Strike", "Defensive Stance", "Quick Strike"}
 					g.Player.CombatTechnique = techniques[choiceIndex]
 					g.addCombatLog(fmt.Sprintf("Chosen Combat Technique: %s!", g.Player.CombatTechnique))
 					if g.Player.CombatTechnique == "Defensive Stance" {

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"image"
+	"math"
 	"math/rand"
 	"strings"
 	"testing"
@@ -1321,8 +1322,10 @@ func TestFeatherFallDodgeCheck(t *testing.T) {
 		if logLen > 0 && strings.Contains(g.CombatLog[logLen-1], "dodges") {
 			dodgedCount++
 		} else if hitLanded {
+
 			hitCount++
 		} else {
+
 		}
 	}
 
@@ -1338,8 +1341,8 @@ func TestFeatherFallDodgeCheck(t *testing.T) {
 func TestCantripConditions(t *testing.T) {
 	initialPos := image.Point{X: 5, Y: 5}
 	enemyInfo := []EnemySpawnInfo{{TypeName: "Goblin Scout"}}
-	g := createTestPlayerWithClass(3, "Mage", nil, nil, enemyInfo, initialPos)
-
+	g := createTestPlayerWithClass(3, "Mage", nil, []string{"ray_of_frost", "shocking_grasp"}, enemyInfo, initialPos)
+	p := g.Player
 	if len(g.Enemies) == 0 {
 		t.Fatal("Test setup error: Enemy did not spawn")
 	}
@@ -1360,8 +1363,8 @@ func TestCantripConditions(t *testing.T) {
 	}
 	RemoveCondition(&enemy.Entity, ConditionSlowed)
 
-	g.Player.X = enemy.X - 1
-	g.Player.Y = enemy.Y
+	p.X = enemy.X - 1
+	p.Y = enemy.Y
 	if !ActionTable["shocking_grasp"].Execute(g, enemy.X, enemy.Y) {
 		t.Fatalf("executeShockingGrasp failed to execute or missed AC 0")
 	}
@@ -1391,11 +1394,6 @@ func TestNoReactionsPreventsAoO(t *testing.T) {
 	g.CombatLog = make([]string, 0, combatLogLength)
 	g.InputMode = InputModeMap
 	g.Player.MovementPoints = 1
-
-	g.handlePlayerInput()
-
-	if p.X != initialPos.X || p.Y != initialPos.Y {
-	}
 
 	targetX, targetY := initialPos.X, initialPos.Y+1
 	moved := false
@@ -1428,5 +1426,238 @@ func TestNoReactionsPreventsAoO(t *testing.T) {
 
 	if p.X != targetX || p.Y != targetY {
 		t.Errorf("Player failed to move away from enemy with NoReactions condition")
+	}
+}
+
+func TestResolveSavingThrow(t *testing.T) {
+	e := &Entity{Constitution: 10}
+	dc := 15
+	rand.Seed(1)
+
+	passCount := 0
+	attempts := 200
+	for i := 0; i < attempts; i++ {
+		if ResolveSavingThrow(e, dc, e.Constitution) {
+			passCount++
+		}
+	}
+
+	expectedPassRate := 0.30
+	actualPassRate := float64(passCount) / float64(attempts)
+
+	if math.Abs(actualPassRate-expectedPassRate) > 0.15 {
+		t.Errorf("ResolveSavingThrow pass rate unexpected: expected ~%.2f, got %.2f (CON %d vs DC %d)",
+			expectedPassRate, actualPassRate, e.Constitution, dc)
+	}
+	t.Logf("ResolveSavingThrow test (CON %d vs DC %d): Passed %d / %d times (Rate: %.2f)", e.Constitution, dc, passCount, attempts, actualPassRate)
+}
+
+func TestBleedOnCrit(t *testing.T) {
+	initialPos := image.Point{X: 5, Y: 5}
+	enemyInfo := []EnemySpawnInfo{{TypeName: "Goblin Scout"}}
+	g := createTestPlayerWithClass(1, "Fighter", nil, nil, enemyInfo, initialPos)
+	p := g.Player
+	if len(g.Enemies) == 0 {
+		t.Fatal("Test setup error: Enemy did not spawn")
+	}
+	enemy := g.Enemies[0]
+	enemy.X = p.X + 1
+	enemy.Y = p.Y
+	enemy.AC = 0
+	enemy.HP = 50
+	initialHP := enemy.HP
+
+	critOccurred := false
+	bleedAppliedOnCrit := false
+	bleedAppliedWithoutCrit := false
+	numAttempts := 50
+
+	for i := 0; i < numAttempts; i++ {
+		enemy.HP = initialHP
+		enemy.Conditions = make([]Condition, 0)
+		g.CombatLog = make([]string, 0, combatLogLength)
+
+		killed, hit := g.resolveAttack(&p.Entity, &enemy.Entity, p.ProficiencyBonus, "melee")
+		if killed {
+			t.Fatalf("Enemy died unexpectedly during crit test")
+		}
+		if !hit {
+			t.Fatalf("Attack missed AC 0, test invalid")
+		}
+
+		logText := strings.Join(g.CombatLog, " ")
+		isCritLog := strings.Contains(logText, "CRITICAL!")
+		isBleedLog := strings.Contains(logText, "Causes Bleeding!")
+		hasBleedCond := HasCondition(&enemy.Entity, ConditionBleeding)
+
+		if isCritLog {
+			critOccurred = true
+			if isBleedLog && hasBleedCond {
+				bleedAppliedOnCrit = true
+			} else {
+				t.Errorf("Critical hit occurred but Bleed log/condition missing. Log: %s. Has Cond: %t", logText, hasBleedCond)
+			}
+
+			break
+		} else {
+			if isBleedLog || hasBleedCond {
+				bleedAppliedWithoutCrit = true
+			}
+		}
+	}
+
+	if !critOccurred {
+		t.Logf("Warning: No critical hit occurred in %d attempts, cannot fully verify bleed application on crit.", numAttempts)
+	} else if !bleedAppliedOnCrit {
+
+	}
+	if bleedAppliedWithoutCrit {
+		t.Errorf("Bleeding was applied on a non-critical hit.")
+	}
+}
+
+func TestTickConditionsBleedDamage(t *testing.T) {
+	g := &Game{
+		CombatLog:     make([]string, 0, combatLogLength),
+		FloatingTexts: make([]*FloatingText, 0),
+		MapOffsetX:    0,
+		MapOffsetY:    0,
+	}
+	e := &Entity{Name: "TestDummy", HP: 10, MaxHP: 10, Conditions: make([]Condition, 0), X: 1, Y: 1, Width: 1, Height: 1}
+	bleedCond := Condition{Name: ConditionBleeding, Duration: 2, Data: map[string]any{"Damage": "1d4", "DamageType": "Bleed"}}
+	ApplyCondition(e, bleedCond)
+
+	initialHP := e.HP
+	TickConditions(g, e)
+	if e.HP >= initialHP {
+		t.Errorf("TickConditions did not apply Bleed damage on first tick")
+	}
+	if !HasCondition(e, ConditionBleeding) || GetCondition(e, ConditionBleeding).Duration != 1 {
+		t.Errorf("TickConditions failed for Bleeding (Dur 2->1): %+v", GetCondition(e, ConditionBleeding))
+	}
+	hpAfterTick1 := e.HP
+
+	TickConditions(g, e)
+	if e.HP >= hpAfterTick1 {
+		t.Errorf("TickConditions did not apply Bleed damage on second tick")
+	}
+	if HasCondition(e, ConditionBleeding) {
+		t.Errorf("TickConditions did not remove Bleed after second tick (duration expired)")
+	}
+}
+
+func TestStunningStrikeExecution(t *testing.T) {
+	rand.Seed(1)
+	initialPos := image.Point{X: 5, Y: 5}
+	enemyInfo := []EnemySpawnInfo{{TypeName: "Goblin Scout"}}
+	g := createTestPlayerWithClass(4, "Fighter", nil, nil, enemyInfo, initialPos)
+	p := g.Player
+	p.CombatTechnique = "Stunning Strike"
+	p.Strength = 16
+	if len(g.Enemies) == 0 {
+		t.Fatal("Test setup error: Enemy did not spawn")
+	}
+	enemy := g.Enemies[0]
+	enemy.X = p.X + 1
+	enemy.Y = p.Y
+	enemy.AC = 0
+	enemy.Constitution = 10
+	enemy.HP = 50
+	initialEnemyHP := enemy.HP
+
+	stunDef, exists := ActionTable["stunning_strike"]
+	if !exists {
+		t.Fatal("Stunning Strike action definition not found")
+	}
+
+	g.Player.ActionTaken = false
+	success := g.executeAction(stunDef, enemy.X, enemy.Y)
+
+	if !success {
+		t.Fatalf("executeAction for Stunning Strike returned false unexpectedly")
+	}
+	if !g.Player.ActionTaken {
+		t.Errorf("executeAction for Stunning Strike did not consume the player's action")
+	}
+
+	hit := false
+	saveFailed := false
+	saveSucceeded := false
+	for _, msg := range g.CombatLog {
+		if strings.Contains(msg, "Hit!") && strings.Contains(msg, "Stunning Strike") {
+			hit = true
+		}
+		if strings.Contains(msg, "Failed!") && strings.Contains(msg, "saving throw") {
+			saveFailed = true
+		}
+		if strings.Contains(msg, "Succeeded!") && strings.Contains(msg, "saving throw") {
+			saveSucceeded = true
+		}
+	}
+
+	if !hit {
+		t.Logf("Stunning Strike attack roll missed, cannot verify save/stun effect.")
+	} else {
+		if enemy.HP != initialEnemyHP {
+			t.Errorf("Stunning Strike dealt damage: HP changed from %d to %d", initialEnemyHP, enemy.HP)
+		}
+		if !saveFailed && !saveSucceeded {
+			t.Errorf("Stunning Strike hit, but no save result logged")
+		}
+		if saveFailed {
+			if !HasCondition(&enemy.Entity, ConditionStunned) {
+				t.Errorf("Stunning Strike hit and save failed, but Stunned condition not applied")
+			} else {
+				cond := GetCondition(&enemy.Entity, ConditionStunned)
+				if cond == nil || cond.Duration != 2 {
+					t.Errorf("Stunned condition applied with wrong duration: expected 2, got %+v", cond)
+				}
+			}
+		} else {
+			if HasCondition(&enemy.Entity, ConditionStunned) {
+				t.Errorf("Stunning Strike hit but save succeeded, yet Stunned condition was applied")
+			}
+		}
+	}
+}
+
+func TestStunConditionEffect(t *testing.T) {
+	initialPos := image.Point{X: 5, Y: 5}
+	enemyInfo := []EnemySpawnInfo{{TypeName: "Goblin Scout"}}
+	g := createTestPlayerWithClass(1, "Fighter", nil, nil, enemyInfo, initialPos)
+	if len(g.Enemies) == 0 {
+		t.Fatal("Test setup error: Enemy did not spawn")
+	}
+	enemy := g.Enemies[0]
+	enemy.X = g.Player.X + 1
+	enemy.Y = g.Player.Y
+
+	ApplyCondition(&enemy.Entity, Condition{Name: ConditionStunned, Duration: 2})
+	g.CurrentTurn = EnemyTurn
+	g.currentEnemyTurn.Index = 0
+	g.currentEnemyTurn.Phase = PhaseEnemyStartTurn
+	g.enemiesActedThisTurn = make([]bool, len(g.Enemies))
+
+	g.stepEnemyTurn()
+
+	if g.currentEnemyTurn.Phase != PhaseEnemyDone {
+		t.Errorf("Stunned enemy did not immediately go to PhaseEnemyDone: Phase is %v", g.currentEnemyTurn.Phase)
+	}
+	if g.currentEnemyTurn.Index != -1 {
+		t.Errorf("Stunned enemy turn did not end correctly, index is %d", g.currentEnemyTurn.Index)
+	}
+	if len(g.enemiesActedThisTurn) <= 0 || !g.enemiesActedThisTurn[0] {
+		t.Errorf("Stunned enemy was not marked as having acted")
+	}
+
+	foundLog := false
+	for _, msg := range g.CombatLog {
+		if strings.Contains(msg, "is Stunned!") {
+			foundLog = true
+			break
+		}
+	}
+	if !foundLog {
+		t.Errorf("Did not find log message for enemy being stunned")
 	}
 }

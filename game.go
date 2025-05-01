@@ -668,6 +668,11 @@ func (g *Game) buildAvailableActions() {
 			possibleActions["quick_strike"] = true
 		}
 	}
+	if g.Player.CombatTechnique == "Stunning Strike" {
+		if _, exists := ActionTable["stunning_strike"]; exists {
+			possibleActions["stunning_strike"] = true
+		}
+	}
 
 	tempAvailableActions := []*ActionDefinition{}
 	for id := range possibleActions {
@@ -972,6 +977,9 @@ func (g *Game) completePendingPlayerMove() {
 	if performAoOCheck {
 		for _, enemy := range g.Enemies {
 			if enemy.IsDying || enemy.HP <= 0 {
+				continue
+			}
+			if HasCondition(&enemy.Entity, ConditionNoReactions) {
 				continue
 			}
 			wasAdj := isAdjacentToEntity(startX, startY, &enemy.Entity)

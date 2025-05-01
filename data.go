@@ -197,8 +197,6 @@ var ClassDefinitions = map[string]*ClassDefinition{
 	},
 }
 
-// Actions
-
 var ActionTable map[string]*ActionDefinition
 
 func init() {
@@ -237,6 +235,18 @@ func init() {
 			Range:            1,
 			RequiresTarget:   true,
 			Execute:          executeQuickStrike,
+			VisualEffectType: "Default",
+		},
+		"stunning_strike": {
+			ID:               "stunning_strike",
+			Name:             "Stunning Strike",
+			ActionType:       ActionTypeStandard,
+			ResourceType:     ResourceNone,
+			ResourceCost:     0,
+			Targeting:        TargetEnemyAdjacent,
+			Range:            1,
+			RequiresTarget:   true,
+			Execute:          executeStunningStrike,
 			VisualEffectType: "Default",
 		},
 		"dash": {
@@ -402,7 +412,7 @@ func init() {
 			ResourceType:     ResourceNone,
 			ResourceCost:     0,
 			Targeting:        TargetEnemyRange,
-			Range:            playerRangedRange + 1, // 6 range?
+			Range:            playerRangedRange + 1,
 			RequiresTarget:   true,
 			Execute:          executeRayOfFrost,
 			VisualEffectType: "Cold",

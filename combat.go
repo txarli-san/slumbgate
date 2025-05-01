@@ -19,7 +19,6 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 	var enemyDef *EnemyDefinition
 
 	attackPenalty := 0
-	damageMultiplier := 1.0
 
 	if isPlayerDefending && HasCondition(defender, ConditionFeatherFall) {
 		if rand.Intn(2) == 0 {
@@ -32,10 +31,6 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 	}
 
 	if isPlayerAttacking {
-		if g.Player.CombatTechnique == "Power Attack" {
-			attackPenalty = -2
-			damageMultiplier = 1.5
-		}
 		switch attackType {
 		case "ranged":
 			attackAbilityMod = getModifier(attacker.Dexterity)
@@ -226,12 +221,21 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 			}
 		}
 
-		damage = int(float64(max(1, baseDamage)) * damageMultiplier)
+		damage = max(1, baseDamage)
 		actualDamage := min(damage, defender.HP)
 		defender.HP -= actualDamage
 		logMsg += fmt.Sprintf(" Hit! Deals %d%s dmg.", actualDamage, damageLog)
-		if damageMultiplier != 1.0 {
-			logMsg += fmt.Sprintf(" (%.1fx Power Attack)", damageMultiplier)
+
+		if isCrit && defender.HP > 0 && !defender.IsDying {
+			bleedDamage := "1d4"
+			ApplyCondition(defender, Condition{
+				Name:     ConditionBleeding,
+				Duration: 2,
+				Source:   attacker,
+				Data:     map[string]any{"Damage": bleedDamage, "DamageType": "Bleed"},
+			})
+			logMsg += " Causes Bleeding!"
+			g.FloatingTexts = append(g.FloatingTexts, &FloatingText{Text: "Bleeding!", X: textSpawnX, Y: textSpawnY + 15, Life: textLifetime, MaxLife: textLifetime, Color: visualEffectColors["Bleed"], VelocityY: -0.5})
 		}
 
 		if isPlayerDefending && !isPlayerAttacking && attacker.Name == "Orc Shaman" {
@@ -485,6 +489,18 @@ func executeQuickStrike(g *Game, targetX, targetY int) bool {
 		}
 		logMsg += dmgLog
 
+		if isCrit && targetEnemy.HP > 0 && !targetEnemy.IsDying {
+			bleedDamage := "1d4"
+			ApplyCondition(&targetEnemy.Entity, Condition{
+				Name:     ConditionBleeding,
+				Duration: 2,
+				Source:   &g.Player.Entity,
+				Data:     map[string]any{"Damage": bleedDamage, "DamageType": "Bleed"},
+			})
+			logMsg += " Causes Bleeding!"
+			g.FloatingTexts = append(g.FloatingTexts, &FloatingText{Text: "Bleeding!", X: textSpawnX, Y: textSpawnY + 15, Life: 60, MaxLife: 60, Color: visualEffectColors["Bleed"], VelocityY: -0.5})
+		}
+
 		ftColor := visualEffectColors["Default"]
 		hitTextColor := colorWhite
 		hitText := "Hit!"
@@ -503,8 +519,10 @@ func executeQuickStrike(g *Game, targetX, targetY int) bool {
 		})
 
 		if targetEnemy.HP <= 0 {
-			logMsg += fmt.Sprintf(" %s dies!", targetEnemy.Name)
-			targetEnemy.IsDying = true
+			if !targetEnemy.IsDying {
+				logMsg += fmt.Sprintf(" %s dies!", targetEnemy.Name)
+				targetEnemy.IsDying = true
+			}
 		}
 	} else {
 		logMsg += " Miss!"
@@ -542,6 +560,7 @@ func executeFirebolt(g *Game, targetX, targetY int) bool {
 
 	textSpawnX := float64(g.MapOffsetX + targetEnemy.X*tileSize + (targetEnemy.Width*tileSize)/2)
 	textSpawnY := float64(g.MapOffsetY + targetEnemy.Y*tileSize)
+	logMsg := ""
 
 	if hit {
 		g.Player.AttackBumpTimer = attackBumpDuration
@@ -561,7 +580,21 @@ func executeFirebolt(g *Game, targetX, targetY int) bool {
 		} else {
 			dmgLog = fmt.Sprintf(" Hit! Deals %d (1d10[%d]) fire damage.", actualDamage, damageRoll1)
 		}
-		g.addCombatLog(attackLog + dmgLog)
+		logMsg = attackLog + dmgLog
+
+		if isCrit && targetEnemy.HP > 0 && !targetEnemy.IsDying {
+			bleedDamage := "1d4"
+			ApplyCondition(&targetEnemy.Entity, Condition{
+				Name:     ConditionBleeding,
+				Duration: 2,
+				Source:   &g.Player.Entity,
+				Data:     map[string]any{"Damage": bleedDamage, "DamageType": "Bleed"},
+			})
+			logMsg += " Causes Bleeding!"
+			g.FloatingTexts = append(g.FloatingTexts, &FloatingText{Text: "Bleeding!", X: textSpawnX, Y: textSpawnY + 15, Life: 60, MaxLife: 60, Color: visualEffectColors["Bleed"], VelocityY: -0.5})
+		}
+
+		g.addCombatLog(logMsg)
 
 		ftColor := visualEffectColors["Fire"]
 		hitTextColor := colorWhite
@@ -592,8 +625,10 @@ func executeFirebolt(g *Game, targetX, targetY int) bool {
 		})
 
 		if targetEnemy.HP <= 0 {
-			g.addCombatLog(fmt.Sprintf("%s dies!", targetEnemy.Name))
-			targetEnemy.IsDying = true
+			if !targetEnemy.IsDying {
+				g.addCombatLog(fmt.Sprintf("%s dies!", targetEnemy.Name))
+				targetEnemy.IsDying = true
+			}
 		}
 	} else {
 		g.addCombatLog(attackLog + " Miss!")
@@ -813,6 +848,7 @@ func executeMindSpike(g *Game, targetX, targetY int) bool {
 
 	textSpawnX := float64(g.MapOffsetX + targetEnemy.X*tileSize + (targetEnemy.Width*tileSize)/2)
 	textSpawnY := float64(g.MapOffsetY + targetEnemy.Y*tileSize)
+	logMsg := ""
 
 	if hit {
 		g.Player.AttackBumpTimer = attackBumpDuration
@@ -835,7 +871,21 @@ func executeMindSpike(g *Game, targetX, targetY int) bool {
 		} else {
 			dmgLog = fmt.Sprintf(" Hit! Deals %d (2d8[%d,%d]) psychic damage.", actualDamage, damageRoll1, damageRoll2)
 		}
-		g.addCombatLog(attackLog + dmgLog)
+		logMsg = attackLog + dmgLog
+
+		if isCrit && targetEnemy.HP > 0 && !targetEnemy.IsDying {
+			bleedDamage := "1d4"
+			ApplyCondition(&targetEnemy.Entity, Condition{
+				Name:     ConditionBleeding,
+				Duration: 2,
+				Source:   &g.Player.Entity,
+				Data:     map[string]any{"Damage": bleedDamage, "DamageType": "Bleed"},
+			})
+			logMsg += " Causes Bleeding!"
+			g.FloatingTexts = append(g.FloatingTexts, &FloatingText{Text: "Bleeding!", X: textSpawnX, Y: textSpawnY + 15, Life: 60, MaxLife: 60, Color: visualEffectColors["Bleed"], VelocityY: -0.5})
+		}
+
+		g.addCombatLog(logMsg)
 
 		ftColor := visualEffectColors["Psychic"]
 		hitTextColor := colorWhite
@@ -865,8 +915,10 @@ func executeMindSpike(g *Game, targetX, targetY int) bool {
 		})
 
 		if targetEnemy.HP <= 0 {
-			g.addCombatLog(fmt.Sprintf("%s's mind is shattered!", targetEnemy.Name))
-			targetEnemy.IsDying = true
+			if !targetEnemy.IsDying {
+				g.addCombatLog(fmt.Sprintf("%s's mind is shattered!", targetEnemy.Name))
+				targetEnemy.IsDying = true
+			}
 		}
 	} else {
 		g.addCombatLog(attackLog + " Miss!")
@@ -931,6 +983,18 @@ func executeRayOfFrost(g *Game, targetX, targetY int) bool {
 		ApplyCondition(&targetEnemy.Entity, Condition{Name: ConditionSlowed, Duration: 2})
 		logMsg += fmt.Sprintf(" %s's speed is reduced!", targetEnemy.Name)
 
+		if isCrit && targetEnemy.HP > 0 && !targetEnemy.IsDying {
+			bleedDamage := "1d4"
+			ApplyCondition(&targetEnemy.Entity, Condition{
+				Name:     ConditionBleeding,
+				Duration: 2,
+				Source:   &g.Player.Entity,
+				Data:     map[string]any{"Damage": bleedDamage, "DamageType": "Bleed"},
+			})
+			logMsg += " Causes Bleeding!"
+			g.FloatingTexts = append(g.FloatingTexts, &FloatingText{Text: "Bleeding!", X: textSpawnX, Y: textSpawnY + 15, Life: 60, MaxLife: 60, Color: visualEffectColors["Bleed"], VelocityY: -0.5})
+		}
+
 		ftColor := visualEffectColors["Cold"]
 		hitTextColor := colorWhite
 		hitText := "Hit!"
@@ -943,8 +1007,10 @@ func executeRayOfFrost(g *Game, targetX, targetY int) bool {
 		g.FloatingTexts = append(g.FloatingTexts, &FloatingText{Text: hitText, X: textSpawnX, Y: textSpawnY - 15, Life: 30, MaxLife: 30, Color: hitTextColor, VelocityY: -0.5})
 
 		if targetEnemy.HP <= 0 {
-			logMsg += fmt.Sprintf(" %s dies!", targetEnemy.Name)
-			targetEnemy.IsDying = true
+			if !targetEnemy.IsDying {
+				logMsg += fmt.Sprintf(" %s dies!", targetEnemy.Name)
+				targetEnemy.IsDying = true
+			}
 		}
 	} else {
 		logMsg = attackLog + " Miss!"
@@ -996,6 +1062,18 @@ func executeShockingGrasp(g *Game, targetX, targetY int) bool {
 		ApplyCondition(&targetEnemy.Entity, Condition{Name: ConditionNoReactions, Duration: 1})
 		logMsg += fmt.Sprintf(" %s cannot take reactions!", targetEnemy.Name)
 
+		if isCrit && targetEnemy.HP > 0 && !targetEnemy.IsDying {
+			bleedDamage := "1d4"
+			ApplyCondition(&targetEnemy.Entity, Condition{
+				Name:     ConditionBleeding,
+				Duration: 2,
+				Source:   &g.Player.Entity,
+				Data:     map[string]any{"Damage": bleedDamage, "DamageType": "Bleed"},
+			})
+			logMsg += " Causes Bleeding!"
+			g.FloatingTexts = append(g.FloatingTexts, &FloatingText{Text: "Bleeding!", X: textSpawnX, Y: textSpawnY + 15, Life: 60, MaxLife: 60, Color: visualEffectColors["Bleed"], VelocityY: -0.5})
+		}
+
 		ftColor := colorYellow
 		hitTextColor := colorWhite
 		hitText := "Hit!"
@@ -1008,8 +1086,10 @@ func executeShockingGrasp(g *Game, targetX, targetY int) bool {
 		g.FloatingTexts = append(g.FloatingTexts, &FloatingText{Text: hitText, X: textSpawnX, Y: textSpawnY - 15, Life: 30, MaxLife: 30, Color: hitTextColor, VelocityY: -0.5})
 
 		if targetEnemy.HP <= 0 {
-			logMsg += fmt.Sprintf(" %s dies!", targetEnemy.Name)
-			targetEnemy.IsDying = true
+			if !targetEnemy.IsDying {
+				logMsg += fmt.Sprintf(" %s dies!", targetEnemy.Name)
+				targetEnemy.IsDying = true
+			}
 		}
 	} else {
 		logMsg = attackLog + " Miss!"
@@ -1081,7 +1161,21 @@ func executeElementalStrike(g *Game, targetX, targetY int) bool {
 		} else {
 			dmgLog = fmt.Sprintf(" Hit! Deals %d (3d8[%d,%d,%d]) %s dmg.", actualDamage, d1, d2, d3, currentElement)
 		}
-		g.addCombatLog(attackLog + dmgLog)
+		logMsg := attackLog + dmgLog
+
+		if isCrit && targetEnemy.HP > 0 && !targetEnemy.IsDying {
+			bleedDamage := "1d4"
+			ApplyCondition(&targetEnemy.Entity, Condition{
+				Name:     ConditionBleeding,
+				Duration: 2,
+				Source:   &g.Player.Entity,
+				Data:     map[string]any{"Damage": bleedDamage, "DamageType": "Bleed"},
+			})
+			logMsg += " Causes Bleeding!"
+			g.FloatingTexts = append(g.FloatingTexts, &FloatingText{Text: "Bleeding!", X: textSpawnX, Y: textSpawnY + 15, Life: 60, MaxLife: 60, Color: visualEffectColors["Bleed"], VelocityY: -0.5})
+		}
+
+		g.addCombatLog(logMsg)
 
 		hitTextColor := colorWhite
 		hitText := "Hit!"
@@ -1094,8 +1188,10 @@ func executeElementalStrike(g *Game, targetX, targetY int) bool {
 		g.FloatingTexts = append(g.FloatingTexts, &FloatingText{Text: hitText, X: textSpawnX, Y: textSpawnY - 15, Life: 30, MaxLife: 30, Color: hitTextColor, VelocityY: -0.5})
 
 		if targetEnemy.HP <= 0 {
-			g.addCombatLog(fmt.Sprintf("%s dies!", targetEnemy.Name))
-			targetEnemy.IsDying = true
+			if !targetEnemy.IsDying {
+				g.addCombatLog(fmt.Sprintf("%s dies!", targetEnemy.Name))
+				targetEnemy.IsDying = true
+			}
 		}
 	} else {
 		g.addCombatLog(attackLog + " Miss!")
@@ -1130,5 +1226,66 @@ func executeExpeditiousRetreat(g *Game, targetX, targetY int) bool {
 	g.FloatingTexts = append(g.FloatingTexts, &FloatingText{
 		Text: "Speedy!", X: float64(g.MapOffsetX + g.Player.X*tileSize + (g.Player.Width*tileSize)/2), Y: float64(g.MapOffsetY+g.Player.Y*tileSize) - 15, Life: 60, MaxLife: 60, Color: colorYellow, VelocityY: -0.5,
 	})
+	return true
+}
+
+func executeStunningStrike(g *Game, targetX, targetY int) bool {
+	targetEnemy := g.getEnemyAt(targetX, targetY)
+	if targetEnemy == nil || !isAdjacentToEntity(g.Player.X, g.Player.Y, &targetEnemy.Entity) {
+		g.addCombatLog("Invalid target for Stunning Strike (or not adjacent).")
+		return false
+	}
+
+	g.addCombatLog(fmt.Sprintf("Attempting Stunning Strike on %s!", targetEnemy.Name))
+
+	attackerProfBonus := g.Player.ProficiencyBonus
+	attackAbilityMod := getModifier(g.Player.Strength)
+	abilityName := "STR"
+
+	roll := rand.Intn(20) + 1
+	effectiveAC := GetEffectiveAC(&targetEnemy.Entity)
+	attackRoll := roll + attackerProfBonus + attackAbilityMod
+	isCrit := roll == 20
+	isFumble := roll == 1
+	hit := !isFumble && (isCrit || attackRoll >= effectiveAC)
+
+	modString := fmt.Sprintf("%+d", attackAbilityMod)
+	profString := fmt.Sprintf("+%d", attackerProfBonus)
+	rollString := fmt.Sprintf("%d%s%s(%s)=%d", roll, profString, modString, abilityName, attackRoll)
+	logMsg := fmt.Sprintf("Stunning Strike attack roll: %s vs AC %d.", rollString, effectiveAC)
+
+	textSpawnX := float64(g.MapOffsetX + targetEnemy.X*tileSize + (targetEnemy.Width*tileSize)/2)
+	textSpawnY := float64(g.MapOffsetY + targetEnemy.Y*tileSize)
+
+	if hit {
+		g.Player.AttackBumpTimer = attackBumpDuration
+		logMsg += " Hit!"
+		g.addCombatLog(logMsg)
+
+		dc := 8 + g.Player.ProficiencyBonus + getModifier(g.Player.Strength)
+		savePassed := ResolveSavingThrow(&targetEnemy.Entity, dc, targetEnemy.Constitution)
+
+		saveLogMsg := fmt.Sprintf("%s makes a CON saving throw (DC %d).", targetEnemy.Name, dc)
+
+		if !savePassed {
+			saveLogMsg += " Failed!"
+			ApplyCondition(&targetEnemy.Entity, Condition{Name: ConditionStunned, Duration: 2})
+			saveLogMsg += fmt.Sprintf(" %s is Stunned!", targetEnemy.Name)
+			g.FloatingTexts = append(g.FloatingTexts, &FloatingText{
+				Text: "Stunned!", X: textSpawnX, Y: textSpawnY - 15, Life: 60, MaxLife: 60, Color: colorYellow, VelocityY: -0.5,
+			})
+		} else {
+			saveLogMsg += " Succeeded!"
+		}
+		g.addCombatLog(saveLogMsg)
+
+	} else {
+		logMsg += " Miss!"
+		g.addCombatLog(logMsg)
+		g.FloatingTexts = append(g.FloatingTexts, &FloatingText{
+			Text: "Miss!", X: textSpawnX, Y: textSpawnY - 15, Life: 30, MaxLife: 30, Color: colorGray, VelocityY: -0.5,
+		})
+	}
+
 	return true
 }
