@@ -677,6 +677,11 @@ func (g *Game) buildAvailableActions() {
 	tempAvailableActions := []*ActionDefinition{}
 	for id := range possibleActions {
 		actionDef := ActionTable[id]
+
+		if actionDef.Execute == nil && actionDef.ID != "wait" {
+			continue
+		}
+
 		isAvailable := true
 
 		switch actionDef.ActionType {
