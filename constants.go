@@ -125,3 +125,13 @@ const (
 	ConditionBleeding           = "Bleeding"
 	ConditionStunned            = "Stunned"
 )
+
+type IntentType int
+
+const (
+	IntentMove IntentType = iota
+	IntentAction
+	IntentEndTurn
+	IntentUIClick
+	IntentCancelAction
+)

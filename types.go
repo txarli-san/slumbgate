@@ -1,6 +1,7 @@
 package main
 
 import (
+	"image"
 	"image/color"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -59,6 +60,7 @@ type Player struct {
 	CombatStyle        string
 	CombatTechnique    string
 	NextElementType    string
+	Path               []image.Point
 }
 
 type Enemy struct {
@@ -102,6 +104,11 @@ type EnemyTurnContext struct {
 	Phase EnemyTurnPhase
 }
 
+type Intent struct {
+	Type IntentType
+	Data map[string]any
+}
+
 type Game struct {
 	Player                    *Player
 	Enemies                   []*Enemy
@@ -137,6 +144,7 @@ type Game struct {
 	pendingMoveStartY         int
 	pendingMoveTargetX        int
 	pendingMoveTargetY        int
+	IntentQueue               []Intent
 }
 
 type ActionExecuteFunc func(g *Game, targetX, targetY int) bool

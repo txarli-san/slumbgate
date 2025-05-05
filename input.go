@@ -197,193 +197,57 @@ func (g *Game) handlePlayerInput() {
 		return
 
 	case InputModeActionSelect:
-		if inpututil.IsKeyJustPressed(ebiten.KeyArrowUp) {
-			g.selectedActionIndex--
-			if g.selectedActionIndex < 0 {
-				g.selectedActionIndex = len(g.availableActions) - 1
-			}
-		}
-		if inpututil.IsKeyJustPressed(ebiten.KeyArrowDown) {
-			g.selectedActionIndex++
-			if g.selectedActionIndex >= len(g.availableActions) {
-				g.selectedActionIndex = 0
-			}
-		}
-		if inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
-			if g.selectedActionIndex >= 0 && g.selectedActionIndex < len(g.availableActions) {
-				selectedActionDef := g.availableActions[g.selectedActionIndex]
-				if !selectedActionDef.RequiresTarget {
-					g.executeAction(selectedActionDef, -1, -1)
-					if g.CurrentGameState == StatePlaying && selectedActionDef.ID != "wait" && g.InputMode != InputModeRestPrompt && g.InputMode != InputModeLevelUp {
-						g.InputMode = InputModeMap
-						g.primedActionID = ""
-					}
-				} else {
-					g.primedActionID = selectedActionDef.ID
-					g.InputMode = InputModeMap
-				}
-			}
-		}
-		if inpututil.IsKeyJustPressed(ebiten.KeyTab) || inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
-			g.InputMode = InputModeMap
-			g.primedActionID = ""
-		}
+
 		return
 
 	case InputModeMap:
-		if inpututil.IsKeyJustPressed(ebiten.KeyTab) {
-			g.buildAvailableActions()
-			if len(g.availableActions) > 0 {
-				foundLast := false
-				if g.lastExecutedActionID != "" {
-					for i, actionDef := range g.availableActions {
-						if actionDef.ID == g.lastExecutedActionID {
-							g.selectedActionIndex = i
-							foundLast = true
-							break
+
+		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+			cursorX, cursorY := ebiten.CursorPosition()
+			gridX := (cursorX - g.MapOffsetX) / tileSize
+			gridY := (cursorY - g.MapOffsetY) / tileSize
+
+			if gridX >= 0 && gridX < mapWidth && gridY >= 0 && gridY < mapHeight {
+				intentData := map[string]any{
+					"X": gridX,
+					"Y": gridY,
+				}
+				if g.primedActionID != "" {
+					actionDef, exists := ActionTable[g.primedActionID]
+					if exists {
+						canUseAction := false
+						switch actionDef.ActionType {
+						case ActionTypeStandard:
+							canUseAction = !g.Player.ActionTaken
+						case ActionTypeBonus:
+							canUseAction = !g.Player.BonusActionTaken
+						case ActionTypeFree, ActionTypeReaction:
+							canUseAction = true
 						}
-					}
-				}
-				if !foundLast {
-					g.selectedActionIndex = 0
-				}
-				g.InputMode = InputModeActionSelect
-				g.primedActionID = ""
-			} else {
-				g.addCombatLog("No actions available!")
-			}
-			return
-		}
-		actionExecutedByClick := false
-		if g.primedActionID != "" {
-			actionDef, exists := ActionTable[g.primedActionID]
-			if !exists {
-				g.addCombatLog(fmt.Sprintf("Error: Unknown primed action ID '%s'. Cancelling.", g.primedActionID))
-				g.primedActionID = ""
-			} else {
-				canUseAction := false
-				switch actionDef.ActionType {
-				case ActionTypeStandard:
-					canUseAction = !g.Player.ActionTaken
-				case ActionTypeBonus:
-					canUseAction = !g.Player.BonusActionTaken
-				case ActionTypeFree, ActionTypeReaction:
-					canUseAction = true
-				}
-				if !canUseAction {
-					g.addCombatLog(fmt.Sprintf("Cannot target for %s: %s already used.", actionDef.Name, actionDef.ActionType.String()))
-					g.primedActionID = ""
-				} else {
-					if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-						cursorX, cursorY := ebiten.CursorPosition()
-						gridX := (cursorX - g.MapOffsetX) / tileSize
-						gridY := (cursorY - g.MapOffsetY) / tileSize
-						if gridX >= 0 && gridX < mapWidth && gridY >= 0 && gridY < mapHeight {
-							actionExecutedByClick = g.executeAction(actionDef, gridX, gridY)
+
+						if !canUseAction {
+							g.addCombatLog(fmt.Sprintf("Cannot target for %s: %s already used.", actionDef.Name, actionDef.ActionType.String()))
 							g.primedActionID = ""
 						} else {
-							g.addCombatLog("Clicked outside map. Targeting cancelled.")
-							g.primedActionID = ""
-						}
-					} else if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonRight) || inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
-						g.addCombatLog(fmt.Sprintf("Targeting for %s cancelled.", actionDef.Name))
-						g.primedActionID = ""
-					}
-				}
-			}
-		}
-		if actionExecutedByClick {
-			if g.CurrentGameState != StatePlaying || g.InputMode == InputModeRestPrompt || g.InputMode == InputModeLevelUp {
-				return
-			}
-		}
-		if g.primedActionID == "" && inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
-			waitAction, exists := ActionTable["wait"]
-			if exists {
-				g.executeAction(waitAction, -1, -1)
-			} else {
-				g.addCombatLog("Error: Wait action not found!")
-				g.endPlayerTurn()
-			}
-			return
-		}
-		if g.primedActionID == "" && g.Player.MovementPoints > 0 {
-			moved := false
-			startX, startY := g.Player.X, g.Player.Y
-			targetX, targetY := startX, startY
-			if inpututil.IsKeyJustPressed(ebiten.KeyArrowUp) {
-				targetY--
-				moved = true
-			}
-			if inpututil.IsKeyJustPressed(ebiten.KeyArrowDown) {
-				targetY++
-				moved = true
-			}
-			if inpututil.IsKeyJustPressed(ebiten.KeyArrowLeft) {
-				targetX--
-				moved = true
-			}
-			if inpututil.IsKeyJustPressed(ebiten.KeyArrowRight) {
-				targetX++
-				moved = true
-			}
-			if moved {
-				if targetX >= 0 && targetX+g.Player.Width <= mapWidth && targetY >= 0 && targetY+g.Player.Height <= mapHeight {
-					if !g.isTileFullyBlocked(targetX, targetY, g.Player.Width, g.Player.Height, -1) {
-						performAoOCheck := !g.Player.IsDisengaging
-						currentStartX, currentStartY := startX, startY
-						currentTargetX, currentTargetY := targetX, targetY
-						moveInterrupted := false
+							intentData["ActionID"] = g.primedActionID
+							g.IntentQueue = append(g.IntentQueue, Intent{Type: IntentAction, Data: intentData})
 
-						if performAoOCheck {
-							for _, enemy := range g.Enemies {
-								if enemy.IsDying || enemy.HP <= 0 {
-									continue
-								}
-								if HasCondition(&enemy.Entity, ConditionNoReactions) {
-									continue
-								}
-								wasAdj := isAdjacentToEntity(currentStartX, currentStartY, &enemy.Entity)
-								isStillAdj := isAdjacentToEntity(currentTargetX, currentTargetY, &enemy.Entity)
-								if wasAdj && !isStillAdj {
-									if g.Player.HP > 0 && !g.Player.IsDying {
-										g.addCombatLog(fmt.Sprintf("%s makes an Opportunity Attack!", enemy.Name))
-										killedByAoO, _ := g.resolveAttack(&enemy.Entity, &g.Player.Entity, 0, "melee")
-
-										if g.reactionPending {
-
-											g.playerMovePending = true
-											g.pendingMoveStartX = currentStartX
-											g.pendingMoveStartY = currentStartY
-											g.pendingMoveTargetX = currentTargetX
-											g.pendingMoveTargetY = currentTargetY
-											moveInterrupted = true
-											return
-										}
-										if killedByAoO {
-
-											moveInterrupted = true
-											return
-										}
-									}
-								}
-							}
-						}
-
-						if !moveInterrupted {
-							if g.Player.HP > 0 && !g.Player.IsDying {
-								g.Player.X = currentTargetX
-								g.Player.Y = currentTargetY
-								g.Player.MovementPoints--
-							}
 						}
 					} else {
-						g.addCombatLog("Movement blocked.")
+						g.addCombatLog(fmt.Sprintf("Error: Unknown primed action ID '%s'. Cancelling.", g.primedActionID))
+						g.primedActionID = ""
 					}
 				} else {
-					g.addCombatLog("Cannot move outside map boundaries.")
+					g.IntentQueue = append(g.IntentQueue, Intent{Type: IntentMove, Data: intentData})
 				}
+			} else {
+			}
+		} else if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonRight) || inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+			if g.primedActionID != "" {
+				intentData := map[string]any{"ActionID": g.primedActionID}
+				g.IntentQueue = append(g.IntentQueue, Intent{Type: IntentCancelAction, Data: intentData})
 			}
 		}
+
 	}
 }
