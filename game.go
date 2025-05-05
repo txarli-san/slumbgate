@@ -54,6 +54,7 @@ func (g *Game) InitGame(playerClassName string) {
 	g.FloatingTexts = make([]*FloatingText, 0)
 	g.isVictory = false
 	g.IntentQueue = make([]Intent, 0)
+	g.ActionButtons = make([]UIButton, 0)
 
 	g.currentEnemyTurn = EnemyTurnContext{Index: -1, Phase: PhaseEnemyDone}
 	g.enemiesActedThisTurn = make([]bool, 0)
@@ -174,10 +175,112 @@ func (g *Game) InitGame(playerClassName string) {
 	g.initializePlayerResources()
 	g.Player.SpellSlotsL1 = g.Player.MaxSpellSlotsL1
 
+	g.initializeActionButtons()
+
 	g.CurrentTurn = PlayerTurn
 	g.SpawnNextWave()
 	g.startPlayerTurn()
 	g.CurrentGameState = StatePlaying
+}
+
+func (g *Game) initializeActionButtons() {
+	g.ActionButtons = make([]UIButton, 0)
+	buttonX := uiButtonPad
+	buttonY := screenHeight - uiPanelHeight + uiButtonPad
+
+	addButton := func(id string, tooltip string, actionID string, isEndTurn bool) {
+		newButton := UIButton{
+			ID: id,
+			Rect: image.Rect(buttonX, buttonY, buttonX+uiButtonSize, buttonY+uiButtonSize),
+
+			Icon:    nil,
+			Tooltip: tooltip,
+		}
+		if isEndTurn {
+			newButton.OnClick = func(gm *Game) {
+				gm.IntentQueue = append(gm.IntentQueue, Intent{Type: IntentEndTurn})
+			}
+		} else if actionID != "" {
+			newButton.OnClick = func(gm *Game) {
+				actionDef, exists := ActionTable[actionID]
+				if !exists {
+					gm.addCombatLog(fmt.Sprintf("Error: Action button '%s' refers to unknown action ID '%s'", id, actionID))
+					return
+				}
+				if !actionDef.RequiresTarget {
+
+					gm.IntentQueue = append(gm.IntentQueue, Intent{
+						Type: IntentAction,
+						Data: map[string]any{"ActionID": actionID, "X": -1, "Y": -1},
+					})
+				} else {
+					gm.primedActionID = actionID
+					gm.Player.Path = make([]image.Point, 0)
+					gm.addCombatLog(fmt.Sprintf("Primed: %s. Click target.", actionDef.Name))
+				}
+			}
+		}
+		g.ActionButtons = append(g.ActionButtons, newButton)
+		buttonX += uiButtonSize + uiButtonPad
+	}
+
+	if g.Player != nil {
+		g.buildAvailableActions()
+		actionMap := make(map[string]*ActionDefinition)
+		for _, action := range g.availableActions {
+			actionMap[action.ID] = action
+		}
+
+		if _, ok := actionMap["melee_attack"]; ok {
+			addButton("Melee", "Melee Attack (Action)", "melee_attack", false)
+		}
+		if _, ok := actionMap["ranged_attack"]; ok {
+			addButton("Ranged", "Ranged Attack (Action)", "ranged_attack", false)
+		}
+		if _, ok := actionMap["dash"]; ok {
+			addButton("Dash", "Dash (Action)", "dash", false)
+		}
+		if _, ok := actionMap["disengage"]; ok {
+			addButton("Disengage", "Disengage (Action)", "disengage", false)
+		}
+		if _, ok := actionMap["second_wind"]; ok {
+			addButton("SecWind", "Second Wind (Action)", "second_wind", false)
+		}
+		if _, ok := actionMap["action_surge"]; ok {
+			addButton("ActSrg", "Action Surge (Free)", "action_surge", false)
+		}
+		if _, ok := actionMap["quick_strike"]; ok {
+			addButton("QckStr", "Quick Strike (Bonus)", "quick_strike", false)
+		}
+		if _, ok := actionMap["stunning_strike"]; ok {
+			addButton("StnStr", "Stunning Strike (Action)", "stunning_strike", false)
+		}
+		if _, ok := actionMap["firebolt"]; ok {
+			addButton("Firebolt", "Firebolt (Action)", "firebolt", false)
+		}
+		if _, ok := actionMap["magic_missile"]; ok {
+			addButton("MagMiss", "Magic Missile (Action, L1 Slot)", "magic_missile", false)
+		}
+
+		for _, id := range g.Player.KnownCantrips {
+			if def, exists := ActionTable[id]; exists && id != "firebolt" {
+				if _, actionAvailable := actionMap[id]; actionAvailable {
+					tooltip := fmt.Sprintf("%s (Action)", def.Name)
+					addButton(def.ID, tooltip, def.ID, false)
+				}
+			}
+		}
+		for _, id := range g.Player.KnownSpells {
+			if def, exists := ActionTable[id]; exists && id != "magic_missile" && id != "shield" {
+				if _, actionAvailable := actionMap[id]; actionAvailable {
+					tooltip := fmt.Sprintf("%s (Action, L1 Slot)", def.Name)
+					addButton(def.ID, tooltip, def.ID, false)
+				}
+			}
+		}
+	}
+	addButton("EndTurn", "End Turn", "", true)
+
 }
 
 func (g *Game) initializePlayerResources() {
@@ -299,7 +402,10 @@ func (g *Game) resetPlayerResources(restType ResourceRestType) {
 		}
 
 		if shouldReset && g.Player.Level >= classAction.RequiredLevel {
-			currentUses := g.Player.ClassResources[actionID]
+			currentUses := 0 // Default if not found
+			if val, ok := g.Player.ClassResources[actionID]; ok {
+				currentUses = val
+			}
 			maxUses := classAction.UsesPerRest
 
 			if currentUses < maxUses {
@@ -384,6 +490,8 @@ func (g *Game) shortRest() {
 			g.addCombatLog("Arcane Recovery: Already at max spell slots.")
 		}
 	}
+	g.resetPlayerResources(RestTypeShort)
+	g.initializeActionButtons()
 }
 
 func (g *Game) longRest() {
@@ -391,6 +499,7 @@ func (g *Game) longRest() {
 	g.Player.HP = g.Player.MaxHP
 	g.resetPlayerResources(RestTypeLong)
 	g.addCombatLog("HP fully restored.")
+	g.initializeActionButtons()
 }
 
 func (g *Game) levelUpPlayer() {
@@ -426,6 +535,7 @@ func (g *Game) levelUpPlayer() {
 	}
 
 	g.refreshLevelUpResources()
+	g.initializeActionButtons()
 }
 
 func (g *Game) SpawnNextWave() {
@@ -625,35 +735,39 @@ func (g *Game) getEnemyAt(x, y int) *Enemy {
 
 func (g *Game) buildAvailableActions() {
 	g.availableActions = []*ActionDefinition{}
-	possibleActions := make(map[string]bool)
-
-	alwaysAvailable := map[string]bool{"wait": true}
-	if g.Player.Class == "Mage" {
-	} else {
-		alwaysAvailable["melee_attack"] = true
-		alwaysAvailable["ranged_attack"] = true
-		alwaysAvailable["dash"] = true
-		alwaysAvailable["disengage"] = true
+	if g.Player == nil {
+		return
 	}
 
+	possibleActions := make(map[string]bool)
+	classDef, classDefExists := ClassDefinitions[g.Player.Class] // Capture exists here
+
+	alwaysAvailable := map[string]bool{"wait": true, "accept_defeat": true}
 	for id := range alwaysAvailable {
 		if _, exists := ActionTable[id]; exists {
 			possibleActions[id] = true
 		}
 	}
-	for _, cantripID := range g.Player.KnownCantrips {
-		if _, exists := ActionTable[cantripID]; exists {
-			possibleActions[cantripID] = true
+
+	if g.Player.Class == "Mage" {
+		for _, cantripID := range g.Player.KnownCantrips {
+			if _, exists := ActionTable[cantripID]; exists {
+				possibleActions[cantripID] = true
+			}
 		}
-	}
-	for _, spellID := range g.Player.KnownSpells {
-		if _, exists := ActionTable[spellID]; exists {
-			possibleActions[spellID] = true
+		for _, spellID := range g.Player.KnownSpells {
+			if _, exists := ActionTable[spellID]; exists {
+				possibleActions[spellID] = true
+			}
 		}
+	} else if g.Player.Class == "Fighter" {
+		possibleActions["melee_attack"] = true
+		possibleActions["ranged_attack"] = true
+		possibleActions["dash"] = true
+		possibleActions["disengage"] = true
 	}
 
-	classDef, exists := ClassDefinitions[g.Player.Class]
-	if exists {
+	if classDefExists && classDef != nil { // Use classDefExists
 		for actionID, classAction := range classDef.ClassActions {
 			if g.Player.Level >= classAction.RequiredLevel {
 				if _, actionDefExists := ActionTable[actionID]; actionDefExists {
@@ -678,9 +792,12 @@ func (g *Game) buildAvailableActions() {
 
 	tempAvailableActions := []*ActionDefinition{}
 	for id := range possibleActions {
-		actionDef := ActionTable[id]
+		actionDef, actionExists := ActionTable[id]
+		if !actionExists {
+			continue
+		}
 
-		if actionDef.Execute == nil && actionDef.ID != "wait" {
+		if actionDef.Execute == nil && actionDef.ID != "wait" && actionDef.ID != "accept_defeat" {
 			continue
 		}
 
@@ -698,6 +815,7 @@ func (g *Game) buildAvailableActions() {
 		case ActionTypeReaction:
 			isAvailable = false
 		case ActionTypeFree:
+			// Free actions are generally always available if other conditions met
 		}
 		if !isAvailable {
 			continue
@@ -708,12 +826,17 @@ func (g *Game) buildAvailableActions() {
 				isAvailable = false
 			}
 		} else if actionDef.ResourceType == ResourceClassFeature {
-			if classDef != nil {
+			if classDefExists && classDef != nil { // Use classDefExists again
 				if classAction, ok := classDef.ClassActions[id]; ok {
 					if classAction.UsesPerRest > 0 {
-						if _, resOk := g.Player.ClassResources[id]; !resOk {
+						currentUses := 0
+						if val, resOk := g.Player.ClassResources[id]; resOk {
+							currentUses = val
+						} else {
+							// Resource not initialized, assume unavailable or handle initialization elsewhere
 							isAvailable = false
-						} else if g.Player.ClassResources[id] < classAction.ResourceCost {
+						}
+						if currentUses < classAction.ResourceCost {
 							isAvailable = false
 						}
 					}
@@ -724,17 +847,30 @@ func (g *Game) buildAvailableActions() {
 		if !isAvailable {
 			continue
 		}
+
+		// Specific action availability checks
 		if actionDef.ID == "disengage" && !isPlayerAdjacentToEnemy(g) {
 			isAvailable = false
 		}
+
 		if isAvailable {
 			tempAvailableActions = append(tempAvailableActions, actionDef)
 		}
 	}
 
-	quitActionDef, exists := ActionTable["accept_defeat"]
-	if exists {
-		tempAvailableActions = append(tempAvailableActions, quitActionDef)
+	// Ensure quit action is always presented if defined
+	quitActionDef, quitExists := ActionTable["accept_defeat"]
+	if quitExists {
+		foundQuit := false
+		for _, existingAction := range tempAvailableActions {
+			if existingAction.ID == "accept_defeat" {
+				foundQuit = true
+				break
+			}
+		}
+		if !foundQuit {
+			tempAvailableActions = append(tempAvailableActions, quitActionDef)
+		}
 	} else {
 		log.Println("Warning: Quit action 'accept_defeat' not found in ActionTable")
 	}
@@ -743,14 +879,13 @@ func (g *Game) buildAvailableActions() {
 		if tempAvailableActions[i].ActionType != tempAvailableActions[j].ActionType {
 			return tempAvailableActions[i].ActionType < tempAvailableActions[j].ActionType
 		}
-
+		// Keep quit action at the end
 		if tempAvailableActions[i].ID == "accept_defeat" {
 			return false
 		}
 		if tempAvailableActions[j].ID == "accept_defeat" {
 			return true
 		}
-
 		return tempAvailableActions[i].Name < tempAvailableActions[j].Name
 	})
 
@@ -820,6 +955,7 @@ func (g *Game) HandleIntent(intent Intent) {
 		targetX, txOk := intent.Data["X"].(int)
 		targetY, tyOk := intent.Data["Y"].(int)
 		if !txOk || !tyOk {
+			log.Println("Error: IntentMove data missing X or Y")
 			return
 		}
 
@@ -847,12 +983,24 @@ func (g *Game) HandleIntent(intent Intent) {
 		targetX, txOk := intent.Data["X"].(int)
 		targetY, tyOk := intent.Data["Y"].(int)
 		actionID, idOk := intent.Data["ActionID"].(string)
-		if !txOk || !tyOk || !idOk {
+
+		if !idOk {
+			log.Println("Error: IntentAction data missing ActionID")
 			return
 		}
 
 		actionDef, exists := ActionTable[actionID]
 		if exists {
+			if !txOk || !tyOk {
+				if actionDef.RequiresTarget {
+					log.Printf("Error: IntentAction for targeted action '%s' missing X or Y", actionID)
+					g.primedActionID = ""
+					g.Player.Path = make([]image.Point, 0)
+					return
+				}
+				targetX = -1
+				targetY = -1
+			}
 			g.executeAction(actionDef, targetX, targetY)
 		} else {
 			g.addCombatLog(fmt.Sprintf("Error: Unknown action ID '%s' in intent.", actionID))
@@ -865,17 +1013,24 @@ func (g *Game) HandleIntent(intent Intent) {
 			g.endPlayerTurn()
 		}
 	case IntentCancelAction:
-		actionID, _ := intent.Data["ActionID"].(string)
-		if g.primedActionID == actionID {
-			g.primedActionID = ""
-			actionName := actionID
-			if actionDef, exists := ActionTable[actionID]; exists {
-				actionName = actionDef.Name
+		actionID, idOk := intent.Data["ActionID"].(string)
+		if !idOk {
+			actionID = ""
+		}
+
+		if g.primedActionID == actionID || (actionID == "" && g.primedActionID != "") {
+			if g.primedActionID != "" {
+				actionName := g.primedActionID
+				if actionDef, exists := ActionTable[g.primedActionID]; exists {
+					actionName = actionDef.Name
+				}
+				g.addCombatLog(fmt.Sprintf("Targeting for %s cancelled.", actionName))
+				g.primedActionID = ""
 			}
-			g.addCombatLog(fmt.Sprintf("Targeting for %s cancelled.", actionName))
+			g.Player.Path = make([]image.Point, 0)
 		}
 	case IntentUIClick:
-		g.addCombatLog("Intent: UI Click (Not fully implemented)")
+		log.Println("Intent: UI Click (Not fully handled)")
 
 	}
 }
@@ -958,11 +1113,12 @@ func (g *Game) Update() error {
 }
 
 func (g *Game) UpdatePlaying() {
+
 	g.handlePlayerInput()
 
 	intentsToProcess := g.IntentQueue
 	g.IntentQueue = make([]Intent, 0)
-	if g.CurrentTurn == PlayerTurn && !g.reactionPending {
+	if (g.CurrentTurn == PlayerTurn || g.CurrentTurn == EnemyTurn) && !g.reactionPending {
 		for _, intent := range intentsToProcess {
 			g.HandleIntent(intent)
 		}
@@ -972,6 +1128,7 @@ func (g *Game) UpdatePlaying() {
 		g.InputMode = InputModeReactionPrompt
 	}
 	if g.reactionPending {
+
 		return
 	}
 
@@ -984,6 +1141,7 @@ func (g *Game) UpdatePlaying() {
 	}
 
 	if g.InputMode == InputModeLevelUp || g.InputMode == InputModeRestPrompt || g.InputMode == InputModeCharacterSheet {
+
 		return
 	}
 
@@ -1000,8 +1158,21 @@ func (g *Game) UpdatePlaying() {
 							continue
 						}
 						wasAdj := isAdjacentToEntity(prevX, prevY, &enemy.Entity)
-						isStillAdj := isAdjacentToEntity(nextStep.X, nextStep.Y, &enemy.Entity)
-						if wasAdj && !isStillAdj {
+
+						isStillAdjAfterStep := false
+						for w := 0; w < g.Player.Width; w++ {
+							for h := 0; h < g.Player.Height; h++ {
+								if isAdjacentToEntity(nextStep.X+w, nextStep.Y+h, &enemy.Entity) {
+									isStillAdjAfterStep = true
+									break
+								}
+							}
+							if isStillAdjAfterStep {
+								break
+							}
+						}
+
+						if wasAdj && !isStillAdjAfterStep {
 							enemiesTriggeringAoO = append(enemiesTriggeringAoO, enemy)
 						}
 					}
@@ -1118,8 +1289,21 @@ func (g *Game) completePendingPlayerMove() {
 				continue
 			}
 			wasAdj := isAdjacentToEntity(startX, startY, &enemy.Entity)
-			isStillAdj := isAdjacentToEntity(targetX, targetY, &enemy.Entity)
-			if wasAdj && !isStillAdj {
+
+			isStillAdjAfterStep := false
+			for w := 0; w < g.Player.Width; w++ {
+				for h := 0; h < g.Player.Height; h++ {
+					if isAdjacentToEntity(targetX+w, targetY+h, &enemy.Entity) {
+						isStillAdjAfterStep = true
+						break
+					}
+				}
+				if isStillAdjAfterStep {
+					break
+				}
+			}
+
+			if wasAdj && !isStillAdjAfterStep {
 				if g.Player.HP > 0 && !g.Player.IsDying {
 					g.addCombatLog(fmt.Sprintf("%s makes an Opportunity Attack! (Completing move)", enemy.Name))
 					killedByAoO, _ := g.resolveAttack(&enemy.Entity, &g.Player.Entity, 0, "melee")

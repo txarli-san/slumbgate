@@ -20,6 +20,10 @@ const (
 	maxLevel            = 20
 	attackBumpDuration  = 10
 	deathFadeDuration   = 30
+
+	uiPanelHeight = 50
+	uiButtonSize  = 40
+	uiButtonPad   = 5
 )
 
 const (
@@ -31,11 +35,13 @@ const (
 )
 
 var (
-	colorYellow = color.NRGBA{R: 255, G: 255, B: 0, A: 255}
-	colorWhite  = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
-	colorBlack  = color.NRGBA{R: 0, G: 0, B: 0, A: 255}
-	colorGray   = color.NRGBA{R: 180, G: 180, B: 180, A: 255}
-	colorLocked = color.NRGBA{R: 100, G: 100, B: 100, A: 255}
+	colorYellow      = color.NRGBA{R: 255, G: 255, B: 0, A: 255}
+	colorWhite       = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+	colorBlack       = color.NRGBA{R: 0, G: 0, B: 0, A: 255}
+	colorGray        = color.NRGBA{R: 180, G: 180, B: 180, A: 255}
+	colorLocked      = color.NRGBA{R: 100, G: 100, B: 100, A: 255}
+	colorUIPanel     = color.NRGBA{R: 30, G: 30, B: 40, A: 240}
+	colorButtonHover = color.NRGBA{R: 80, G: 80, B: 100, A: 255}
 )
 
 var visualEffectColors = map[string]color.NRGBA{
@@ -70,7 +76,7 @@ type InputMode int
 
 const (
 	InputModeMap InputMode = iota
-	InputModeActionSelect
+
 	InputModeCharacterSheet
 	InputModeRestPrompt
 	InputModeLevelUp

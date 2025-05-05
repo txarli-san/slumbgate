@@ -109,6 +109,14 @@ type Intent struct {
 	Data map[string]any
 }
 
+type UIButton struct {
+	ID      string
+	Rect    image.Rectangle
+	Icon    *ebiten.Image
+	OnClick func(g *Game)
+	Tooltip string
+}
+
 type Game struct {
 	Player                    *Player
 	Enemies                   []*Enemy
@@ -145,6 +153,7 @@ type Game struct {
 	pendingMoveTargetX        int
 	pendingMoveTargetY        int
 	IntentQueue               []Intent
+	ActionButtons             []UIButton
 }
 
 type ActionExecuteFunc func(g *Game, targetX, targetY int) bool

@@ -120,6 +120,20 @@ func (g *Game) DrawPlaying(screen *ebiten.Image) {
 			}
 		}
 	}
+
+	if len(g.Player.Path) > 0 {
+		pathColor := color.NRGBA{R: 100, G: 100, B: 255, A: 100}
+		for i, pt := range g.Player.Path {
+			screenX := float32(mapOffsetX + pt.X*tileSize)
+			screenY := float32(mapOffsetY + pt.Y*tileSize)
+			if i == len(g.Player.Path)-1 {
+				vector.StrokeRect(screen, screenX, screenY, float32(tileSize), float32(tileSize), 2, pathColor, false)
+			} else {
+				vector.DrawFilledRect(screen, screenX+float32(tileSize/4), screenY+float32(tileSize/4), float32(tileSize/2), float32(tileSize/2), pathColor, false)
+			}
+		}
+	}
+
 	if g.CurrentTurn == PlayerTurn && g.InputMode == InputModeMap {
 		cursorX, cursorY := ebiten.CursorPosition()
 		gridX := (cursorX - g.MapOffsetX) / tileSize
@@ -128,29 +142,74 @@ func (g *Game) DrawPlaying(screen *ebiten.Image) {
 			hoverScreenX := float32(mapOffsetX + gridX*tileSize)
 			hoverScreenY := float32(mapOffsetY + gridY*tileSize)
 			hoverColor := color.NRGBA{R: 255, G: 255, B: 255, A: 100}
+
+			if g.primedActionID != "" {
+				hoverColor = color.NRGBA{R: 255, G: 100, B: 100, A: 100}
+			} else if len(g.Player.Path) == 0 {
+				// Only show walk hover if no path is set
+				if !g.isTileFullyBlocked(gridX, gridY, 1, 1, -1) {
+					hoverColor = color.NRGBA{R: 100, G: 255, B: 100, A: 100}
+				} else {
+					hoverColor = color.NRGBA{R: 200, G: 50, B: 50, A: 100} // Blocked tile hover
+				}
+			} else {
+				// Hovering while path active, maybe different color or no hover?
+				// For now, don't show grid hover if path is active
+				hoverColor = color.NRGBA{A: 0} // Transparent
+			}
+
 			vector.StrokeRect(screen, hoverScreenX, hoverScreenY, float32(tileSize), float32(tileSize), 1, hoverColor, false)
 		}
 	}
 	if g.CurrentTurn == PlayerTurn && g.primedActionID != "" && g.RangeOverlayTile != nil {
 		actionDef, exists := ActionTable[g.primedActionID]
-		if exists && actionDef.RequiresTarget && actionDef.Range > 0 && g.Player != nil {
+		if exists && actionDef.RequiresTarget && actionDef.Range >= 0 && g.Player != nil { // Allow range 0 for self-target checks
 			overlayOpts := &ebiten.DrawImageOptions{}
 			originX, originY := g.Player.X, g.Player.Y
 			for x := 0; x < mapWidth; x++ {
 				for y := 0; y < mapHeight; y++ {
 					dist := distance(originX, originY, x, y)
 					isInRange := false
-					if actionDef.Targeting == TargetEmptyTile {
-						isInRange = dist > 0 && dist <= actionDef.Range && !g.isTileFullyBlocked(x, y, 1, 1, -1)
-					} else {
+					if actionDef.Range == 0 && actionDef.Targeting == TargetSelf {
+						// Skip range overlay for self-only spells
+						continue
+					} else if actionDef.Targeting == TargetEmptyTile {
 						isInRange = dist > 0 && dist <= actionDef.Range
+					} else {
+						isInRange = dist <= actionDef.Range // Allow distance 0 for adjacent/self if range > 0
 					}
+
 					if isInRange {
-						screenX := float64(mapOffsetX + x*tileSize)
-						screenY := float64(mapOffsetY + y*tileSize)
-						overlayOpts.GeoM.Reset()
-						overlayOpts.GeoM.Translate(screenX, screenY)
-						screen.DrawImage(g.RangeOverlayTile, overlayOpts)
+						isTargetValid := false
+						switch actionDef.Targeting {
+						case TargetSelf:
+							isTargetValid = (x == originX && y == originY)
+						case TargetEnemyAdjacent:
+							enemy := g.getEnemyAt(x, y)
+							if enemy != nil && isAdjacentToEntity(originX, originY, &enemy.Entity) {
+								isTargetValid = true
+							}
+						case TargetEnemyRange:
+							enemy := g.getEnemyAt(x, y)
+							if enemy != nil {
+								isTargetValid = true
+							}
+						case TargetEmptyTile:
+							if !g.isTileFullyBlocked(x, y, 1, 1, -1) {
+								isTargetValid = true
+							}
+						default:
+							// Assume valid if in range for unspecified targeting
+							isTargetValid = true
+						}
+
+						if isTargetValid {
+							screenX := float64(mapOffsetX + x*tileSize)
+							screenY := float64(mapOffsetY + y*tileSize)
+							overlayOpts.GeoM.Reset()
+							overlayOpts.GeoM.Translate(screenX, screenY)
+							screen.DrawImage(g.RangeOverlayTile, overlayOpts)
+						}
 					}
 				}
 			}
@@ -175,7 +234,14 @@ func (g *Game) DrawPlaying(screen *ebiten.Image) {
 	entityOpts := &ebiten.DrawImageOptions{}
 	for _, entity := range entitiesToDraw {
 		if entity.Sprite == nil {
-			continue
+
+			tempSprite := ebiten.NewImage(spriteSize*entity.Width, spriteSize*entity.Height)
+			if entity == &g.Player.Entity {
+				tempSprite.Fill(color.NRGBA{B: 200, A: 255})
+			} else {
+				tempSprite.Fill(color.NRGBA{R: 200, A: 255})
+			}
+			entity.Sprite = tempSprite
 		}
 		entityScreenX := float64(mapOffsetX + entity.X*tileSize)
 		entityScreenY := float64(mapOffsetY + entity.Y*tileSize)
@@ -186,9 +252,11 @@ func (g *Game) DrawPlaying(screen *ebiten.Image) {
 			entityScreenX += bumpOffsetX
 		}
 		entityOpts.GeoM.Reset()
-		if entity.Width > 1 || entity.Height > 1 {
-			entityOpts.GeoM.Scale(float64(entity.Width), float64(entity.Height))
-		}
+
+		scaleX := float64(entity.Width)
+		scaleY := float64(entity.Height)
+		entityOpts.GeoM.Scale(scaleX, scaleY)
+
 		entityOpts.GeoM.Translate(entityScreenX, entityScreenY)
 		entityOpts.ColorM.Reset()
 		if entity.CurrentAlpha < 1.0 {
@@ -291,44 +359,9 @@ func (g *Game) DrawPlaying(screen *ebiten.Image) {
 			ebitenutil.DebugPrintAt(screen, "Status: "+statusText, 10, uiStartY+uiLineHeight*8)
 		}
 	}
-	if g.InputMode == InputModeActionSelect {
-		menuW, menuH := screenWidth/2, screenHeight/2+20
-		menuX, menuY := (screenWidth-menuW)/2, (screenHeight-menuH)/2
-		vector.DrawFilledRect(screen, float32(menuX), float32(menuY), float32(menuW), float32(menuH), color.NRGBA{R: 20, G: 20, B: 30, A: 220}, false)
-		vector.StrokeRect(screen, float32(menuX), float32(menuY), float32(menuW), float32(menuH), 2, colorWhite, false)
-		title := "Select Action ([Tab] / [Esc] to Cancel)"
-		titleX, titleY := menuX+10, menuY+15
-		text.Draw(screen, title, basicfont.Face7x13, titleX, titleY, colorWhite)
-		itemStartY, itemLineHeight := titleY+25, 18
-		for i, actionDef := range g.availableActions {
-			actionText := actionDef.Name
-			resourceText := ""
-			if actionDef.ResourceType == ResourceSpellSlotL1 {
-				resourceText = fmt.Sprintf(" (Cost: %d L1 Slot)", actionDef.ResourceCost)
-			} else if actionDef.ResourceType == ResourceClassFeature {
-				classDef := ClassDefinitions[g.Player.Class]
-				if classDef != nil {
-					if classAction, ok := classDef.ClassActions[actionDef.ID]; ok {
-						if classAction.UsesPerRest > 0 {
-							uses := 0
-							if val, resOk := g.Player.ClassResources[actionDef.ID]; resOk {
-								uses = val
-							}
-							resourceText = fmt.Sprintf(" (%d/%d)", uses, classAction.UsesPerRest)
-						}
-					}
-				}
-			}
-			actionText += resourceText
-			var itemColor color.Color = colorGray
-			if i == g.selectedActionIndex {
-				actionText = "> " + actionText
-				itemColor = colorWhite
-			}
-			itemX, itemY := menuX+15, itemStartY+(i*itemLineHeight)
-			text.Draw(screen, actionText, basicfont.Face7x13, itemX, itemY, itemColor)
-		}
-	}
+
+	g.DrawUIBar(screen)
+
 	if g.InputMode == InputModeCharacterSheet && g.Player != nil {
 		menuW, menuH := screenWidth/2+40, screenHeight/2+60
 		menuX, menuY := (screenWidth-menuW)/2, (screenHeight-menuH)/2
@@ -462,7 +495,7 @@ func (g *Game) DrawPlaying(screen *ebiten.Image) {
 	}
 
 	logLineHeight := 13
-	logStartY := screenHeight - (combatLogLength * logLineHeight) - 10
+	logStartY := screenHeight - uiPanelHeight - (combatLogLength * logLineHeight) - 10
 	logX := 10
 	if g.CombatLog != nil {
 		for i, msg := range g.CombatLog {
@@ -598,6 +631,71 @@ func (g *Game) DrawPlaying(screen *ebiten.Image) {
 		promptX := menuX + (menuW-promptBounds.Dx())/2
 		promptY := menuY + (menuH-promptBounds.Dy())/2
 		text.Draw(screen, promptText, basicfont.Face7x13, promptX, promptY, colorYellow)
+	}
+}
+
+func (g *Game) DrawUIBar(screen *ebiten.Image) {
+	panelY := float32(screenHeight - uiPanelHeight)
+	vector.DrawFilledRect(screen, 0, panelY, float32(screenWidth), float32(uiPanelHeight), colorUIPanel, false)
+
+	cursorX, cursorY := ebiten.CursorPosition()
+	cursorPoint := image.Point{X: cursorX, Y: cursorY}
+	tooltipText := ""
+
+	for _, btn := range g.ActionButtons {
+		btnColor := colorGray
+		if cursorPoint.In(btn.Rect) {
+			btnColor = colorButtonHover
+			tooltipText = btn.Tooltip
+		}
+
+		actionDef, primedExists := ActionTable[g.primedActionID]
+		if g.primedActionID != "" && btn.ID == g.primedActionID {
+			btnColor = colorYellow
+		} else if g.primedActionID != "" && primedExists && !actionDef.RequiresTarget && btn.ID == g.primedActionID {
+			// Indicate non-targeted primed actions differently? Or just yellow?
+			btnColor = colorYellow
+		}
+
+		vector.DrawFilledRect(screen, float32(btn.Rect.Min.X), float32(btn.Rect.Min.Y), float32(uiButtonSize), float32(uiButtonSize), btnColor, false)
+		vector.StrokeRect(screen, float32(btn.Rect.Min.X), float32(btn.Rect.Min.Y), float32(uiButtonSize), float32(uiButtonSize), 1, colorWhite, false)
+
+		label := btn.ID
+		if len(label) > 6 {
+			label = label[:6]
+		}
+		labelBounds := text.BoundString(basicfont.Face7x13, label)
+		labelX := btn.Rect.Min.X + (uiButtonSize-labelBounds.Dx())/2
+		labelY := btn.Rect.Min.Y + (uiButtonSize-labelBounds.Dy())/2 + labelBounds.Dy() // Center text
+		text.Draw(screen, label, basicfont.Face7x13, labelX, labelY, colorBlack)
+
+		if btn.Icon != nil {
+			op := &ebiten.DrawImageOptions{}
+			op.GeoM.Translate(float64(btn.Rect.Min.X+(uiButtonSize-spriteSize)/2), float64(btn.Rect.Min.Y+(uiButtonSize-spriteSize)/2))
+			screen.DrawImage(btn.Icon, op)
+		}
+
+	}
+
+	if tooltipText != "" {
+		tooltipBounds := text.BoundString(basicfont.Face7x13, tooltipText)
+		tooltipX := cursorX + 10
+		tooltipY := cursorY - tooltipBounds.Dy() - 10 // Position above cursor
+
+		if tooltipY < 0 { // If tooltip goes off screen top, position below cursor
+			tooltipY = cursorY + 15
+		}
+		if tooltipX+tooltipBounds.Dx()+4 > screenWidth { // If tooltip goes off screen right, position left of cursor
+			tooltipX = cursorX - tooltipBounds.Dx() - 10
+		}
+
+		bgX := float32(tooltipX - 2)
+		bgY := float32(tooltipY - 2)
+		bgW := float32(tooltipBounds.Dx() + 4)
+		bgH := float32(tooltipBounds.Dy() + 4)
+
+		vector.DrawFilledRect(screen, bgX, bgY, bgW, bgH, colorBlack, false)
+		text.Draw(screen, tooltipText, basicfont.Face7x13, tooltipX, tooltipY, colorWhite)
 	}
 }
 

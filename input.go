@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"image"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
@@ -196,57 +197,67 @@ func (g *Game) handlePlayerInput() {
 		}
 		return
 
-	case InputModeActionSelect:
-
-		return
-
 	case InputModeMap:
+		cursorX, cursorY := ebiten.CursorPosition()
+		cursorPoint := image.Point{X: cursorX, Y: cursorY}
 
 		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-			cursorX, cursorY := ebiten.CursorPosition()
-			gridX := (cursorX - g.MapOffsetX) / tileSize
-			gridY := (cursorY - g.MapOffsetY) / tileSize
-
-			if gridX >= 0 && gridX < mapWidth && gridY >= 0 && gridY < mapHeight {
-				intentData := map[string]any{
-					"X": gridX,
-					"Y": gridY,
-				}
-				if g.primedActionID != "" {
-					actionDef, exists := ActionTable[g.primedActionID]
-					if exists {
-						canUseAction := false
-						switch actionDef.ActionType {
-						case ActionTypeStandard:
-							canUseAction = !g.Player.ActionTaken
-						case ActionTypeBonus:
-							canUseAction = !g.Player.BonusActionTaken
-						case ActionTypeFree, ActionTypeReaction:
-							canUseAction = true
+			clickedButton := false
+			uiBottom := screenHeight - uiPanelHeight
+			if cursorY >= uiBottom {
+				for _, btn := range g.ActionButtons {
+					if cursorPoint.In(btn.Rect) {
+						if btn.OnClick != nil {
+							btn.OnClick(g)
 						}
+						clickedButton = true
+						break
+					}
+				}
+			}
 
-						if !canUseAction {
-							g.addCombatLog(fmt.Sprintf("Cannot target for %s: %s already used.", actionDef.Name, actionDef.ActionType.String()))
-							g.primedActionID = ""
+			if !clickedButton {
+				gridX := (cursorX - g.MapOffsetX) / tileSize
+				gridY := (cursorY - g.MapOffsetY) / tileSize
+
+				if gridX >= 0 && gridX < mapWidth && gridY >= 0 && gridY < mapHeight {
+					intentData := map[string]any{
+						"X": gridX,
+						"Y": gridY,
+					}
+					if g.primedActionID != "" {
+						actionDef, exists := ActionTable[g.primedActionID]
+						if exists {
+							canUseAction := false
+							switch actionDef.ActionType {
+							case ActionTypeStandard:
+								canUseAction = !g.Player.ActionTaken
+							case ActionTypeBonus:
+								canUseAction = !g.Player.BonusActionTaken
+							case ActionTypeFree, ActionTypeReaction:
+								canUseAction = true
+							}
+
+							if !canUseAction {
+								g.addCombatLog(fmt.Sprintf("Cannot target for %s: %s already used.", actionDef.Name, actionDef.ActionType.String()))
+								g.primedActionID = ""
+							} else {
+								intentData["ActionID"] = g.primedActionID
+								g.IntentQueue = append(g.IntentQueue, Intent{Type: IntentAction, Data: intentData})
+							}
 						} else {
-							intentData["ActionID"] = g.primedActionID
-							g.IntentQueue = append(g.IntentQueue, Intent{Type: IntentAction, Data: intentData})
-
+							g.addCombatLog(fmt.Sprintf("Error: Unknown primed action ID '%s'. Cancelling.", g.primedActionID))
+							g.primedActionID = ""
 						}
 					} else {
-						g.addCombatLog(fmt.Sprintf("Error: Unknown primed action ID '%s'. Cancelling.", g.primedActionID))
-						g.primedActionID = ""
+						g.IntentQueue = append(g.IntentQueue, Intent{Type: IntentMove, Data: intentData})
 					}
-				} else {
-					g.IntentQueue = append(g.IntentQueue, Intent{Type: IntentMove, Data: intentData})
 				}
-			} else {
 			}
 		} else if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonRight) || inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
-			if g.primedActionID != "" {
-				intentData := map[string]any{"ActionID": g.primedActionID}
-				g.IntentQueue = append(g.IntentQueue, Intent{Type: IntentCancelAction, Data: intentData})
-			}
+			intentData := map[string]any{"ActionID": g.primedActionID}
+			g.IntentQueue = append(g.IntentQueue, Intent{Type: IntentCancelAction, Data: intentData})
+
 		}
 
 	}
