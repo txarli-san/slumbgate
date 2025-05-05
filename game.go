@@ -53,6 +53,7 @@ func (g *Game) InitGame(playerClassName string) {
 	g.CurrentWaveIndex = -1
 	g.FloatingTexts = make([]*FloatingText, 0)
 	g.isVictory = false
+	g.IntentQueue = make([]Intent, 0)
 
 	g.currentEnemyTurn = EnemyTurnContext{Index: -1, Phase: PhaseEnemyDone}
 	g.enemiesActedThisTurn = make([]bool, 0)
@@ -167,6 +168,7 @@ func (g *Game) InitGame(playerClassName string) {
 		CombatStyle:        "",
 		CombatTechnique:    "",
 		NextElementType:    "Fire",
+		Path:               make([]image.Point, 0),
 	}
 
 	g.initializePlayerResources()
@@ -809,6 +811,75 @@ func (g *Game) cleanupDeadEnemies() {
 	}
 }
 
+func (g *Game) HandleIntent(intent Intent) {
+	switch intent.Type {
+	case IntentMove:
+		if g.CurrentTurn != PlayerTurn || g.Player == nil {
+			return
+		}
+		targetX, txOk := intent.Data["X"].(int)
+		targetY, tyOk := intent.Data["Y"].(int)
+		if !txOk || !tyOk {
+			return
+		}
+
+		g.primedActionID = ""
+
+		if g.isTileFullyBlocked(targetX, targetY, g.Player.Width, g.Player.Height, -1) {
+			g.addCombatLog("Cannot move: Tile blocked.")
+			g.Player.Path = make([]image.Point, 0)
+			return
+		}
+
+		path, found := g.FindPath(g.Player.X, g.Player.Y, targetX, targetY, g.Player.Width, g.Player.Height)
+		if found {
+			g.Player.Path = path
+			g.addCombatLog(fmt.Sprintf("Path found to (%d, %d).", targetX, targetY))
+		} else {
+			g.addCombatLog(fmt.Sprintf("Cannot find path to (%d, %d).", targetX, targetY))
+			g.Player.Path = make([]image.Point, 0)
+		}
+
+	case IntentAction:
+		if g.CurrentTurn != PlayerTurn || g.Player == nil {
+			return
+		}
+		targetX, txOk := intent.Data["X"].(int)
+		targetY, tyOk := intent.Data["Y"].(int)
+		actionID, idOk := intent.Data["ActionID"].(string)
+		if !txOk || !tyOk || !idOk {
+			return
+		}
+
+		actionDef, exists := ActionTable[actionID]
+		if exists {
+			g.executeAction(actionDef, targetX, targetY)
+		} else {
+			g.addCombatLog(fmt.Sprintf("Error: Unknown action ID '%s' in intent.", actionID))
+		}
+		g.primedActionID = ""
+		g.Player.Path = make([]image.Point, 0)
+
+	case IntentEndTurn:
+		if g.CurrentTurn == PlayerTurn {
+			g.endPlayerTurn()
+		}
+	case IntentCancelAction:
+		actionID, _ := intent.Data["ActionID"].(string)
+		if g.primedActionID == actionID {
+			g.primedActionID = ""
+			actionName := actionID
+			if actionDef, exists := ActionTable[actionID]; exists {
+				actionName = actionDef.Name
+			}
+			g.addCombatLog(fmt.Sprintf("Targeting for %s cancelled.", actionName))
+		}
+	case IntentUIClick:
+		g.addCombatLog("Intent: UI Click (Not fully implemented)")
+
+	}
+}
+
 func (g *Game) Update() error {
 	if g.PendingQuit {
 		return ebiten.Termination
@@ -887,11 +958,20 @@ func (g *Game) Update() error {
 }
 
 func (g *Game) UpdatePlaying() {
+	g.handlePlayerInput()
+
+	intentsToProcess := g.IntentQueue
+	g.IntentQueue = make([]Intent, 0)
+	if g.CurrentTurn == PlayerTurn && !g.reactionPending {
+		for _, intent := range intentsToProcess {
+			g.HandleIntent(intent)
+		}
+	}
+
 	if g.reactionPending && g.InputMode != InputModeReactionPrompt {
 		g.InputMode = InputModeReactionPrompt
 	}
 	if g.reactionPending {
-		g.handlePlayerInput()
 		return
 	}
 
@@ -904,16 +984,66 @@ func (g *Game) UpdatePlaying() {
 	}
 
 	if g.InputMode == InputModeLevelUp || g.InputMode == InputModeRestPrompt || g.InputMode == InputModeCharacterSheet {
-		g.handlePlayerInput()
 		return
 	}
-	if g.InputMode == InputModeActionSelect {
-		g.handlePlayerInput()
-	}
 
-	if g.CurrentTurn == PlayerTurn {
-		if g.InputMode == InputModeMap {
-			g.handlePlayerInput()
+	if g.CurrentTurn == PlayerTurn && g.Player != nil && !g.Player.IsDying {
+		if len(g.Player.Path) > 0 {
+			if g.Player.MovementPoints > 0 {
+				nextStep := g.Player.Path[0]
+				prevX, prevY := g.Player.X, g.Player.Y
+
+				enemiesTriggeringAoO := []*Enemy{}
+				if !g.Player.IsDisengaging {
+					for _, enemy := range g.Enemies {
+						if enemy.IsDying || enemy.HP <= 0 || HasCondition(&enemy.Entity, ConditionNoReactions) {
+							continue
+						}
+						wasAdj := isAdjacentToEntity(prevX, prevY, &enemy.Entity)
+						isStillAdj := isAdjacentToEntity(nextStep.X, nextStep.Y, &enemy.Entity)
+						if wasAdj && !isStillAdj {
+							enemiesTriggeringAoO = append(enemiesTriggeringAoO, enemy)
+						}
+					}
+				}
+
+				moveInterrupted := false
+				if len(enemiesTriggeringAoO) > 0 {
+					for _, enemy := range enemiesTriggeringAoO {
+						g.addCombatLog(fmt.Sprintf("%s makes an Opportunity Attack!", enemy.Name))
+						killedByAoO, _ := g.resolveAttack(&enemy.Entity, &g.Player.Entity, 0, "melee")
+
+						if g.reactionPending {
+							g.playerMovePending = true
+							g.pendingMoveStartX = prevX
+							g.pendingMoveStartY = prevY
+							g.pendingMoveTargetX = nextStep.X
+							g.pendingMoveTargetY = nextStep.Y
+							moveInterrupted = true
+							break
+						}
+						if killedByAoO {
+							moveInterrupted = true
+							g.Player.Path = make([]image.Point, 0)
+							break
+						}
+					}
+				}
+
+				if !moveInterrupted && g.Player.HP > 0 && !g.Player.IsDying {
+					g.Player.X = nextStep.X
+					g.Player.Y = nextStep.Y
+					g.Player.MovementPoints--
+					g.Player.Path = g.Player.Path[1:]
+					if len(g.Player.Path) == 0 {
+						g.addCombatLog("Movement path complete.")
+					}
+				}
+
+			} else {
+				g.addCombatLog("Movement stopped: Out of points.")
+				g.Player.Path = make([]image.Point, 0)
+			}
 		}
 	}
 
@@ -973,7 +1103,7 @@ func (g *Game) completePendingPlayerMove() {
 
 	if g.isTileFullyBlocked(targetX, targetY, g.Player.Width, g.Player.Height, -1) {
 		g.addCombatLog("Cannot complete pending move: Target tile now blocked.")
-
+		g.Player.Path = make([]image.Point, 0)
 		g.playerMovePending = false
 		return
 	}
@@ -997,6 +1127,7 @@ func (g *Game) completePendingPlayerMove() {
 					if killedByAoO {
 
 						g.playerMovePending = false
+						g.Player.Path = make([]image.Point, 0)
 						return
 					}
 				}
@@ -1009,6 +1140,13 @@ func (g *Game) completePendingPlayerMove() {
 		g.Player.Y = targetY
 		g.Player.MovementPoints--
 		g.addCombatLog("Completed delayed movement.")
+
+		if len(g.Player.Path) > 0 && g.Player.Path[0].X == targetX && g.Player.Path[0].Y == targetY {
+			g.Player.Path = g.Player.Path[1:]
+		}
+		if len(g.Player.Path) == 0 {
+			g.addCombatLog("Movement path complete.")
+		}
 	}
 
 	g.playerMovePending = false

@@ -1,10 +1,142 @@
 package main
 
 import (
+	"container/heap"
 	"fmt"
 	"image"
 	"math"
 )
+
+type aStarNode struct {
+	pos    image.Point
+	parent *aStarNode
+	g, h   int
+	f      int
+	index  int
+}
+
+type priorityQueue []*aStarNode
+
+func (pq priorityQueue) Len() int { return len(pq) }
+
+func (pq priorityQueue) Less(i, j int) bool {
+	return pq[i].f < pq[j].f
+}
+
+func (pq priorityQueue) Swap(i, j int) {
+	pq[i], pq[j] = pq[j], pq[i]
+	pq[i].index = i
+	pq[j].index = j
+}
+
+func (pq *priorityQueue) Push(x interface{}) {
+	n := len(*pq)
+	node := x.(*aStarNode)
+	node.index = n
+	*pq = append(*pq, node)
+}
+
+func (pq *priorityQueue) Pop() interface{} {
+	old := *pq
+	n := len(old)
+	node := old[n-1]
+	old[n-1] = nil
+	node.index = -1
+	*pq = old[0 : n-1]
+	return node
+}
+
+func (g *Game) FindPath(startX, startY, endX, endY int, entityWidth, entityHeight int) ([]image.Point, bool) {
+	startPoint := image.Point{X: startX, Y: startY}
+	endPoint := image.Point{X: endX, Y: endY}
+
+	openSet := make(priorityQueue, 0)
+	heap.Init(&openSet)
+	closedSet := make(map[image.Point]bool)
+	nodeMap := make(map[image.Point]*aStarNode)
+
+	startNode := &aStarNode{pos: startPoint, g: 0, h: distance(startX, startY, endX, endY)}
+	startNode.f = startNode.g + startNode.h
+	nodeMap[startPoint] = startNode
+	heap.Push(&openSet, startNode)
+
+	moveOffsets := []image.Point{{X: 0, Y: -1}, {X: 0, Y: 1}, {X: -1, Y: 0}, {X: 1, Y: 0}}
+
+	for openSet.Len() > 0 {
+		currentNode := heap.Pop(&openSet).(*aStarNode)
+
+		if currentNode.pos == endPoint {
+			path := []image.Point{}
+			temp := currentNode
+			for temp != nil {
+				path = append(path, temp.pos)
+				temp = temp.parent
+			}
+
+			for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
+				path[i], path[j] = path[j], path[i]
+			}
+			if len(path) > 0 {
+				return path[1:], true
+			}
+			return path, true
+		}
+
+		closedSet[currentNode.pos] = true
+
+		for _, offset := range moveOffsets {
+			neighborPos := image.Point{X: currentNode.pos.X + offset.X, Y: currentNode.pos.Y + offset.Y}
+
+			if neighborPos.X < 0 || neighborPos.X+entityWidth > mapWidth || neighborPos.Y < 0 || neighborPos.Y+entityHeight > mapHeight {
+				continue
+			}
+
+			if g.isTileFullyBlocked(neighborPos.X, neighborPos.Y, entityWidth, entityHeight, -1) {
+
+				isTargetAdjacentBlocked := false
+				for w := 0; w < entityWidth; w++ {
+					for h := 0; h < entityHeight; h++ {
+						tileX, tileY := neighborPos.X+w, neighborPos.Y+h
+						if tileX == endX && tileY == endY {
+							isTargetAdjacentBlocked = true
+							break
+						}
+					}
+					if isTargetAdjacentBlocked {
+						break
+					}
+				}
+
+				if !isTargetAdjacentBlocked {
+					continue
+				}
+
+			}
+
+			if closedSet[neighborPos] {
+				continue
+			}
+
+			gCost := currentNode.g + 1
+			hCost := distance(neighborPos.X, neighborPos.Y, endX, endY)
+			fCost := gCost + hCost
+
+			neighborNode, exists := nodeMap[neighborPos]
+			if !exists {
+				neighborNode = &aStarNode{pos: neighborPos, parent: currentNode, g: gCost, h: hCost, f: fCost}
+				nodeMap[neighborPos] = neighborNode
+				heap.Push(&openSet, neighborNode)
+			} else if gCost < neighborNode.g {
+				neighborNode.parent = currentNode
+				neighborNode.g = gCost
+				neighborNode.f = fCost
+				heap.Fix(&openSet, neighborNode.index)
+			}
+		}
+	}
+
+	return nil, false
+}
 
 func (g *Game) stepEnemyTurn() {
 	if g.currentEnemyTurn.Index < 0 || g.currentEnemyTurn.Index >= len(g.Enemies) {
