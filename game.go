@@ -225,15 +225,12 @@ func (g *Game) initializeActionButtons() {
 	g.ActionButtons = make([]UIButton, 0)
 	buttonX := uiButtonPad
 	buttonY := screenHeight - uiPanelHeight + uiButtonPad
+	maxButtons := (screenWidth - uiButtonPad*2) / (uiButtonSize + uiButtonPad)
+	buttonCount := 0
 
-	addButton := func(actionID string, isEndTurn bool) {
-		tooltip := actionID
-		if def, exists := ActionTable[actionID]; exists {
-			tooltip = def.Name
-		}
-		if isEndTurn {
-			tooltip = "End Turn"
-			actionID = "EndTurn"
+	addButton := func(id string, tooltip string, actionID string, isEndTurn bool) {
+		if buttonCount >= maxButtons-1 {
+			return
 		}
 
 		newButton := UIButton{
@@ -243,9 +240,7 @@ func (g *Game) initializeActionButtons() {
 			Tooltip: tooltip,
 		}
 		if isEndTurn {
-			newButton.OnClick = func(gm *Game) {
-				gm.IntentQueue = append(gm.IntentQueue, Intent{Type: IntentEndTurn})
-			}
+			// CARE: This specific path might be removed if EndTurn is always last dynamic button
 		} else if actionID != "" {
 			currentActionID := actionID
 			newButton.OnClick = func(gm *Game) {
@@ -268,6 +263,7 @@ func (g *Game) initializeActionButtons() {
 		}
 		g.ActionButtons = append(g.ActionButtons, newButton)
 		buttonX += uiButtonSize + uiButtonPad
+		buttonCount++
 	}
 
 	if g.Player != nil {
@@ -275,11 +271,12 @@ func (g *Game) initializeActionButtons() {
 		actionMap := make(map[string]*ActionDefinition)
 		sortedActionIDs := make([]string, 0, len(g.availableActions))
 		for _, action := range g.availableActions {
-			if action.ID != "wait" && action.ID != "accept_defeat" {
+			if action.ID != "wait" && action.ID != "accept_defeat" && action.ID != "end_turn" {
 				actionMap[action.ID] = action
 				sortedActionIDs = append(sortedActionIDs, action.ID)
 			}
 		}
+
 		sort.Slice(sortedActionIDs, func(i, j int) bool {
 			a1 := actionMap[sortedActionIDs[i]]
 			a2 := actionMap[sortedActionIDs[j]]
@@ -290,11 +287,35 @@ func (g *Game) initializeActionButtons() {
 		})
 
 		for _, actionID := range sortedActionIDs {
-			addButton(actionID, false)
+			if def, exists := actionMap[actionID]; exists {
+				addButton(actionID, def.Name, actionID, false)
+			}
 		}
-
 	}
-	addButton("end_turn", true)
+
+	endTurnX := screenWidth - (uiButtonSize+uiButtonPad)*2
+	endTurnButton := UIButton{
+		ID:      "EndTurn",
+		Rect:    image.Rect(endTurnX, buttonY, endTurnX+uiButtonSize, buttonY+uiButtonSize),
+		Icon:    nil,
+		Tooltip: "End Turn",
+		OnClick: func(gm *Game) {
+			gm.IntentQueue = append(gm.IntentQueue, Intent{Type: IntentEndTurn})
+		},
+	}
+	g.ActionButtons = append(g.ActionButtons, endTurnButton)
+
+	quitButtonX := screenWidth - uiButtonSize - uiButtonPad
+	quitButton := UIButton{
+		ID:      "QuitBtn",
+		Rect:    image.Rect(quitButtonX, buttonY, quitButtonX+uiButtonSize, buttonY+uiButtonSize),
+		Icon:    nil,
+		Tooltip: "Quit Game",
+		OnClick: func(gm *Game) {
+			gm.PendingQuit = true
+		},
+	}
+	g.ActionButtons = append(g.ActionButtons, quitButton)
 }
 
 func (g *Game) initializePlayerResources() {
@@ -1051,6 +1072,12 @@ func (g *Game) HandleIntent(intent Intent) {
 func (g *Game) Update() error {
 	if g.PendingQuit {
 		return ebiten.Termination
+	}
+
+	if ebiten.IsKeyPressed(ebiten.KeyEscape) && inpututil.IsKeyJustPressed(ebiten.KeyQ) {
+		g.addCombatLog("Quitting game via Escape+Q.")
+		g.PendingQuit = true
+		return nil
 	}
 
 	if g.CurrentGameState == StateGameOverScreen {

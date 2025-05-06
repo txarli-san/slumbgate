@@ -174,7 +174,7 @@ var actionIconMap = map[string]rune{
 	"wait":                'k',
 	"end_turn":            ']',
 	"EndTurn":             ']',
-	"accept_defeat":       'P',
+	"QuitBtn":             'P',
 }
 
 type IconFont struct {
