@@ -154,6 +154,7 @@ type Game struct {
 	pendingMoveTargetY        int
 	IntentQueue               []Intent
 	ActionButtons             []UIButton
+	IconFont                  IconFont
 }
 
 type ActionExecuteFunc func(g *Game, targetX, targetY int) bool

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"io/ioutil"
 	"log"
 	"math"
 	"math/rand"
@@ -12,6 +13,8 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
+	"golang.org/x/image/font"
+	"golang.org/x/image/font/opentype"
 )
 
 func (ts TurnState) String() string {
@@ -42,6 +45,40 @@ func (at ActionType) String() string {
 	}
 }
 
+func (g *Game) loadIconFont() {
+	fontPath := "assets/Fantasy_RPG_Dings_Font.OTF"
+	file, err := assetsFS.Open(fontPath)
+	if err != nil {
+		log.Printf("Error opening icon font %s: %v. Icons will not be rendered.", fontPath, err)
+		return
+	}
+	defer file.Close()
+
+	fontData, err := ioutil.ReadAll(file)
+	if err != nil {
+		log.Printf("Error reading icon font %s: %v. Icons will not be rendered.", fontPath, err)
+		return
+	}
+
+	tt, err := opentype.Parse(fontData)
+	if err != nil {
+		log.Printf("Error parsing icon font %s: %v. Icons will not be rendered.", fontPath, err)
+		return
+	}
+
+	const dpi = 72
+	face, err := opentype.NewFace(tt, &opentype.FaceOptions{
+		Size:    uiIconFontSize,
+		DPI:     dpi,
+		Hinting: font.HintingFull,
+	})
+	if err != nil {
+		log.Printf("Error creating icon font face %s: %v. Icons will not be rendered.", fontPath, err)
+		return
+	}
+	g.IconFont.Face = face
+}
+
 func (g *Game) InitGame(playerClassName string) {
 	g.Enemies = make([]*Enemy, 0)
 	g.CombatLog = make([]string, 0, combatLogLength)
@@ -55,6 +92,7 @@ func (g *Game) InitGame(playerClassName string) {
 	g.isVictory = false
 	g.IntentQueue = make([]Intent, 0)
 	g.ActionButtons = make([]UIButton, 0)
+	g.loadIconFont()
 
 	g.currentEnemyTurn = EnemyTurnContext{Index: -1, Phase: PhaseEnemyDone}
 	g.enemiesActedThisTurn = make([]bool, 0)
@@ -188,11 +226,19 @@ func (g *Game) initializeActionButtons() {
 	buttonX := uiButtonPad
 	buttonY := screenHeight - uiPanelHeight + uiButtonPad
 
-	addButton := func(id string, tooltip string, actionID string, isEndTurn bool) {
-		newButton := UIButton{
-			ID: id,
-			Rect: image.Rect(buttonX, buttonY, buttonX+uiButtonSize, buttonY+uiButtonSize),
+	addButton := func(actionID string, isEndTurn bool) {
+		tooltip := actionID
+		if def, exists := ActionTable[actionID]; exists {
+			tooltip = def.Name
+		}
+		if isEndTurn {
+			tooltip = "End Turn"
+			actionID = "EndTurn"
+		}
 
+		newButton := UIButton{
+			ID:      actionID,
+			Rect:    image.Rect(buttonX, buttonY, buttonX+uiButtonSize, buttonY+uiButtonSize),
 			Icon:    nil,
 			Tooltip: tooltip,
 		}
@@ -201,20 +247,20 @@ func (g *Game) initializeActionButtons() {
 				gm.IntentQueue = append(gm.IntentQueue, Intent{Type: IntentEndTurn})
 			}
 		} else if actionID != "" {
+			currentActionID := actionID
 			newButton.OnClick = func(gm *Game) {
-				actionDef, exists := ActionTable[actionID]
+				actionDef, exists := ActionTable[currentActionID]
 				if !exists {
-					gm.addCombatLog(fmt.Sprintf("Error: Action button '%s' refers to unknown action ID '%s'", id, actionID))
+					gm.addCombatLog(fmt.Sprintf("Error: Action button refers to unknown action ID '%s'", currentActionID))
 					return
 				}
 				if !actionDef.RequiresTarget {
-
 					gm.IntentQueue = append(gm.IntentQueue, Intent{
 						Type: IntentAction,
-						Data: map[string]any{"ActionID": actionID, "X": -1, "Y": -1},
+						Data: map[string]any{"ActionID": currentActionID, "X": -1, "Y": -1},
 					})
 				} else {
-					gm.primedActionID = actionID
+					gm.primedActionID = currentActionID
 					gm.Player.Path = make([]image.Point, 0)
 					gm.addCombatLog(fmt.Sprintf("Primed: %s. Click target.", actionDef.Name))
 				}
@@ -227,60 +273,28 @@ func (g *Game) initializeActionButtons() {
 	if g.Player != nil {
 		g.buildAvailableActions()
 		actionMap := make(map[string]*ActionDefinition)
+		sortedActionIDs := make([]string, 0, len(g.availableActions))
 		for _, action := range g.availableActions {
-			actionMap[action.ID] = action
-		}
-
-		if _, ok := actionMap["melee_attack"]; ok {
-			addButton("Melee", "Melee Attack (Action)", "melee_attack", false)
-		}
-		if _, ok := actionMap["ranged_attack"]; ok {
-			addButton("Ranged", "Ranged Attack (Action)", "ranged_attack", false)
-		}
-		if _, ok := actionMap["dash"]; ok {
-			addButton("Dash", "Dash (Action)", "dash", false)
-		}
-		if _, ok := actionMap["disengage"]; ok {
-			addButton("Disengage", "Disengage (Action)", "disengage", false)
-		}
-		if _, ok := actionMap["second_wind"]; ok {
-			addButton("SecWind", "Second Wind (Action)", "second_wind", false)
-		}
-		if _, ok := actionMap["action_surge"]; ok {
-			addButton("ActSrg", "Action Surge (Free)", "action_surge", false)
-		}
-		if _, ok := actionMap["quick_strike"]; ok {
-			addButton("QckStr", "Quick Strike (Bonus)", "quick_strike", false)
-		}
-		if _, ok := actionMap["stunning_strike"]; ok {
-			addButton("StnStr", "Stunning Strike (Action)", "stunning_strike", false)
-		}
-		if _, ok := actionMap["firebolt"]; ok {
-			addButton("Firebolt", "Firebolt (Action)", "firebolt", false)
-		}
-		if _, ok := actionMap["magic_missile"]; ok {
-			addButton("MagMiss", "Magic Missile (Action, L1 Slot)", "magic_missile", false)
-		}
-
-		for _, id := range g.Player.KnownCantrips {
-			if def, exists := ActionTable[id]; exists && id != "firebolt" {
-				if _, actionAvailable := actionMap[id]; actionAvailable {
-					tooltip := fmt.Sprintf("%s (Action)", def.Name)
-					addButton(def.ID, tooltip, def.ID, false)
-				}
+			if action.ID != "wait" && action.ID != "accept_defeat" {
+				actionMap[action.ID] = action
+				sortedActionIDs = append(sortedActionIDs, action.ID)
 			}
 		}
-		for _, id := range g.Player.KnownSpells {
-			if def, exists := ActionTable[id]; exists && id != "magic_missile" && id != "shield" {
-				if _, actionAvailable := actionMap[id]; actionAvailable {
-					tooltip := fmt.Sprintf("%s (Action, L1 Slot)", def.Name)
-					addButton(def.ID, tooltip, def.ID, false)
-				}
+		sort.Slice(sortedActionIDs, func(i, j int) bool {
+			a1 := actionMap[sortedActionIDs[i]]
+			a2 := actionMap[sortedActionIDs[j]]
+			if a1.ActionType != a2.ActionType {
+				return a1.ActionType < a2.ActionType
 			}
+			return a1.Name < a2.Name
+		})
+
+		for _, actionID := range sortedActionIDs {
+			addButton(actionID, false)
 		}
+
 	}
-	addButton("EndTurn", "End Turn", "", true)
-
+	addButton("end_turn", true)
 }
 
 func (g *Game) initializePlayerResources() {
@@ -402,7 +416,7 @@ func (g *Game) resetPlayerResources(restType ResourceRestType) {
 		}
 
 		if shouldReset && g.Player.Level >= classAction.RequiredLevel {
-			currentUses := 0 // Default if not found
+			currentUses := 0
 			if val, ok := g.Player.ClassResources[actionID]; ok {
 				currentUses = val
 			}
@@ -740,7 +754,7 @@ func (g *Game) buildAvailableActions() {
 	}
 
 	possibleActions := make(map[string]bool)
-	classDef, classDefExists := ClassDefinitions[g.Player.Class] // Capture exists here
+	classDef, classDefExists := ClassDefinitions[g.Player.Class]
 
 	alwaysAvailable := map[string]bool{"wait": true, "accept_defeat": true}
 	for id := range alwaysAvailable {
@@ -767,7 +781,7 @@ func (g *Game) buildAvailableActions() {
 		possibleActions["disengage"] = true
 	}
 
-	if classDefExists && classDef != nil { // Use classDefExists
+	if classDefExists && classDef != nil {
 		for actionID, classAction := range classDef.ClassActions {
 			if g.Player.Level >= classAction.RequiredLevel {
 				if _, actionDefExists := ActionTable[actionID]; actionDefExists {
@@ -813,9 +827,10 @@ func (g *Game) buildAvailableActions() {
 				isAvailable = false
 			}
 		case ActionTypeReaction:
+
 			isAvailable = false
 		case ActionTypeFree:
-			// Free actions are generally always available if other conditions met
+
 		}
 		if !isAvailable {
 			continue
@@ -826,14 +841,13 @@ func (g *Game) buildAvailableActions() {
 				isAvailable = false
 			}
 		} else if actionDef.ResourceType == ResourceClassFeature {
-			if classDefExists && classDef != nil { // Use classDefExists again
+			if classDefExists && classDef != nil {
 				if classAction, ok := classDef.ClassActions[id]; ok {
 					if classAction.UsesPerRest > 0 {
 						currentUses := 0
 						if val, resOk := g.Player.ClassResources[id]; resOk {
 							currentUses = val
 						} else {
-							// Resource not initialized, assume unavailable or handle initialization elsewhere
 							isAvailable = false
 						}
 						if currentUses < classAction.ResourceCost {
@@ -848,7 +862,6 @@ func (g *Game) buildAvailableActions() {
 			continue
 		}
 
-		// Specific action availability checks
 		if actionDef.ID == "disengage" && !isPlayerAdjacentToEnemy(g) {
 			isAvailable = false
 		}
@@ -858,7 +871,6 @@ func (g *Game) buildAvailableActions() {
 		}
 	}
 
-	// Ensure quit action is always presented if defined
 	quitActionDef, quitExists := ActionTable["accept_defeat"]
 	if quitExists {
 		foundQuit := false
@@ -879,7 +891,7 @@ func (g *Game) buildAvailableActions() {
 		if tempAvailableActions[i].ActionType != tempAvailableActions[j].ActionType {
 			return tempAvailableActions[i].ActionType < tempAvailableActions[j].ActionType
 		}
-		// Keep quit action at the end
+
 		if tempAvailableActions[i].ID == "accept_defeat" {
 			return false
 		}
@@ -992,6 +1004,7 @@ func (g *Game) HandleIntent(intent Intent) {
 		actionDef, exists := ActionTable[actionID]
 		if exists {
 			if !txOk || !tyOk {
+
 				if actionDef.RequiresTarget {
 					log.Printf("Error: IntentAction for targeted action '%s' missing X or Y", actionID)
 					g.primedActionID = ""
@@ -1113,7 +1126,6 @@ func (g *Game) Update() error {
 }
 
 func (g *Game) UpdatePlaying() {
-
 	g.handlePlayerInput()
 
 	intentsToProcess := g.IntentQueue
@@ -1128,7 +1140,6 @@ func (g *Game) UpdatePlaying() {
 		g.InputMode = InputModeReactionPrompt
 	}
 	if g.reactionPending {
-
 		return
 	}
 
@@ -1141,7 +1152,6 @@ func (g *Game) UpdatePlaying() {
 	}
 
 	if g.InputMode == InputModeLevelUp || g.InputMode == InputModeRestPrompt || g.InputMode == InputModeCharacterSheet {
-
 		return
 	}
 

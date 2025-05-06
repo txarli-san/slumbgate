@@ -14,6 +14,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/text"
 	"github.com/hajimehoshi/ebiten/v2/vector"
+	"golang.org/x/image/font"
 	"golang.org/x/image/font/basicfont"
 )
 
@@ -146,16 +147,13 @@ func (g *Game) DrawPlaying(screen *ebiten.Image) {
 			if g.primedActionID != "" {
 				hoverColor = color.NRGBA{R: 255, G: 100, B: 100, A: 100}
 			} else if len(g.Player.Path) == 0 {
-				// Only show walk hover if no path is set
 				if !g.isTileFullyBlocked(gridX, gridY, 1, 1, -1) {
 					hoverColor = color.NRGBA{R: 100, G: 255, B: 100, A: 100}
 				} else {
-					hoverColor = color.NRGBA{R: 200, G: 50, B: 50, A: 100} // Blocked tile hover
+					hoverColor = color.NRGBA{R: 200, G: 50, B: 50, A: 100}
 				}
 			} else {
-				// Hovering while path active, maybe different color or no hover?
-				// For now, don't show grid hover if path is active
-				hoverColor = color.NRGBA{A: 0} // Transparent
+				hoverColor = color.NRGBA{A: 0}
 			}
 
 			vector.StrokeRect(screen, hoverScreenX, hoverScreenY, float32(tileSize), float32(tileSize), 1, hoverColor, false)
@@ -163,7 +161,7 @@ func (g *Game) DrawPlaying(screen *ebiten.Image) {
 	}
 	if g.CurrentTurn == PlayerTurn && g.primedActionID != "" && g.RangeOverlayTile != nil {
 		actionDef, exists := ActionTable[g.primedActionID]
-		if exists && actionDef.RequiresTarget && actionDef.Range >= 0 && g.Player != nil { // Allow range 0 for self-target checks
+		if exists && actionDef.RequiresTarget && actionDef.Range >= 0 && g.Player != nil {
 			overlayOpts := &ebiten.DrawImageOptions{}
 			originX, originY := g.Player.X, g.Player.Y
 			for x := 0; x < mapWidth; x++ {
@@ -171,12 +169,11 @@ func (g *Game) DrawPlaying(screen *ebiten.Image) {
 					dist := distance(originX, originY, x, y)
 					isInRange := false
 					if actionDef.Range == 0 && actionDef.Targeting == TargetSelf {
-						// Skip range overlay for self-only spells
 						continue
 					} else if actionDef.Targeting == TargetEmptyTile {
 						isInRange = dist > 0 && dist <= actionDef.Range
 					} else {
-						isInRange = dist <= actionDef.Range // Allow distance 0 for adjacent/self if range > 0
+						isInRange = dist <= actionDef.Range
 					}
 
 					if isInRange {
@@ -199,7 +196,7 @@ func (g *Game) DrawPlaying(screen *ebiten.Image) {
 								isTargetValid = true
 							}
 						default:
-							// Assume valid if in range for unspecified targeting
+
 							isTargetValid = true
 						}
 
@@ -641,61 +638,94 @@ func (g *Game) DrawUIBar(screen *ebiten.Image) {
 	cursorX, cursorY := ebiten.CursorPosition()
 	cursorPoint := image.Point{X: cursorX, Y: cursorY}
 	tooltipText := ""
+	var hoveredButton *UIButton = nil
 
-	for _, btn := range g.ActionButtons {
-		btnColor := colorGray
+	for i := range g.ActionButtons {
+		btn := &g.ActionButtons[i]
 		if cursorPoint.In(btn.Rect) {
-			btnColor = colorButtonHover
+			hoveredButton = btn
 			tooltipText = btn.Tooltip
+
+		}
+	}
+
+	for i := range g.ActionButtons {
+		btn := &g.ActionButtons[i]
+		btnColor := colorGray
+		if hoveredButton == btn {
+			btnColor = colorButtonHover
 		}
 
 		actionDef, primedExists := ActionTable[g.primedActionID]
 		if g.primedActionID != "" && btn.ID == g.primedActionID {
 			btnColor = colorYellow
 		} else if g.primedActionID != "" && primedExists && !actionDef.RequiresTarget && btn.ID == g.primedActionID {
-			// Indicate non-targeted primed actions differently? Or just yellow?
 			btnColor = colorYellow
 		}
 
 		vector.DrawFilledRect(screen, float32(btn.Rect.Min.X), float32(btn.Rect.Min.Y), float32(uiButtonSize), float32(uiButtonSize), btnColor, false)
 		vector.StrokeRect(screen, float32(btn.Rect.Min.X), float32(btn.Rect.Min.Y), float32(uiButtonSize), float32(uiButtonSize), 1, colorWhite, false)
 
-		label := btn.ID
-		if len(label) > 6 {
-			label = label[:6]
-		}
-		labelBounds := text.BoundString(basicfont.Face7x13, label)
-		labelX := btn.Rect.Min.X + (uiButtonSize-labelBounds.Dx())/2
-		labelY := btn.Rect.Min.Y + (uiButtonSize-labelBounds.Dy())/2 + labelBounds.Dy() // Center text
-		text.Draw(screen, label, basicfont.Face7x13, labelX, labelY, colorBlack)
+		iconRune, iconExists := actionIconMap[btn.ID]
+		if iconExists && g.IconFont.Face != nil {
+			iconStr := string(iconRune)
+			bounds, _ := font.BoundString(g.IconFont.Face, iconStr)
 
-		if btn.Icon != nil {
-			op := &ebiten.DrawImageOptions{}
-			op.GeoM.Translate(float64(btn.Rect.Min.X+(uiButtonSize-spriteSize)/2), float64(btn.Rect.Min.Y+(uiButtonSize-spriteSize)/2))
-			screen.DrawImage(btn.Icon, op)
+			boundWidth := bounds.Max.X.Ceil() - bounds.Min.X.Ceil()
+			boundHeight := bounds.Max.Y.Ceil() - bounds.Min.Y.Ceil()
+
+			manualOffsetX := -1
+			manualOffsetY := -4
+
+			baseX := btn.Rect.Min.X + (uiButtonSize-boundWidth)/2
+			metrics := g.IconFont.Face.Metrics()
+			baseY := btn.Rect.Min.Y + (uiButtonSize-boundHeight)/2 + metrics.Ascent.Ceil()
+
+			iconX := baseX + manualOffsetX
+			iconY := baseY + manualOffsetY
+
+			text.Draw(screen, iconStr, g.IconFont.Face, iconX, iconY, colorIconDefault)
+		} else {
+
+			label := btn.ID
+			if len(label) > 6 {
+				label = label[:6]
+			}
+			labelBounds := text.BoundString(basicfont.Face7x13, label)
+			labelX := btn.Rect.Min.X + (uiButtonSize-labelBounds.Dx())/2
+			labelY := btn.Rect.Min.Y + (uiButtonSize-labelBounds.Dy())/2 + labelBounds.Dy()
+			text.Draw(screen, label, basicfont.Face7x13, labelX, labelY, colorBlack)
 		}
 
 	}
 
 	if tooltipText != "" {
-		tooltipBounds := text.BoundString(basicfont.Face7x13, tooltipText)
-		tooltipX := cursorX + 10
-		tooltipY := cursorY - tooltipBounds.Dy() - 10 // Position above cursor
+		tooltipFont := basicfont.Face7x13
+		tooltipBounds := text.BoundString(tooltipFont, tooltipText)
+		tooltipHeight := tooltipBounds.Dy()
 
-		if tooltipY < 0 { // If tooltip goes off screen top, position below cursor
+		tooltipX := cursorX + 10
+		tooltipY := cursorY - tooltipHeight - 10
+
+		if tooltipY < 0 {
 			tooltipY = cursorY + 15
 		}
-		if tooltipX+tooltipBounds.Dx()+4 > screenWidth { // If tooltip goes off screen right, position left of cursor
+		if tooltipX+tooltipBounds.Dx()+4 > screenWidth {
 			tooltipX = cursorX - tooltipBounds.Dx() - 10
 		}
+		if tooltipX < 0 {
+			tooltipX = 0
+		}
 
-		bgX := float32(tooltipX - 2)
-		bgY := float32(tooltipY - 2)
-		bgW := float32(tooltipBounds.Dx() + 4)
-		bgH := float32(tooltipBounds.Dy() + 4)
+		padding := 3
+		bgX := float32(tooltipX - padding)
+
+		bgY := float32(tooltipY - tooltipHeight - padding)
+		bgW := float32(tooltipBounds.Dx() + padding*2)
+		bgH := float32(tooltipHeight + padding*2)
 
 		vector.DrawFilledRect(screen, bgX, bgY, bgW, bgH, colorBlack, false)
-		text.Draw(screen, tooltipText, basicfont.Face7x13, tooltipX, tooltipY, colorWhite)
+		text.Draw(screen, tooltipText, tooltipFont, tooltipX, tooltipY, colorWhite)
 	}
 }
 

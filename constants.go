@@ -1,6 +1,11 @@
 package main
 
-import "image/color"
+import (
+	"image/color"
+	_ "image/png"
+
+	"golang.org/x/image/font"
+)
 
 const (
 	screenWidth         = 640
@@ -21,9 +26,10 @@ const (
 	attackBumpDuration  = 10
 	deathFadeDuration   = 30
 
-	uiPanelHeight = 50
-	uiButtonSize  = 40
-	uiButtonPad   = 5
+	uiPanelHeight  = 50
+	uiButtonSize   = 40
+	uiButtonPad    = 5
+	uiIconFontSize = 24
 )
 
 const (
@@ -39,9 +45,11 @@ var (
 	colorWhite       = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
 	colorBlack       = color.NRGBA{R: 0, G: 0, B: 0, A: 255}
 	colorGray        = color.NRGBA{R: 180, G: 180, B: 180, A: 255}
+	colorDarkGray    = color.NRGBA{R: 27, G: 27, B: 27, A: 255}
 	colorLocked      = color.NRGBA{R: 100, G: 100, B: 100, A: 255}
 	colorUIPanel     = color.NRGBA{R: 30, G: 30, B: 40, A: 240}
 	colorButtonHover = color.NRGBA{R: 80, G: 80, B: 100, A: 255}
+	colorIconDefault = colorDarkGray
 )
 
 var visualEffectColors = map[string]color.NRGBA{
@@ -141,3 +149,34 @@ const (
 	IntentUIClick
 	IntentCancelAction
 )
+
+var actionIconMap = map[string]rune{
+	"melee_attack":        '!',
+	"ranged_attack":       '@',
+	"dash":                'd',
+	"disengage":           '<',
+	"expeditious_retreat": 'M',
+	"quick_strike":        '9',
+	"stunning_strike":     '6',
+	"firebolt":            '$',
+	"burning_hands":       ',',
+	"ray_of_frost":        '(',
+	"frost_nova":          '\'',
+	"mind_spike":          'S',
+	"shocking_grasp":      'n',
+	"elemental_strike":    ')',
+	"magic_missile":       '/',
+	"second_wind":         'H',
+	"action_surge":        '~',
+	"magic_armor":         'a',
+	"arcane_blink":        'N',
+	"feather_fall":        'B',
+	"wait":                'k',
+	"end_turn":            ']',
+	"EndTurn":             ']',
+	"accept_defeat":       'P',
+}
+
+type IconFont struct {
+	Face font.Face
+}
