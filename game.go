@@ -14,6 +14,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 	"golang.org/x/image/font"
+	"golang.org/x/image/font/basicfont"
 	"golang.org/x/image/font/opentype"
 )
 
@@ -45,38 +46,73 @@ func (at ActionType) String() string {
 	}
 }
 
-func (g *Game) loadIconFont() {
-	fontPath := "assets/Fantasy_RPG_Dings_Font.OTF"
-	file, err := assetsFS.Open(fontPath)
+func (g *Game) loadFonts() {
+	iconFontPath := "assets/Fantasy_RPG_Dings_Font.OTF"
+	iconFile, err := assetsFS.Open(iconFontPath)
 	if err != nil {
-		log.Printf("Error opening icon font %s: %v. Icons will not be rendered.", fontPath, err)
-		return
+		log.Printf("Error opening icon font %s: %v. Icons may not render.", iconFontPath, err)
+	} else {
+		defer iconFile.Close()
+		iconFontData, err := ioutil.ReadAll(iconFile)
+		if err != nil {
+			log.Printf("Error reading icon font %s: %v. Icons may not render.", iconFontPath, err)
+		} else {
+			ttIcon, err := opentype.Parse(iconFontData)
+			if err != nil {
+				log.Printf("Error parsing icon font %s: %v. Icons may not render.", iconFontPath, err)
+			} else {
+				const dpi = 72
+				iconFace, err := opentype.NewFace(ttIcon, &opentype.FaceOptions{
+					Size:    uiIconFontSize,
+					DPI:     dpi,
+					Hinting: font.HintingFull,
+				})
+				if err != nil {
+					log.Printf("Error creating icon font face %s: %v. Icons may not render.", iconFontPath, err)
+				} else {
+					g.IconFont.Face = iconFace
+					log.Println("Successfully loaded Fantasy RPG Dings font.")
+				}
+			}
+		}
 	}
-	defer file.Close()
 
-	fontData, err := ioutil.ReadAll(file)
+	combatLogFontPath := "assets/PressStart2P-Regular.ttf"
+	combatLogFile, err := assetsFS.Open(combatLogFontPath)
 	if err != nil {
-		log.Printf("Error reading icon font %s: %v. Icons will not be rendered.", fontPath, err)
-		return
+		log.Printf("Error opening combat log font %s: %v. Combat log will use basicfont.", combatLogFontPath, err)
+		g.CombatLogFont = basicfont.Face7x13
+	} else {
+		defer combatLogFile.Close()
+		combatLogFontData, err := ioutil.ReadAll(combatLogFile)
+		if err != nil {
+			log.Printf("Error reading combat log font %s: %v. Combat log will use basicfont.", combatLogFontPath, err)
+			g.CombatLogFont = basicfont.Face7x13
+		} else {
+			ttCombatLog, err := opentype.Parse(combatLogFontData)
+			if err != nil {
+				log.Printf("Error parsing combat log font %s: %v. Combat log will use basicfont.", combatLogFontPath, err)
+				g.CombatLogFont = basicfont.Face7x13
+			} else {
+				const dpiText = 72
+				combatLogFace, err := opentype.NewFace(ttCombatLog, &opentype.FaceOptions{
+					Size:    8,
+					DPI:     dpiText,
+					Hinting: font.HintingNone,
+				})
+				if err != nil {
+					log.Printf("Error creating combat log font face for %s: %v. Combat log will use basicfont.", combatLogFontPath, err)
+					g.CombatLogFont = basicfont.Face7x13
+				} else {
+					g.CombatLogFont = combatLogFace
+					log.Println("Successfully loaded Press Start 2P font for combat log.")
+				}
+			}
+		}
 	}
-
-	tt, err := opentype.Parse(fontData)
-	if err != nil {
-		log.Printf("Error parsing icon font %s: %v. Icons will not be rendered.", fontPath, err)
-		return
+	if g.CombatLogFont == nil {
+		g.CombatLogFont = basicfont.Face7x13
 	}
-
-	const dpi = 72
-	face, err := opentype.NewFace(tt, &opentype.FaceOptions{
-		Size:    uiIconFontSize,
-		DPI:     dpi,
-		Hinting: font.HintingFull,
-	})
-	if err != nil {
-		log.Printf("Error creating icon font face %s: %v. Icons will not be rendered.", fontPath, err)
-		return
-	}
-	g.IconFont.Face = face
 }
 
 func (g *Game) InitGame(playerClassName string) {
@@ -92,7 +128,8 @@ func (g *Game) InitGame(playerClassName string) {
 	g.isVictory = false
 	g.IntentQueue = make([]Intent, 0)
 	g.ActionButtons = make([]UIButton, 0)
-	g.loadIconFont()
+
+	g.loadFonts()
 
 	g.currentEnemyTurn = EnemyTurnContext{Index: -1, Phase: PhaseEnemyDone}
 	g.enemiesActedThisTurn = make([]bool, 0)
@@ -183,6 +220,18 @@ func (g *Game) InitGame(playerClassName string) {
 		playerAC += 2
 	}
 
+	if g.godModeEnabled {
+		fmt.Println("--- GOD MODE RUN ACTIVE: Player stats boosted (from InitGame) ---")
+		playerMaxHP = 99999
+		playerAC = 999
+
+		if playerClassName == "Mage" {
+			playerInt = 100
+		} else {
+			playerDex = 100
+		}
+	}
+
 	g.Player = &Player{
 		Entity: Entity{
 			X: mapWidth / 2, Y: mapHeight / 2, Width: 1, Height: 1,
@@ -208,6 +257,17 @@ func (g *Game) InitGame(playerClassName string) {
 		CombatTechnique:    "",
 		NextElementType:    "Fire",
 		Path:               make([]image.Point, 0),
+	}
+
+	if g.godModeEnabled {
+		if g.Player.Class == "Mage" {
+			g.Player.MaxSpellSlotsL1 = 99
+			g.Player.SpellSlotsL1 = 99
+		}
+		g.Player.HitDice = 99
+		g.Player.MaxHitDice = 99
+		g.Player.MovementPoints = 99
+		g.Player.MaxMovementPoints = 99
 	}
 
 	g.initializePlayerResources()

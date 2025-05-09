@@ -5,6 +5,7 @@ import (
 	"image/color"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"golang.org/x/image/font"
 )
 
 type Condition struct {
@@ -155,6 +156,8 @@ type Game struct {
 	IntentQueue               []Intent
 	ActionButtons             []UIButton
 	IconFont                  IconFont
+	CombatLogFont             font.Face
+	godModeEnabled            bool
 }
 
 type ActionExecuteFunc func(g *Game, targetX, targetY int) bool

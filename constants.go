@@ -8,8 +8,8 @@ import (
 )
 
 const (
-	screenWidth         = 640
-	screenHeight        = 480
+	screenWidth         = 960
+	screenHeight        = 540
 	tileSize            = 32
 	spriteSize          = 32
 	spriteScale         = float64(tileSize) / float64(spriteSize)

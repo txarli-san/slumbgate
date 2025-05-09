@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/text"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 	"golang.org/x/image/font"
@@ -285,12 +284,18 @@ func (g *Game) DrawPlaying(screen *ebiten.Image) {
 		}
 	}
 
-	uiStartY, uiLineHeight, statusStartY := 10, 15, 10
+	uiTextFont := basicfont.Face7x13
+	uiLineHeight := 15
+
+	statusStartY := 10
 	if g.Player != nil {
 		waveText := fmt.Sprintf("Wave: %d / %d", g.CurrentWaveIndex+1, len(g.WaveDefinitions))
-		waveTextWidth := text.BoundString(basicfont.Face7x13, waveText).Dx()
-		ebitenutil.DebugPrintAt(screen, waveText, screenWidth-waveTextWidth-10, statusStartY)
-		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Turn: %s", g.CurrentTurn.String()), 10, uiStartY)
+		waveTextWidth := text.BoundString(uiTextFont, waveText).Dx()
+		text.Draw(screen, waveText, uiTextFont, screenWidth-waveTextWidth-10, statusStartY, colorWhite)
+
+		text.Draw(screen, fmt.Sprintf("Turn: %s", g.CurrentTurn.String()), uiTextFont, 10, statusStartY, colorWhite)
+
+		currentY := statusStartY + uiLineHeight
 		playerHpVal := max(0, g.Player.HP)
 
 		effectiveAC := GetEffectiveAC(&g.Player.Entity)
@@ -300,28 +305,34 @@ func (g *Game) DrawPlaying(screen *ebiten.Image) {
 			acString = fmt.Sprintf("%d (+%d Buff)", effectiveAC, acBonusFromConditions)
 		}
 
-		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("HP: %d/%d AC: %s", playerHpVal, g.Player.MaxHP, acString), 10, uiStartY+uiLineHeight*1)
-		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Move: %d/%d", g.Player.MovementPoints, g.Player.MaxMovementPoints), 10, uiStartY+uiLineHeight*2)
+		text.Draw(screen, fmt.Sprintf("HP: %d/%d AC: %s", playerHpVal, g.Player.MaxHP, acString), uiTextFont, 10, currentY, colorWhite)
+		currentY += uiLineHeight
+		text.Draw(screen, fmt.Sprintf("Move: %d/%d", g.Player.MovementPoints, g.Player.MaxMovementPoints), uiTextFont, 10, currentY, colorWhite)
+		currentY += uiLineHeight
 		if g.Player.Class == "Mage" {
-			ebitenutil.DebugPrintAt(screen, fmt.Sprintf("L1 Slots: %d/%d", g.Player.SpellSlotsL1, g.Player.MaxSpellSlotsL1), 10, uiStartY+uiLineHeight*3)
+			text.Draw(screen, fmt.Sprintf("L1 Slots: %d/%d", g.Player.SpellSlotsL1, g.Player.MaxSpellSlotsL1), uiTextFont, 10, currentY, colorWhite)
 		} else {
-			ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Hit Dice: %d/%d", g.Player.HitDice, g.Player.MaxHitDice), 10, uiStartY+uiLineHeight*3)
+			text.Draw(screen, fmt.Sprintf("Hit Dice: %d/%d", g.Player.HitDice, g.Player.MaxHitDice), uiTextFont, 10, currentY, colorWhite)
 		}
+		currentY += uiLineHeight
 		actionStatusText := "Action: Available"
 		if g.Player.ActionTaken {
 			actionStatusText = "Action: Used"
 		}
-		ebitenutil.DebugPrintAt(screen, actionStatusText, 10, uiStartY+uiLineHeight*4)
+		text.Draw(screen, actionStatusText, uiTextFont, 10, currentY, colorWhite)
+		currentY += uiLineHeight
 		bonusActionStatusText := "Bonus Action: Available"
 		if g.Player.BonusActionTaken {
 			bonusActionStatusText = "Bonus Action: Used"
 		}
-		ebitenutil.DebugPrintAt(screen, bonusActionStatusText, 10, uiStartY+uiLineHeight*5)
+		text.Draw(screen, bonusActionStatusText, uiTextFont, 10, currentY, colorWhite)
+		currentY += uiLineHeight
 		reactionStatusText := "Reaction: Available"
 		if g.Player.UsedReaction {
 			reactionStatusText = "Reaction: Used"
 		}
-		ebitenutil.DebugPrintAt(screen, reactionStatusText, 10, uiStartY+uiLineHeight*6)
+		text.Draw(screen, reactionStatusText, uiTextFont, 10, currentY, colorWhite)
+		currentY += uiLineHeight
 		primedActionText := "Primed: None"
 		if g.primedActionID != "" {
 			if actionDef, exists := ActionTable[g.primedActionID]; exists {
@@ -330,7 +341,8 @@ func (g *Game) DrawPlaying(screen *ebiten.Image) {
 				primedActionText = fmt.Sprintf("Primed: ??? (%s)", g.primedActionID)
 			}
 		}
-		ebitenutil.DebugPrintAt(screen, primedActionText, 10, uiStartY+uiLineHeight*7)
+		text.Draw(screen, primedActionText, uiTextFont, 10, currentY, colorWhite)
+		currentY += uiLineHeight
 
 		statusText := ""
 		for _, cond := range g.Player.Conditions {
@@ -345,7 +357,6 @@ func (g *Game) DrawPlaying(screen *ebiten.Image) {
 				statusText += "Evasive "
 			case ConditionShielded:
 				statusText += "Shielded "
-
 			}
 		}
 		if g.Player.IsDisengaging {
@@ -353,67 +364,64 @@ func (g *Game) DrawPlaying(screen *ebiten.Image) {
 		}
 
 		if statusText != "" {
-			ebitenutil.DebugPrintAt(screen, "Status: "+statusText, 10, uiStartY+uiLineHeight*8)
+			text.Draw(screen, "Status: "+statusText, uiTextFont, 10, currentY, colorWhite)
 		}
 	}
 
 	g.DrawUIBar(screen)
 
 	if g.InputMode == InputModeCharacterSheet && g.Player != nil {
+		charSheetFont := basicfont.Face7x13
+		charSheetLineHeight := 14
+
 		menuW, menuH := screenWidth/2+40, screenHeight/2+60
 		menuX, menuY := (screenWidth-menuW)/2, (screenHeight-menuH)/2
 		vector.DrawFilledRect(screen, float32(menuX), float32(menuY), float32(menuW), float32(menuH), color.NRGBA{R: 30, G: 20, B: 20, A: 230}, false)
 		vector.StrokeRect(screen, float32(menuX), float32(menuY), float32(menuW), float32(menuH), 2, colorWhite, false)
 		title := fmt.Sprintf("%s - Level %d %s ([C] / [Esc] to Close)", g.Player.Name, g.Player.Level, g.Player.Class)
-		titleX, titleY := menuX+10, menuY+15
-		text.Draw(screen, title, basicfont.Face7x13, titleX, titleY, colorWhite)
-		infoStartY, infoLineHeight, col1X, col2X := titleY+25, 14, menuX+15, menuX+menuW/2
-		lineNum := 0
-		text.Draw(screen, fmt.Sprintf("HP: %d / %d", max(0, g.Player.HP), g.Player.MaxHP), basicfont.Face7x13, col1X, infoStartY+(lineNum*infoLineHeight), colorWhite)
-		lineNum++
-		text.Draw(screen, fmt.Sprintf("AC: %d", GetEffectiveAC(&g.Player.Entity)), basicfont.Face7x13, col1X, infoStartY+(lineNum*infoLineHeight), colorWhite)
-		lineNum++
-		text.Draw(screen, fmt.Sprintf("Movement: %d", g.Player.MaxMovementPoints), basicfont.Face7x13, col1X, infoStartY+(lineNum*infoLineHeight), colorWhite)
-		lineNum++
-		text.Draw(screen, fmt.Sprintf("Prof Bonus: +%d", g.Player.ProficiencyBonus), basicfont.Face7x13, col1X, infoStartY+(lineNum*infoLineHeight), colorWhite)
-		lineNum++
+		titleX, titleYCharSheet := menuX+10, menuY+15
+		text.Draw(screen, title, charSheetFont, titleX, titleYCharSheet, colorWhite)
+
+		infoStartY, col1X, col2X := titleYCharSheet+25, menuX+15, menuX+menuW/2
+		currentLineNum := 0
+		drawCharSheetLine := func(txt string, colX int, lineNum int) int {
+			text.Draw(screen, txt, charSheetFont, colX, infoStartY+(lineNum*charSheetLineHeight), colorWhite)
+			return lineNum + 1
+		}
+
+		currentLineNum = drawCharSheetLine(fmt.Sprintf("HP: %d / %d", max(0, g.Player.HP), g.Player.MaxHP), col1X, currentLineNum)
+		currentLineNum = drawCharSheetLine(fmt.Sprintf("AC: %d", GetEffectiveAC(&g.Player.Entity)), col1X, currentLineNum)
+		currentLineNum = drawCharSheetLine(fmt.Sprintf("Movement: %d", g.Player.MaxMovementPoints), col1X, currentLineNum)
+		currentLineNum = drawCharSheetLine(fmt.Sprintf("Prof Bonus: +%d", g.Player.ProficiencyBonus), col1X, currentLineNum)
 		classHitDieSize := 0
 		if cd, ok := ClassDefinitions[g.Player.Class]; ok {
 			classHitDieSize = cd.HitDieSize
 		}
-		text.Draw(screen, fmt.Sprintf("Hit Dice: %d / %d (d%d)", g.Player.HitDice, g.Player.MaxHitDice, classHitDieSize), basicfont.Face7x13, col1X, infoStartY+(lineNum*infoLineHeight), colorWhite)
-		lineNum++
+		currentLineNum = drawCharSheetLine(fmt.Sprintf("Hit Dice: %d / %d (d%d)", g.Player.HitDice, g.Player.MaxHitDice, classHitDieSize), col1X, currentLineNum)
 		if g.Player.Class == "Mage" {
-			text.Draw(screen, fmt.Sprintf("L1 Slots: %d / %d", g.Player.SpellSlotsL1, g.Player.MaxSpellSlotsL1), basicfont.Face7x13, col1X, infoStartY+(lineNum*infoLineHeight), colorWhite)
-			lineNum++
+			currentLineNum = drawCharSheetLine(fmt.Sprintf("L1 Slots: %d / %d", g.Player.SpellSlotsL1, g.Player.MaxSpellSlotsL1), col1X, currentLineNum)
 		}
 		if g.Player.CombatStyle != "" {
-			text.Draw(screen, fmt.Sprintf("Style: %s", g.Player.CombatStyle), basicfont.Face7x13, col1X, infoStartY+(lineNum*infoLineHeight), colorWhite)
-			lineNum++
+			currentLineNum = drawCharSheetLine(fmt.Sprintf("Style: %s", g.Player.CombatStyle), col1X, currentLineNum)
 		}
 		if g.Player.CombatTechnique != "" {
-			text.Draw(screen, fmt.Sprintf("Technique: %s", g.Player.CombatTechnique), basicfont.Face7x13, col1X, infoStartY+(lineNum*infoLineHeight), colorWhite)
-			lineNum++
+			currentLineNum = drawCharSheetLine(fmt.Sprintf("Technique: %s", g.Player.CombatTechnique), col1X, currentLineNum)
 		}
-		lineNum = max(lineNum, 8)
+		currentLineNum = max(currentLineNum, 8)
 		if g.Player.Class == "Mage" {
 			intMod := getModifier(g.Player.Intelligence)
 			dc := spellSaveDC(g)
-			text.Draw(screen, fmt.Sprintf("Spell Atk: +%d", g.Player.ProficiencyBonus+intMod), basicfont.Face7x13, col1X, infoStartY+(lineNum*infoLineHeight), colorWhite)
-			lineNum++
-			text.Draw(screen, fmt.Sprintf("Spell Save DC: %d", dc), basicfont.Face7x13, col1X, infoStartY+(lineNum*infoLineHeight), colorWhite)
-			lineNum++
+			currentLineNum = drawCharSheetLine(fmt.Sprintf("Spell Atk: +%d", g.Player.ProficiencyBonus+intMod), col1X, currentLineNum)
+			currentLineNum = drawCharSheetLine(fmt.Sprintf("Spell Save DC: %d", dc), col1X, currentLineNum)
 		} else {
 			meleeMod := getModifier(g.Player.Strength)
 			rangedMod := getModifier(g.Player.Dexterity)
-			text.Draw(screen, fmt.Sprintf("Melee Atk: +%d (1d8%+d)", g.Player.ProficiencyBonus+meleeMod, meleeMod), basicfont.Face7x13, col1X, infoStartY+(lineNum*infoLineHeight), colorWhite)
-			lineNum++
-			text.Draw(screen, fmt.Sprintf("Ranged Atk: +%d (1d6%+d)", g.Player.ProficiencyBonus+rangedMod, rangedMod), basicfont.Face7x13, col1X, infoStartY+(lineNum*infoLineHeight), colorWhite)
-			lineNum++
+			currentLineNum = drawCharSheetLine(fmt.Sprintf("Melee Atk: +%d (1d8%+d)", g.Player.ProficiencyBonus+meleeMod, meleeMod), col1X, currentLineNum)
+			currentLineNum = drawCharSheetLine(fmt.Sprintf("Ranged Atk: +%d (1d6%+d)", g.Player.ProficiencyBonus+rangedMod, rangedMod), col1X, currentLineNum)
 		}
-		lineNum = max(lineNum, 11)
-		text.Draw(screen, "Class Features:", basicfont.Face7x13, col1X, infoStartY+(lineNum*infoLineHeight), colorGray)
-		lineNum++
+		currentLineNum = max(currentLineNum, 11)
+		text.Draw(screen, "Class Features:", charSheetFont, col1X, infoStartY+(currentLineNum*charSheetLineHeight), colorGray)
+		currentLineNum++
 		classDef := ClassDefinitions[g.Player.Class]
 		if classDef != nil {
 			featureIDs := make([]string, 0, len(classDef.ClassActions))
@@ -445,55 +453,65 @@ func (g *Game) DrawPlaying(screen *ebiten.Image) {
 							featureText += " (Per Lvl)"
 						}
 					}
-					text.Draw(screen, featureText, basicfont.Face7x13, col1X+5, infoStartY+(lineNum*infoLineHeight), colorWhite)
-					lineNum++
+					text.Draw(screen, featureText, charSheetFont, col1X+5, infoStartY+(currentLineNum*charSheetLineHeight), colorWhite)
+					currentLineNum++
 				}
 			}
 		}
 		if len(g.Player.KnownCantrips) > 0 {
-			text.Draw(screen, "Known Cantrips:", basicfont.Face7x13, col1X, infoStartY+(lineNum*infoLineHeight), colorGray)
-			lineNum++
+			text.Draw(screen, "Known Cantrips:", charSheetFont, col1X, infoStartY+(currentLineNum*charSheetLineHeight), colorGray)
+			currentLineNum++
 			for _, cantripID := range g.Player.KnownCantrips {
 				spellName := "??"
 				if spellDef, exists := ActionTable[cantripID]; exists {
 					spellName = spellDef.Name
 				}
-				text.Draw(screen, fmt.Sprintf(" - %s", spellName), basicfont.Face7x13, col1X+5, infoStartY+(lineNum*infoLineHeight), colorWhite)
-				lineNum++
+				text.Draw(screen, fmt.Sprintf(" - %s", spellName), charSheetFont, col1X+5, infoStartY+(currentLineNum*charSheetLineHeight), colorWhite)
+				currentLineNum++
 			}
 		}
 		if len(g.Player.KnownSpells) > 0 {
-			text.Draw(screen, "Known Spells:", basicfont.Face7x13, col1X, infoStartY+(lineNum*infoLineHeight), colorGray)
-			lineNum++
+			text.Draw(screen, "Known Spells:", charSheetFont, col1X, infoStartY+(currentLineNum*charSheetLineHeight), colorGray)
+			currentLineNum++
 			for _, spellID := range g.Player.KnownSpells {
 				spellName := "??"
 				if spellDef, exists := ActionTable[spellID]; exists {
 					spellName = spellDef.Name
 				}
-				text.Draw(screen, fmt.Sprintf(" - %s", spellName), basicfont.Face7x13, col1X+5, infoStartY+(lineNum*infoLineHeight), colorWhite)
-				lineNum++
+				text.Draw(screen, fmt.Sprintf(" - %s", spellName), charSheetFont, col1X+5, infoStartY+(currentLineNum*charSheetLineHeight), colorWhite)
+				currentLineNum++
 			}
 		}
-		lineNum = 0
-		text.Draw(screen, "Attributes:", basicfont.Face7x13, col2X, infoStartY+(lineNum*infoLineHeight), colorGray)
-		lineNum++
-		text.Draw(screen, fmt.Sprintf("STR: %d (%+d)", g.Player.Strength, getModifier(g.Player.Strength)), basicfont.Face7x13, col2X+5, infoStartY+(lineNum*infoLineHeight), colorWhite)
-		lineNum++
-		text.Draw(screen, fmt.Sprintf("DEX: %d (%+d)", g.Player.Dexterity, getModifier(g.Player.Dexterity)), basicfont.Face7x13, col2X+5, infoStartY+(lineNum*infoLineHeight), colorWhite)
-		lineNum++
-		text.Draw(screen, fmt.Sprintf("CON: %d (%+d)", g.Player.Constitution, getModifier(g.Player.Constitution)), basicfont.Face7x13, col2X+5, infoStartY+(lineNum*infoLineHeight), colorWhite)
-		lineNum++
-		text.Draw(screen, fmt.Sprintf("INT: %d (%+d)", g.Player.Intelligence, getModifier(g.Player.Intelligence)), basicfont.Face7x13, col2X+5, infoStartY+(lineNum*infoLineHeight), colorWhite)
-		lineNum++
-		text.Draw(screen, fmt.Sprintf("WIS: %d (%+d)", g.Player.Wisdom, getModifier(g.Player.Wisdom)), basicfont.Face7x13, col2X+5, infoStartY+(lineNum*infoLineHeight), colorWhite)
-		lineNum++
-		text.Draw(screen, fmt.Sprintf("CHA: %d (%+d)", g.Player.Charisma, getModifier(g.Player.Charisma)), basicfont.Face7x13, col2X+5, infoStartY+(lineNum*infoLineHeight), colorWhite)
-		lineNum++
+
+		currentLineNum = 0
+		text.Draw(screen, "Attributes:", charSheetFont, col2X, infoStartY+(currentLineNum*charSheetLineHeight), colorGray)
+		currentLineNum++
+		currentLineNum = drawCharSheetLine(fmt.Sprintf("STR: %d (%+d)", g.Player.Strength, getModifier(g.Player.Strength)), col2X+5, currentLineNum)
+		currentLineNum = drawCharSheetLine(fmt.Sprintf("DEX: %d (%+d)", g.Player.Dexterity, getModifier(g.Player.Dexterity)), col2X+5, currentLineNum)
+		currentLineNum = drawCharSheetLine(fmt.Sprintf("CON: %d (%+d)", g.Player.Constitution, getModifier(g.Player.Constitution)), col2X+5, currentLineNum)
+		currentLineNum = drawCharSheetLine(fmt.Sprintf("INT: %d (%+d)", g.Player.Intelligence, getModifier(g.Player.Intelligence)), col2X+5, currentLineNum)
+		currentLineNum = drawCharSheetLine(fmt.Sprintf("WIS: %d (%+d)", g.Player.Wisdom, getModifier(g.Player.Wisdom)), col2X+5, currentLineNum)
+		currentLineNum = drawCharSheetLine(fmt.Sprintf("CHA: %d (%+d)", g.Player.Charisma, getModifier(g.Player.Charisma)), col2X+5, currentLineNum)
 	}
 
-	logLineHeight := 13
-	logStartY := screenHeight - uiPanelHeight - (combatLogLength * logLineHeight) - 10
-	logX := 10
+	logActiveFont := g.CombatLogFont
+	if logActiveFont == nil {
+		logActiveFont = basicfont.Face7x13
+	}
+	logLineHeight := 10
+	if metrics := logActiveFont.Metrics(); metrics.Height != 0 {
+		logLineHeight = metrics.Height.Ceil()
+		if logLineHeight < 8 {
+			logLineHeight = 8
+		}
+		logLineHeight += 1
+	}
+
+	logScreenHeight := combatLogLength * logLineHeight
+	logPanelPadding := 5
+	logPanelY := screenHeight - uiPanelHeight - logScreenHeight - logPanelPadding
+	logPanelX := logPanelPadding
+
 	if g.CombatLog != nil {
 		for i, msg := range g.CombatLog {
 			isRestPrompt, isLevelUpMsg, isReactionPrompt := false, false, false
@@ -507,22 +525,24 @@ func (g *Game) DrawPlaying(screen *ebiten.Image) {
 			if isRestPrompt || isLevelUpMsg || isReactionPrompt {
 				msgColor = colorYellow
 			}
-			text.Draw(screen, msg, basicfont.Face7x13, logX, logStartY+(i*logLineHeight), msgColor)
+			text.Draw(screen, msg, logActiveFont, logPanelX, logPanelY+(i*logLineHeight), msgColor)
 		}
 	}
 
+	ftFont := basicfont.Face7x13
 	for _, ft := range g.FloatingTexts {
 		alpha := uint8(255 * (float64(ft.Life) / float64(ft.MaxLife)))
 		nrgbaColor := color.NRGBAModel.Convert(ft.Color).(color.NRGBA)
 		finalColor := nrgbaColor
 		finalColor.A = alpha
 		shadowColor := color.NRGBA{R: 0, G: 0, B: 0, A: alpha / 2}
-		bounds := text.BoundString(basicfont.Face7x13, ft.Text)
+		bounds := text.BoundString(ftFont, ft.Text)
 		textX, textY := int(ft.X)-bounds.Dx()/2, int(ft.Y)
-		text.Draw(screen, ft.Text, basicfont.Face7x13, textX+1, textY+1, shadowColor)
-		text.Draw(screen, ft.Text, basicfont.Face7x13, textX, textY, finalColor)
+		text.Draw(screen, ft.Text, ftFont, textX+1, textY+1, shadowColor)
+		text.Draw(screen, ft.Text, ftFont, textX, textY, finalColor)
 	}
 
+	levelUpFont := basicfont.Face7x13
 	if g.InputMode == InputModeLevelUp && g.Player != nil {
 		menuW, menuH := screenWidth/2, screenHeight/3+20
 		menuX, menuY := (screenWidth-menuW)/2, (screenHeight-menuH)/2
@@ -530,10 +550,10 @@ func (g *Game) DrawPlaying(screen *ebiten.Image) {
 		vector.StrokeRect(screen, float32(menuX), float32(menuY), float32(menuW), float32(menuH), 2, colorWhite, false)
 
 		levelUpTitle := fmt.Sprintf("Level %d Reached!", g.Player.Level)
-		titleBounds := text.BoundString(basicfont.Face7x13, levelUpTitle)
+		titleBounds := text.BoundString(levelUpFont, levelUpTitle)
 		titleX := menuX + (menuW-titleBounds.Dx())/2
 		titleY := menuY + 15
-		text.Draw(screen, levelUpTitle, basicfont.Face7x13, titleX, titleY, colorWhite)
+		text.Draw(screen, levelUpTitle, levelUpFont, titleX, titleY, colorWhite)
 		lineStartY := titleY + 25
 		lineNum := 0
 		lineSpacing := 15
@@ -544,37 +564,37 @@ func (g *Game) DrawPlaying(screen *ebiten.Image) {
 			if g.Player.Level == 2 && len(g.Player.KnownSpells) < 3 {
 				choicePending = true
 				spellChoiceText := "Choose L1 Spell:"
-				text.Draw(screen, spellChoiceText, basicfont.Face7x13, choiceX, lineStartY+(lineNum*lineSpacing), colorYellow)
+				text.Draw(screen, spellChoiceText, levelUpFont, choiceX, lineStartY+(lineNum*lineSpacing), colorYellow)
 				lineNum++
 				level2Spells := []string{"arcane_blink", "burning_hands", "frost_nova", "mind_spike"}
 				for i, spellID := range level2Spells {
 					spellName := ActionTable[spellID].Name
 					choiceLine := fmt.Sprintf("[%d] %s", i+1, spellName)
-					text.Draw(screen, choiceLine, basicfont.Face7x13, choiceX, lineStartY+(lineNum*lineSpacing), colorWhite)
+					text.Draw(screen, choiceLine, levelUpFont, choiceX, lineStartY+(lineNum*lineSpacing), colorWhite)
 					lineNum++
 				}
 			} else if g.Player.Level == 3 && len(g.Player.KnownCantrips) < 2 {
 				choicePending = true
 				cantripChoiceText := "Choose Cantrip:"
-				text.Draw(screen, cantripChoiceText, basicfont.Face7x13, choiceX, lineStartY+(lineNum*lineSpacing), colorYellow)
+				text.Draw(screen, cantripChoiceText, levelUpFont, choiceX, lineStartY+(lineNum*lineSpacing), colorYellow)
 				lineNum++
 				level3Cantrips := []string{"ray_of_frost", "shocking_grasp"}
 				for i, cantripID := range level3Cantrips {
 					cantripName := ActionTable[cantripID].Name
 					choiceLine := fmt.Sprintf("[%d] %s", i+1, cantripName)
-					text.Draw(screen, choiceLine, basicfont.Face7x13, choiceX, lineStartY+(lineNum*lineSpacing), colorWhite)
+					text.Draw(screen, choiceLine, levelUpFont, choiceX, lineStartY+(lineNum*lineSpacing), colorWhite)
 					lineNum++
 				}
 			} else if g.Player.Level == 4 && len(g.Player.KnownSpells) < 4 {
 				choicePending = true
 				spellChoiceText := "Choose L1 Spell:"
-				text.Draw(screen, spellChoiceText, basicfont.Face7x13, choiceX, lineStartY+(lineNum*lineSpacing), colorYellow)
+				text.Draw(screen, spellChoiceText, levelUpFont, choiceX, lineStartY+(lineNum*lineSpacing), colorYellow)
 				lineNum++
 				level4Spells := []string{"magic_armor", "elemental_strike", "feather_fall", "expeditious_retreat"}
 				for i, spellID := range level4Spells {
 					spellName := ActionTable[spellID].Name
 					choiceLine := fmt.Sprintf("[%d] %s", i+1, spellName)
-					text.Draw(screen, choiceLine, basicfont.Face7x13, choiceX, lineStartY+(lineNum*lineSpacing), colorWhite)
+					text.Draw(screen, choiceLine, levelUpFont, choiceX, lineStartY+(lineNum*lineSpacing), colorWhite)
 					lineNum++
 				}
 			}
@@ -582,23 +602,23 @@ func (g *Game) DrawPlaying(screen *ebiten.Image) {
 			if g.Player.Level == 3 && g.Player.CombatStyle == "" {
 				choicePending = true
 				styleChoiceText := "Choose Combat Style:"
-				text.Draw(screen, styleChoiceText, basicfont.Face7x13, choiceX, lineStartY+(lineNum*lineSpacing), colorYellow)
+				text.Draw(screen, styleChoiceText, levelUpFont, choiceX, lineStartY+(lineNum*lineSpacing), colorYellow)
 				lineNum++
 				styles := []string{"Gladiator (+2 Melee Dmg)", "Ranger (+2 Ranged Hit)", "Juggernaut (+2 AC)"}
 				for i, styleDesc := range styles {
 					choiceLine := fmt.Sprintf("[%d] %s", i+1, styleDesc)
-					text.Draw(screen, choiceLine, basicfont.Face7x13, choiceX, lineStartY+(lineNum*lineSpacing), colorWhite)
+					text.Draw(screen, choiceLine, levelUpFont, choiceX, lineStartY+(lineNum*lineSpacing), colorWhite)
 					lineNum++
 				}
 			} else if g.Player.Level == 4 && g.Player.CombatTechnique == "" {
 				choicePending = true
 				techChoiceText := "Choose Combat Technique:"
-				text.Draw(screen, techChoiceText, basicfont.Face7x13, choiceX, lineStartY+(lineNum*lineSpacing), colorYellow)
+				text.Draw(screen, techChoiceText, levelUpFont, choiceX, lineStartY+(lineNum*lineSpacing), colorYellow)
 				lineNum++
 				techniques := []string{"Power Attack (-2 Hit/+50% Dmg)", "Defensive Stance (+2 AC/-1 Move)", "Quick Strike (Bonus Atk/Half Dmg)"}
 				for i, techDesc := range techniques {
 					choiceLine := fmt.Sprintf("[%d] %s", i+1, techDesc)
-					text.Draw(screen, choiceLine, basicfont.Face7x13, choiceX, lineStartY+(lineNum*lineSpacing), colorWhite)
+					text.Draw(screen, choiceLine, levelUpFont, choiceX, lineStartY+(lineNum*lineSpacing), colorWhite)
 					lineNum++
 				}
 			}
@@ -606,28 +626,29 @@ func (g *Game) DrawPlaying(screen *ebiten.Image) {
 
 		if !choicePending {
 			summaryText := "Check Character Sheet [C] for details."
-			summaryBounds := text.BoundString(basicfont.Face7x13, summaryText)
+			summaryBounds := text.BoundString(levelUpFont, summaryText)
 			summaryX := menuX + (menuW-summaryBounds.Dx())/2
 			summaryY := titleY + 25
-			text.Draw(screen, summaryText, basicfont.Face7x13, summaryX, summaryY, colorGray)
+			text.Draw(screen, summaryText, levelUpFont, summaryX, summaryY, colorGray)
 			continueMsg := "Press [Enter] to Continue"
-			continueBounds := text.BoundString(basicfont.Face7x13, continueMsg)
+			continueBounds := text.BoundString(levelUpFont, continueMsg)
 			continueX := menuX + (menuW-continueBounds.Dx())/2
 			continueY := menuY + menuH - 30
-			text.Draw(screen, continueMsg, basicfont.Face7x13, continueX, continueY, colorWhite)
+			text.Draw(screen, continueMsg, levelUpFont, continueX, continueY, colorWhite)
 		}
 	}
 
+	reactionFont := basicfont.Face7x13
 	if g.InputMode == InputModeReactionPrompt {
 		menuW, menuH := screenWidth/3, screenHeight/6
 		menuX, menuY := (screenWidth-menuW)/2, (screenHeight-menuH)/2
 		vector.DrawFilledRect(screen, float32(menuX), float32(menuY), float32(menuW), float32(menuH), color.NRGBA{R: 30, G: 30, B: 50, A: 230}, false)
 		vector.StrokeRect(screen, float32(menuX), float32(menuY), float32(menuW), float32(menuH), 2, colorWhite, false)
 		promptText := "Use Shield Reaction? [Y/N]"
-		promptBounds := text.BoundString(basicfont.Face7x13, promptText)
+		promptBounds := text.BoundString(reactionFont, promptText)
 		promptX := menuX + (menuW-promptBounds.Dx())/2
 		promptY := menuY + (menuH-promptBounds.Dy())/2
-		text.Draw(screen, promptText, basicfont.Face7x13, promptX, promptY, colorYellow)
+		text.Draw(screen, promptText, reactionFont, promptX, promptY, colorYellow)
 	}
 }
 
@@ -645,7 +666,6 @@ func (g *Game) DrawUIBar(screen *ebiten.Image) {
 		if cursorPoint.In(btn.Rect) {
 			hoveredButton = btn
 			tooltipText = btn.Tooltip
-
 		}
 	}
 
@@ -686,29 +706,34 @@ func (g *Game) DrawUIBar(screen *ebiten.Image) {
 
 			text.Draw(screen, iconStr, g.IconFont.Face, iconX, iconY, colorIconDefault)
 		} else {
-
 			label := btn.ID
 			if len(label) > 6 {
 				label = label[:6]
 			}
-			labelBounds := text.BoundString(basicfont.Face7x13, label)
+			tooltipFont := basicfont.Face7x13
+			labelBounds := text.BoundString(tooltipFont, label)
 			labelX := btn.Rect.Min.X + (uiButtonSize-labelBounds.Dx())/2
 			labelY := btn.Rect.Min.Y + (uiButtonSize-labelBounds.Dy())/2 + labelBounds.Dy()
-			text.Draw(screen, label, basicfont.Face7x13, labelX, labelY, colorBlack)
+			text.Draw(screen, label, tooltipFont, labelX, labelY, colorBlack)
 		}
-
 	}
 
 	if tooltipText != "" {
-		tooltipFont := basicfont.Face7x13
+		tooltipFont := basicfont.Face7x13 // Or g.CombatLogFont if you decide to change tooltip font too
+		// If you were to use g.CombatLogFont here and it might be nil:
+		// if g.CombatLogFont != nil {
+		//    tooltipFont = g.CombatLogFont
+		// }
+
 		tooltipBounds := text.BoundString(tooltipFont, tooltipText)
-		tooltipHeight := tooltipBounds.Dy()
+		tooltipHeight := tooltipBounds.Dy() // This is the height of the text block itself
 
 		tooltipX := cursorX + 10
-		tooltipY := cursorY - tooltipHeight - 10
+		tooltipY := cursorY - 5 // Position tooltip slightly above cursor
 
-		if tooltipY < 0 {
-			tooltipY = cursorY + 15
+		// Adjust if tooltip goes off screen (simplified logic)
+		if tooltipY-tooltipHeight < 0 { // If the top of the tooltip goes above screen
+			tooltipY = cursorY + 15 + tooltipHeight // Move below cursor
 		}
 		if tooltipX+tooltipBounds.Dx()+4 > screenWidth {
 			tooltipX = cursorX - tooltipBounds.Dx() - 10
@@ -719,12 +744,15 @@ func (g *Game) DrawUIBar(screen *ebiten.Image) {
 
 		padding := 3
 		bgX := float32(tooltipX - padding)
-
-		bgY := float32(tooltipY - tooltipHeight - padding)
+		// The Y for text.Draw is the baseline, so bgY needs to account for that.
+		// Ascent is distance from baseline to top.
+		ascent := tooltipFont.Metrics().Ascent.Ceil()
+		bgY := float32(tooltipY - ascent - padding) // Background starts above the baseline
 		bgW := float32(tooltipBounds.Dx() + padding*2)
-		bgH := float32(tooltipHeight + padding*2)
+		bgH := float32(tooltipHeight + padding*2) // tooltipHeight is the full block height
 
 		vector.DrawFilledRect(screen, bgX, bgY, bgW, bgH, colorBlack, false)
+		// For text.Draw, Y is the baseline.
 		text.Draw(screen, tooltipText, tooltipFont, tooltipX, tooltipY, colorWhite)
 	}
 }
@@ -756,9 +784,13 @@ func (g *Game) DrawGameOver(screen *ebiten.Image) {
 	text.Draw(screen, quitMsg, msgFont, quitX, quitY, colorGray)
 }
 
-func StartScreen() *Game {
+func StartScreen(startInGodMode bool) *Game {
 	g := &Game{}
 	g.CurrentGameState = StateClassSelection
+	g.godModeEnabled = startInGodMode
+	if g.godModeEnabled {
+		log.Println("Game starting with GOD MODE ENABLED via command-line flag.")
+	}
 	g.selectableClasses = []SelectableClass{
 		{Name: "Fighter", IsAvailable: true},
 		{Name: "Mage", IsAvailable: true},
