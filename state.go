@@ -28,6 +28,8 @@ func (g *Game) startPlayerTurn() {
 	g.Player.UsedReaction = false
 	g.InputMode = InputModeMap
 	g.primedActionID = ""
+	g.buildAvailableActions()
+	g.initializeActionButtons()
 }
 
 func (g *Game) endPlayerTurn() {
