@@ -226,6 +226,29 @@ PLAN → DEPLOY → EXECUTE → RECOVER → MANAGE → PLAN
 5. **Manage**: Handle camp events. Assign idle members to tasks. Process resources. Deal with threats to your perimeter.
 6. **Plan**: The situation has changed. New information from the expedition. New threats. New opportunities. What next?
 
+## Decided: Camera System
+
+Two camera modes, matching the two gameplay layers:
+
+**Strategic view** — 2D map overlay. Shows explored areas, squad positions, settlements, supply lines, threat zones. This is where company management happens. No 3D rendering needed — stylized abstract map.
+
+**Tactical view** — 3D isometric (current spike). Only renders the local area around the active squad. Combat, exploration, moment-to-moment gameplay. You never see the whole dungeon in 3D.
+
+Player flow: strategic map → pick squad/destination → travel (time passes) → tactical 3D for local area → back to strategic.
+
+This solves the scale problem: the dungeon can be massive without the camera needing to show it all.
+
+## Decided: Multiplayer Time Model
+
+**Real-time shared clock. No sync overhead.**
+
+- All players move freely on the map simultaneously
+- Global clock ticks forward as anyone acts — standing still still costs time (food, torch, exhaustion)
+- No phases, no turn order, no waiting on other players during exploration
+- Combat is the only sync point: enters turn-based mode with initiative when a squad engages
+
+This means a player who wanders inefficiently burns real resources. Time pressure is felt per-step, not per-turn. The spike proved this — watching the tick counter go up with every step creates genuine pressure even without survival mechanics wired up yet.
+
 ## Open Questions
 
 - **Company size.** How many adventurers? Start with 4, recruit up to 12? Or start solo, build the company from NPCs found in the dungeon?
