@@ -265,32 +265,7 @@ func main() {
 			}
 		}
 
-		// Click to move or break wall (local mode only)
-		if game.Camera == CameraLocal && rl.IsMouseButtonPressed(rl.MouseButtonLeft) {
-			ray := rl.GetScreenToWorldRay(rl.GetMousePosition(), camera)
-			if wx, wz, ok := rayHitGround(ray); ok {
-				gx, gz := worldToGrid(wx, wz)
-
-				// Check if clicking a solid tile adjacent to player (break wall)
-				adjDx := gx - game.PlayerX
-				adjDz := gz - game.PlayerZ
-				isAdj := (abs(adjDx)+abs(adjDz) == 1)
-				clickedTile, _ := world.GetTile(gx, gz)
-
-				if game.HasPickaxe && isAdj && clickedTile == TileSolid {
-					world.SetTile(gx, gz, TileDoorway)
-					world.RevealAround(gx, gz)
-					game.SetMessage("Wall broken!")
-				} else {
-					path := FindPath(world, game.PlayerX, game.PlayerZ, gx, gz)
-					if path != nil {
-						game.Path = path
-					}
-				}
-			}
-		}
-
-		// Step along path
+		// Step animation
 		if game.Moving {
 			game.StepProgress += dt / stepInterval
 			if game.StepProgress >= 1.0 {
@@ -299,28 +274,101 @@ func main() {
 			}
 		}
 
-		if !game.Moving && len(game.Path) > 0 {
-			next := game.Path[0]
-			game.Path = game.Path[1:]
-			dx, dz := next[0]-game.PlayerX, next[1]-game.PlayerZ
-			game.PrevX, game.PrevZ = game.PlayerX, game.PlayerZ
-			game.PlayerX, game.PlayerZ = next[0], next[1]
-			game.FacingAngle = FacingAngleFromDir(dx, dz)
-			game.StepProgress = 0
-			game.Moving = true
-			game.TimeTicks++
+		// WASD movement — screen-relative based on camera angle
+		if game.Camera == CameraLocal && !game.Moving {
+			// Screen-space input
+			var sx, sz float64
+			if rl.IsKeyDown(rl.KeyW) {
+				sz -= 1
+			}
+			if rl.IsKeyDown(rl.KeyS) {
+				sz += 1
+			}
+			if rl.IsKeyDown(rl.KeyA) {
+				sx -= 1
+			}
+			if rl.IsKeyDown(rl.KeyD) {
+				sx += 1
+			}
 
-			// Chunk management on move
-			cx, cz := TileToChunk(game.PlayerX, game.PlayerZ)
-			world.EnsureChunksAround(cx, cz)
-			world.UnloadFarChunks(cx, cz)
-			world.MarkExplored(game.PlayerX, game.PlayerZ)
-			world.RevealAround(game.PlayerX, game.PlayerZ)
+			if sx != 0 || sz != 0 {
+				// Transform screen direction to grid direction using camera orbit angle
+				// Camera forward (into screen) = toward target from camera position
+				fwd := float64(orbitAngle) + math.Pi // direction camera looks
+				cosA := math.Cos(fwd)
+				sinA := math.Sin(fwd)
+				// Screen up (W) = camera forward on ground, screen right (D) = camera right
+				gridX := sx*(-sinA) - sz*cosA
+				gridZ := sx*cosA - sz*sinA
 
-			// Pickaxe pickup
-			if !game.HasPickaxe && game.PlayerX == world.PickaxeX && game.PlayerZ == world.PickaxeZ {
-				game.HasPickaxe = true
-				game.SetMessage("Picked up a pickaxe! Click walls to break them.")
+				// Snap to nearest of 8 grid directions
+				angle := math.Atan2(gridZ, gridX)
+				sector := int(math.Round(angle/(math.Pi/4))) % 8
+				dirs := [8][2]int{
+					{1, 0}, {1, 1}, {0, 1}, {-1, 1},
+					{-1, 0}, {-1, -1}, {0, -1}, {1, -1},
+				}
+				// Normalize sector to 0-7
+				if sector < 0 {
+					sector += 8
+				}
+				dx, dz := dirs[sector][0], dirs[sector][1]
+
+				game.FacingAngle = FacingAngleFromDir(dx, dz)
+				game.FacingDX, game.FacingDZ = dx, dz
+				nx, nz := game.PlayerX+dx, game.PlayerZ+dz
+
+				canMove := world.IsWalkable(nx, nz)
+				if dx != 0 && dz != 0 && canMove {
+					canMove = world.IsWalkable(game.PlayerX+dx, game.PlayerZ) &&
+						world.IsWalkable(game.PlayerX, game.PlayerZ+dz)
+				}
+
+				// Wall slide
+				if !canMove && dx != 0 && dz != 0 {
+					if world.IsWalkable(game.PlayerX+dx, game.PlayerZ) {
+						dz = 0
+						nx, nz = game.PlayerX+dx, game.PlayerZ
+						canMove = true
+						game.FacingAngle = FacingAngleFromDir(dx, 0)
+						game.FacingDX, game.FacingDZ = dx, 0
+					} else if world.IsWalkable(game.PlayerX, game.PlayerZ+dz) {
+						dx = 0
+						nx, nz = game.PlayerX, game.PlayerZ+dz
+						canMove = true
+						game.FacingAngle = FacingAngleFromDir(0, dz)
+						game.FacingDX, game.FacingDZ = 0, dz
+					}
+				}
+
+				if canMove {
+					game.PrevX, game.PrevZ = game.PlayerX, game.PlayerZ
+					game.PlayerX, game.PlayerZ = nx, nz
+					game.StepProgress = 0
+					game.Moving = true
+					game.TimeTicks++
+
+					cx, cz := TileToChunk(game.PlayerX, game.PlayerZ)
+					world.EnsureChunksAround(cx, cz)
+					world.UnloadFarChunks(cx, cz)
+					world.MarkExplored(game.PlayerX, game.PlayerZ)
+					world.RevealAround(game.PlayerX, game.PlayerZ)
+
+					if !game.HasPickaxe && game.PlayerX == world.PickaxeX && game.PlayerZ == world.PickaxeZ {
+						game.HasPickaxe = true
+						game.SetMessage("Picked up pickaxe! Press E near walls to break them.")
+					}
+				}
+			}
+		}
+
+		// E to break wall in facing direction
+		if game.Camera == CameraLocal && game.HasPickaxe && rl.IsKeyPressed(rl.KeyE) {
+			tx, tz := game.PlayerX+game.FacingDX, game.PlayerZ+game.FacingDZ
+			if t, ok := world.GetTile(tx, tz); ok && t == TileSolid {
+				world.SetTile(tx, tz, TileDoorway)
+				world.RevealAround(tx, tz)
+				game.SetMessage("Wall broken!")
 			}
 		}
 
@@ -368,7 +416,7 @@ func main() {
 		}
 		rl.DrawText(fmt.Sprintf("Time: %d | Chunks: %d | Mode: %s",
 			game.TimeTicks, len(world.Chunks), modeStr), 10, 10, 20, rl.White)
-		rl.DrawText("Click to move | Tab to toggle map | Right-drag orbit | Scroll zoom", 10, 35, 16, rl.Gray)
+		rl.DrawText("WASD move | E break wall | Tab map | Right-drag orbit | Scroll zoom", 10, 35, 16, rl.Gray)
 		if game.MessageTimer > 0 {
 			rl.DrawText(game.Message, 10, 60, 20, rl.Color{R: 255, G: 220, B: 100, A: 255})
 		}

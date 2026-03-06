@@ -15,6 +15,8 @@ type GameState struct {
 	StepProgress     float32
 	Moving           bool
 	FacingAngle      float32
+	FacingDX         int // grid direction player faces
+	FacingDZ         int
 	TimeTicks        int
 	Path             [][2]int
 	Camera           CameraMode
@@ -28,18 +30,26 @@ func (g *GameState) SetMessage(msg string) {
 	g.MessageTimer = 3.0
 }
 
-const stepInterval = 0.15
+const stepInterval = 0.08
 
 func FacingAngleFromDir(dx, dz int) float32 {
 	switch {
-	case dz == -1:
+	case dx == 0 && dz == -1:
 		return 180
-	case dz == 1:
+	case dx == 0 && dz == 1:
 		return 0
-	case dx == -1:
+	case dx == -1 && dz == 0:
 		return 90
-	case dx == 1:
+	case dx == 1 && dz == 0:
 		return -90
+	case dx == -1 && dz == -1:
+		return 135
+	case dx == 1 && dz == -1:
+		return -135
+	case dx == -1 && dz == 1:
+		return 45
+	case dx == 1 && dz == 1:
+		return -45
 	}
 	return 0
 }
