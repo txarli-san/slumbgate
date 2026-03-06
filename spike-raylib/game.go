@@ -18,6 +18,14 @@ type GameState struct {
 	TimeTicks        int
 	Path             [][2]int
 	Camera           CameraMode
+	HasPickaxe       bool
+	Message          string
+	MessageTimer     float32
+}
+
+func (g *GameState) SetMessage(msg string) {
+	g.Message = msg
+	g.MessageTimer = 3.0
 }
 
 const stepInterval = 0.15

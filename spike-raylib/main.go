@@ -115,6 +115,10 @@ func main() {
 	defer rl.UnloadModel(wallModel)
 	applyShaderToModel(wallModel, shader)
 
+	pickaxeModel := rl.LoadModel("../assets/models/weapons/axe_common.gltf.glb")
+	defer rl.UnloadModel(pickaxeModel)
+	applyShaderToModel(pickaxeModel, shader)
+
 	knightModel := rl.LoadModel("../assets/models/characters/character_knight.gltf")
 	defer rl.UnloadModel(knightModel)
 	applyShaderToModel(knightModel, shader)
@@ -151,11 +155,13 @@ func main() {
 	seed := time.Now().UnixNano()
 	world := NewWorld(seed)
 	// Spawn player outside the dungeon wall
-	spawnX := DungeonRadius + DungeonWarpAmp + 5
+	spawnX := OuterRadius + DungeonWarpAmp + 5
+	world.PlacePickaxe(spawnX, 0)
 	game := &GameState{PlayerX: spawnX, PlayerZ: 0}
 	cx, cz := TileToChunk(spawnX, 0)
 	world.EnsureChunksAround(cx, cz)
 	world.MarkExplored(spawnX, 0)
+	world.RevealAround(spawnX, 0)
 
 	// Camera state — local
 	orbitAngle := float32(math.Pi / 4)
@@ -259,14 +265,27 @@ func main() {
 			}
 		}
 
-		// Click to move (local mode only)
+		// Click to move or break wall (local mode only)
 		if game.Camera == CameraLocal && rl.IsMouseButtonPressed(rl.MouseButtonLeft) {
 			ray := rl.GetScreenToWorldRay(rl.GetMousePosition(), camera)
 			if wx, wz, ok := rayHitGround(ray); ok {
 				gx, gz := worldToGrid(wx, wz)
-				path := FindPath(world, game.PlayerX, game.PlayerZ, gx, gz)
-				if path != nil {
-					game.Path = path
+
+				// Check if clicking a solid tile adjacent to player (break wall)
+				adjDx := gx - game.PlayerX
+				adjDz := gz - game.PlayerZ
+				isAdj := (abs(adjDx)+abs(adjDz) == 1)
+				clickedTile, _ := world.GetTile(gx, gz)
+
+				if game.HasPickaxe && isAdj && clickedTile == TileSolid {
+					world.SetTile(gx, gz, TileFloor)
+					world.RevealAround(gx, gz)
+					game.SetMessage("Wall broken!")
+				} else {
+					path := FindPath(world, game.PlayerX, game.PlayerZ, gx, gz)
+					if path != nil {
+						game.Path = path
+					}
 				}
 			}
 		}
@@ -296,6 +315,18 @@ func main() {
 			world.EnsureChunksAround(cx, cz)
 			world.UnloadFarChunks(cx, cz)
 			world.MarkExplored(game.PlayerX, game.PlayerZ)
+			world.RevealAround(game.PlayerX, game.PlayerZ)
+
+			// Pickaxe pickup
+			if !game.HasPickaxe && game.PlayerX == world.PickaxeX && game.PlayerZ == world.PickaxeZ {
+				game.HasPickaxe = true
+				game.SetMessage("Picked up a pickaxe! Click walls to break them.")
+			}
+		}
+
+		// Message timer
+		if game.MessageTimer > 0 {
+			game.MessageTimer -= dt
 		}
 
 		// Camera follow player
@@ -325,7 +356,7 @@ func main() {
 		if game.Camera == CameraLocal {
 			drawLocal(camera, world, game, tileUnit, floorSurfaceY, knightYOffset, charScale, wallScale,
 				floorVariant, gridToWorld, worldToGrid, rayHitGround,
-				knightModel, wallModel)
+				knightModel, wallModel, pickaxeModel)
 		} else {
 			drawMap(world, game, mapScale, mapPanX, mapPanZ)
 		}
@@ -338,6 +369,9 @@ func main() {
 		rl.DrawText(fmt.Sprintf("Time: %d | Chunks: %d | Mode: %s",
 			game.TimeTicks, len(world.Chunks), modeStr), 10, 10, 20, rl.White)
 		rl.DrawText("Click to move | Tab to toggle map | Right-drag orbit | Scroll zoom", 10, 35, 16, rl.Gray)
+		if game.MessageTimer > 0 {
+			rl.DrawText(game.Message, 10, 60, 20, rl.Color{R: 255, G: 220, B: 100, A: 255})
+		}
 		rl.DrawFPS(screenWidth-90, 10)
 
 		rl.EndDrawing()
@@ -353,7 +387,7 @@ func drawLocal(
 	gridToWorld func(int, int) rl.Vector3,
 	worldToGrid func(float32, float32) (int, int),
 	rayHitGround func(rl.Ray) (float32, float32, bool),
-	knightModel, wallModel rl.Model,
+	knightModel, wallModel, pickaxeModel rl.Model,
 ) {
 	rl.BeginMode3D(camera)
 
@@ -369,20 +403,20 @@ func drawLocal(
 				pos := gridToWorld(tx, tz)
 
 				halfTile := tileUnit * 0.5
+				revealed := chunk.Revealed[lz][lx]
+
+				drawWall := func(wallPos rl.Vector3, rotation float32) {
+					wallPos.Y = floorSurfaceY
+					rl.DrawModelEx(wallModel, wallPos, rl.Vector3{Y: 1}, rotation, wallScaleVec, rl.White)
+				}
 
 				switch tile {
 				case TileGround:
 					fm := floorVariant(tx, tz)
 					rl.DrawModelEx(fm, pos, rl.Vector3{Y: 1}, 0, ones, rl.Color{R: 140, G: 140, B: 130, A: 255})
-				case TileFloor:
-					fm := floorVariant(tx, tz)
-					rl.DrawModelEx(fm, pos, rl.Vector3{Y: 1}, 0, ones, rl.Color{R: 40, G: 40, B: 50, A: 255})
 
-					// Walls on edges facing ground
-					drawWall := func(wallPos rl.Vector3, rotation float32) {
-						wallPos.Y = floorSurfaceY
-						rl.DrawModelEx(wallModel, wallPos, rl.Vector3{Y: 1}, rotation, wallScaleVec, rl.White)
-					}
+				case TileSolid:
+					// Walls on edges facing ground (visible from outside)
 					if world.TileTypeAt(tx, tz-1) == TileGround {
 						drawWall(rl.Vector3{X: pos.X, Z: pos.Z - halfTile}, 180)
 					}
@@ -395,9 +429,55 @@ func drawLocal(
 					if world.TileTypeAt(tx+1, tz) == TileGround {
 						drawWall(rl.Vector3{X: pos.X + halfTile, Z: pos.Z}, 90)
 					}
+					// Walls on edges facing revealed floor (visible from inside)
+					if revealed {
+						if world.TileTypeAt(tx, tz-1) == TileFloor && world.IsRevealed(tx, tz-1) {
+							drawWall(rl.Vector3{X: pos.X, Z: pos.Z - halfTile}, 180)
+						}
+						if world.TileTypeAt(tx, tz+1) == TileFloor && world.IsRevealed(tx, tz+1) {
+							drawWall(rl.Vector3{X: pos.X, Z: pos.Z + halfTile}, 0)
+						}
+						if world.TileTypeAt(tx-1, tz) == TileFloor && world.IsRevealed(tx-1, tz) {
+							drawWall(rl.Vector3{X: pos.X - halfTile, Z: pos.Z}, -90)
+						}
+						if world.TileTypeAt(tx+1, tz) == TileFloor && world.IsRevealed(tx+1, tz) {
+							drawWall(rl.Vector3{X: pos.X + halfTile, Z: pos.Z}, 90)
+						}
+					}
+
+				case TileFloor:
+					if !revealed {
+						continue
+					}
+					fm := floorVariant(tx, tz)
+					rl.DrawModelEx(fm, pos, rl.Vector3{Y: 1}, 0, ones, rl.White)
+
+					// Walls on edges facing ground
+					if world.TileTypeAt(tx, tz-1) == TileGround {
+						drawWall(rl.Vector3{X: pos.X, Z: pos.Z - halfTile}, 180)
+					}
+					if world.TileTypeAt(tx, tz+1) == TileGround {
+						drawWall(rl.Vector3{X: pos.X, Z: pos.Z + halfTile}, 0)
+					}
+					if world.TileTypeAt(tx-1, tz) == TileGround {
+						drawWall(rl.Vector3{X: pos.X - halfTile, Z: pos.Z}, -90)
+					}
+					if world.TileTypeAt(tx+1, tz) == TileGround {
+						drawWall(rl.Vector3{X: pos.X + halfTile, Z: pos.Z}, 90)
+					}
+
+				case TileCore:
+					// Nothing rendered — void
 				}
 			}
 		}
+	}
+
+	// Pickaxe on ground
+	if !game.HasPickaxe {
+		pickPos := gridToWorld(world.PickaxeX, world.PickaxeZ)
+		pickPos.Y = floorSurfaceY
+		rl.DrawModelEx(pickaxeModel, pickPos, rl.Vector3{Y: 1}, 45, wallScaleVec, rl.White)
 	}
 
 	// Player
@@ -454,8 +534,16 @@ func drawMap(world *World, game *GameState, scale, panX, panZ float32) {
 				switch chunk.Tiles[lz][lx] {
 				case TileGround:
 					color = rl.Color{R: 45, G: 50, B: 40, A: 255}
+				case TileSolid:
+					color = rl.Color{R: 70, G: 60, B: 50, A: 255}
 				case TileFloor:
-					color = rl.Color{R: 30, G: 30, B: 45, A: 255}
+					if chunk.Revealed[lz][lx] {
+						color = rl.Color{R: 60, G: 65, B: 80, A: 255}
+					} else {
+						color = rl.Color{R: 25, G: 25, B: 35, A: 255}
+					}
+				case TileCore:
+					color = rl.Color{R: 15, G: 15, B: 20, A: 255}
 				}
 
 				sz := int32(math.Ceil(float64(scale)))
