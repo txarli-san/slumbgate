@@ -644,7 +644,12 @@ func (g *Game) DrawPlaying(screen *ebiten.Image) {
 		menuX, menuY := (screenWidth-menuW)/2, (screenHeight-menuH)/2
 		vector.DrawFilledRect(screen, float32(menuX), float32(menuY), float32(menuW), float32(menuH), color.NRGBA{R: 30, G: 30, B: 50, A: 230}, false)
 		vector.StrokeRect(screen, float32(menuX), float32(menuY), float32(menuW), float32(menuH), 2, colorWhite, false)
-		promptText := "Use Shield Reaction? [Y/N]"
+		promptText := "Use Reaction? [Y/N]"
+		if g.Player.Class == "Fighter" {
+			promptText = "Use Riposte Reaction? [Y/N]"
+		} else {
+			promptText = "Use Shield Reaction? [Y/N]"
+		}
 		promptBounds := text.BoundString(reactionFont, promptText)
 		promptX := menuX + (menuW-promptBounds.Dx())/2
 		promptY := menuY + (menuH-promptBounds.Dy())/2

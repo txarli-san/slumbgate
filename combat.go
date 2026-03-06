@@ -137,6 +137,8 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 		if playerKnowsShield && g.Player.SpellSlotsL1 > 0 {
 			g.addCombatLog("Hit detected! Use Shield reaction? [Y/N]")
 			g.reactionPending = true
+			g.reactionTargetX = -1
+			g.reactionTargetY = -1
 
 			g.addCombatLog(logMsg + " (Pending Reaction...)")
 
@@ -269,6 +271,15 @@ func (g *Game) resolveAttack(attacker *Entity, defender *Entity, attackerProfBon
 	} else if !isFumble {
 		logMsg += " Miss!"
 		g.FloatingTexts = append(g.FloatingTexts, &FloatingText{Text: "Miss!", X: textSpawnX, Y: textSpawnY - 15, Life: textLifetime / 2, MaxLife: textLifetime / 2, Color: colorGray, VelocityY: -0.5})
+
+		if isPlayerDefending && !g.Player.UsedReaction && !g.reactionPending && g.Player.Level >= 3 && g.Player.Class == "Fighter" {
+			g.addCombatLog("Miss detected! Use Riposte reaction? [Y/N]")
+			g.reactionPending = true
+			g.reactionTargetX = attacker.X
+			g.reactionTargetY = attacker.Y
+			g.addCombatLog(logMsg + " (Pending Reaction...)")
+			return false, false
+		}
 	}
 	g.addCombatLog(logMsg)
 	return killed, attackLanded
@@ -373,6 +384,46 @@ func executeMeleeAttack(g *Game, targetX, targetY int) bool {
 	return false
 }
 
+func executeRiposte(g *Game, targetX, targetY int) bool {
+	// Riposte is a reaction, triggered automatically on enemy miss
+	// This function might not be called directly; instead, hook into resolveAttack when enemy misses player
+	g.addCombatLog("Riposte!")
+	// Assume target is the enemy that missed
+	targetEnemy := g.getEnemyAt(targetX, targetY)
+	if targetEnemy != nil {
+		// Simple attack back
+		damage := rand.Intn(6) + 1 + getModifier(g.Player.Strength)
+		targetEnemy.HP -= damage
+		g.addCombatLog(fmt.Sprintf("Riposte deals %d damage to %s!", damage, targetEnemy.Name))
+		if targetEnemy.HP <= 0 {
+			targetEnemy.IsDying = true
+			g.addCombatLog(fmt.Sprintf("%s dies!", targetEnemy.Name))
+		}
+	}
+	return true
+}
+
+func executeTeleport(g *Game, targetX, targetY int) bool {
+	targetEnemy := g.getEnemyAt(targetX, targetY)
+	if targetEnemy == nil || !isAdjacentToEntity(g.Player.X, g.Player.Y, &targetEnemy.Entity) {
+		g.addCombatLog("Invalid target for Teleport (not adjacent).")
+		return false
+	}
+
+	g.addCombatLog(fmt.Sprintf("Teleporting with %s!", targetEnemy.Name))
+
+	// Swap positions
+	playerX, playerY := g.Player.X, g.Player.Y
+	g.Player.X, g.Player.Y = targetEnemy.X, targetEnemy.Y
+	targetEnemy.X, targetEnemy.Y = playerX, playerY
+
+	g.FloatingTexts = append(g.FloatingTexts, &FloatingText{
+		Text: "Swapped!", X: float64(g.MapOffsetX + g.Player.X*tileSize + (g.Player.Width*tileSize)/2), Y: float64(g.MapOffsetY+g.Player.Y*tileSize) - 15, Life: 60, MaxLife: 60, Color: colorYellow, VelocityY: -0.5,
+	})
+
+	return true
+}
+
 func executeRangedAttack(g *Game, targetX, targetY int) bool {
 	targetEnemy := g.getEnemyAt(targetX, targetY)
 	if targetEnemy != nil {
@@ -383,12 +434,78 @@ func executeRangedAttack(g *Game, targetX, targetY int) bool {
 				return false
 			}
 			return true
+		} else {
+			g.addCombatLog(fmt.Sprintf("Target %s out of range (%d > %d).", targetEnemy.Name, dist, playerRangedRange))
+			return false
 		}
-		g.addCombatLog(fmt.Sprintf("Target %s out of range (%d > %d).", targetEnemy.Name, dist, playerRangedRange))
-		return false
 	}
 	g.addCombatLog("No valid target selected at cursor for ranged attack.")
 	return false
+}
+
+func executeShove(g *Game, targetX, targetY int) bool {
+	targetEnemy := g.getEnemyAt(targetX, targetY)
+	if targetEnemy == nil || !isAdjacentToEntity(g.Player.X, g.Player.Y, &targetEnemy.Entity) {
+		g.addCombatLog("Invalid target for Shove (not adjacent).")
+		return false
+	}
+
+	g.addCombatLog(fmt.Sprintf("Attempting Shove on %s!", targetEnemy.Name))
+
+	attackerProfBonus := g.Player.ProficiencyBonus
+	attackAbilityMod := getModifier(g.Player.Strength)
+
+	roll := rand.Intn(20) + 1
+	effectiveAC := GetEffectiveAC(&targetEnemy.Entity)
+	attackRoll := roll + attackerProfBonus + attackAbilityMod
+	isCrit := roll == 20
+	isFumble := roll == 1
+	hit := !isFumble && (isCrit || attackRoll >= effectiveAC)
+
+	textSpawnX := float64(g.MapOffsetX + targetEnemy.X*tileSize + (targetEnemy.Width*tileSize)/2)
+	textSpawnY := float64(g.MapOffsetY + targetEnemy.Y*tileSize)
+
+	logMsg := fmt.Sprintf("Shove: %d (%s %d + %d) vs AC %d", attackRoll, "STR", attackAbilityMod, attackerProfBonus, effectiveAC)
+	if hit {
+		logMsg += " Hit!"
+		g.addCombatLog(logMsg)
+
+		// Push the enemy 1 tile away
+		dx := targetEnemy.X - g.Player.X
+		dy := targetEnemy.Y - g.Player.Y
+		newX := targetEnemy.X
+		newY := targetEnemy.Y
+		if dx > 0 {
+			newX++
+		} else if dx < 0 {
+			newX--
+		}
+		if dy > 0 {
+			newY++
+		} else if dy < 0 {
+			newY--
+		}
+		// Check if new position is valid
+		if newX >= 0 && newX+targetEnemy.Width <= mapWidth && newY >= 0 && newY+targetEnemy.Height <= mapHeight && !g.isTileFullyBlocked(newX, newY, targetEnemy.Width, targetEnemy.Height, g.getEnemyIndex(targetEnemy)) {
+			targetEnemy.X = newX
+			targetEnemy.Y = newY
+			g.addCombatLog(fmt.Sprintf("%s is pushed back!", targetEnemy.Name))
+		} else {
+			g.addCombatLog(fmt.Sprintf("%s resists the shove!", targetEnemy.Name))
+		}
+
+		g.FloatingTexts = append(g.FloatingTexts, &FloatingText{
+			Text: "Shoved!", X: textSpawnX, Y: textSpawnY - 15, Life: 60, MaxLife: 60, Color: colorWhite, VelocityY: -0.5,
+		})
+	} else {
+		logMsg += " Miss!"
+		g.addCombatLog(logMsg)
+		g.FloatingTexts = append(g.FloatingTexts, &FloatingText{
+			Text: "Miss!", X: textSpawnX, Y: textSpawnY - 15, Life: 30, MaxLife: 30, Color: colorGray, VelocityY: -0.5,
+		})
+	}
+
+	return true
 }
 
 func executeDash(g *Game, targetX, targetY int) bool {

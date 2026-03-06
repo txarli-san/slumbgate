@@ -36,14 +36,25 @@ func (g *Game) handlePlayerInput() {
 	switch g.InputMode {
 	case InputModeReactionPrompt:
 		if inpututil.IsKeyJustPressed(ebiten.KeyY) {
-			g.addCombatLog("Reacting with Shield!")
-			shieldAction := ActionTable["shield"]
-			g.executeAction(shieldAction, -1, -1)
+			if g.Player.Class == "Fighter" {
+				g.addCombatLog("Reacting with Riposte!")
+				riposteAction := ActionTable["riposte"]
+				g.executeAction(riposteAction, g.reactionTargetX, g.reactionTargetY)
+				g.addCombatLog("Attack resolved (after Riposte).")
+			} else {
+				g.addCombatLog("Reacting with Shield!")
+				shieldAction := ActionTable["shield"]
+				g.executeAction(shieldAction, -1, -1)
+				g.addCombatLog("Attack resolved (after Shield).")
+			}
 			g.reactionPending = false
 			g.InputMode = InputModeMap
-			g.addCombatLog("Attack resolved (after Shield).")
 		} else if inpututil.IsKeyJustPressed(ebiten.KeyN) {
-			g.addCombatLog("Declined Shield reaction.")
+			if g.Player.Class == "Fighter" {
+				g.addCombatLog("Declined Riposte reaction.")
+			} else {
+				g.addCombatLog("Declined Shield reaction.")
+			}
 			g.Player.UsedReaction = true
 			g.reactionPending = false
 			g.InputMode = InputModeMap

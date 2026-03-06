@@ -828,6 +828,15 @@ func (g *Game) getEnemyAt(x, y int) *Enemy {
 	return nil
 }
 
+func (g *Game) getEnemyIndex(targetEnemy *Enemy) int {
+	for i, enemy := range g.Enemies {
+		if enemy == targetEnemy {
+			return i
+		}
+	}
+	return -1
+}
+
 func (g *Game) buildAvailableActions() {
 	g.availableActions = []*ActionDefinition{}
 	if g.Player == nil {

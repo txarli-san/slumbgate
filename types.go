@@ -140,6 +140,8 @@ type Game struct {
 	FloatingTexts             []*FloatingText
 	reactionPending           bool
 	reactionAttackerID        int
+	reactionTargetX           int
+	reactionTargetY           int
 	pendingLevelUpSpellChoice int
 	CurrentGameState          GameState
 	selectableClasses         []SelectableClass
