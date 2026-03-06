@@ -432,15 +432,12 @@ func main() {
 		}
 
 		// Step along path
-		if len(game.Path) > 0 {
-			game.StepTimer -= dt
-			if game.StepTimer <= 0 {
-				next := game.Path[0]
-				game.Path = game.Path[1:]
-				game.PlayerX, game.PlayerZ = next[0], next[1]
-				game.TimeTicks++
-				game.StepTimer = stepInterval
-				dungeon.RevealAround(game.PlayerX, game.PlayerZ)
+		if game.Moving {
+			// Animate current step
+			game.StepProgress += dt / stepInterval
+			if game.StepProgress >= 1.0 {
+				game.StepProgress = 1.0
+				game.Moving = false
 
 				// Check pickaxe pickup
 				if !game.HasPickaxe && game.PlayerX == dungeon.PickaxeX && game.PlayerZ == dungeon.PickaxeZ {
@@ -448,6 +445,19 @@ func main() {
 					game.SetMessage("Picked up a pickaxe! Find the cracked wall.")
 				}
 			}
+		}
+
+		if !game.Moving && len(game.Path) > 0 {
+			next := game.Path[0]
+			game.Path = game.Path[1:]
+			dx, dz := next[0]-game.PlayerX, next[1]-game.PlayerZ
+			game.PrevX, game.PrevZ = game.PlayerX, game.PlayerZ
+			game.PlayerX, game.PlayerZ = next[0], next[1]
+			game.FacingAngle = FacingAngleFromDir(dx, dz)
+			game.StepProgress = 0
+			game.Moving = true
+			game.TimeTicks++
+			dungeon.RevealAround(game.PlayerX, game.PlayerZ)
 		}
 
 		// Message timer
@@ -594,11 +604,23 @@ func main() {
 			rl.DrawModelEx(wallBrokenModel, bwPos, rl.Vector3{Y: 1}, bwRot, wallScaleVec, rl.White)
 		}
 
-		// Player
+		// Player — lerp between previous and current tile
 		scaleVec := rl.Vector3{X: charScale, Y: charScale, Z: charScale}
-		knightPos := gridToWorld(game.PlayerX, game.PlayerZ)
-		knightPos.Y = knightYOffset
-		rl.DrawModelEx(knightModel, knightPos, rl.Vector3{Y: 1}, 0, scaleVec, rl.White)
+		var knightPos rl.Vector3
+		if game.Moving {
+			from := gridToWorld(game.PrevX, game.PrevZ)
+			to := gridToWorld(game.PlayerX, game.PlayerZ)
+			t := game.StepProgress
+			knightPos = rl.Vector3{
+				X: from.X + (to.X-from.X)*t,
+				Y: knightYOffset,
+				Z: from.Z + (to.Z-from.Z)*t,
+			}
+		} else {
+			knightPos = gridToWorld(game.PlayerX, game.PlayerZ)
+			knightPos.Y = knightYOffset
+		}
+		rl.DrawModelEx(knightModel, knightPos, rl.Vector3{Y: 1}, game.FacingAngle, scaleVec, rl.White)
 
 		// Tile hover highlight (ground always, floor only if revealed)
 		ray := rl.GetScreenToWorldRay(rl.GetMousePosition(), camera)

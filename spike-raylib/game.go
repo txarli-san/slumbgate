@@ -5,13 +5,17 @@ import "container/heap"
 // Game state for the exploration PoC
 type GameState struct {
 	PlayerX, PlayerZ int
+	PrevX, PrevZ     int     // previous tile (for lerp)
 	Path             [][2]int // queued path to walk
 	StepTimer        float32  // time until next step
+	StepProgress     float32  // 0..1 lerp between prev and current pos
+	Moving           bool
+	FacingAngle      float32 // Y rotation in degrees
 	HasPickaxe       bool
-	TimeTicks        int // each step = 1 tick
-	PickaxeX         int // ground item position
+	TimeTicks        int
+	PickaxeX         int
 	PickaxeZ         int
-	BreakableWallX   int // which cell has the breakable wall
+	BreakableWallX   int
 	BreakableWallZ   int
 	BreakableWallDir int // 0=N, 1=E, 2=S, 3=W
 	WallBroken       bool
@@ -20,6 +24,21 @@ type GameState struct {
 }
 
 const stepInterval = 0.15 // seconds between steps
+
+// FacingAngleFromDir returns Y rotation for a movement direction
+func FacingAngleFromDir(dx, dz int) float32 {
+	switch {
+	case dz == -1: // north
+		return 180
+	case dz == 1: // south
+		return 0
+	case dx == -1: // west
+		return 90
+	case dx == 1: // east
+		return -90
+	}
+	return 0
+}
 
 func (g *GameState) SetMessage(msg string) {
 	g.Message = msg
