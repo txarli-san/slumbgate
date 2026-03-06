@@ -127,9 +127,114 @@ func main() {
 	defer rl.UnloadModel(wallCornerModel)
 	applyShaderToModel(wallCornerModel, shader)
 
+	wallDecoAModel := rl.LoadModel("../assets/models/dungeon/walls/wallDecorationA.gltf.glb")
+	defer rl.UnloadModel(wallDecoAModel)
+	applyShaderToModel(wallDecoAModel, shader)
+
+	wallDecoBModel := rl.LoadModel("../assets/models/dungeon/walls/wallDecorationB.gltf.glb")
+	defer rl.UnloadModel(wallDecoBModel)
+	applyShaderToModel(wallDecoBModel, shader)
+
+	// Props
+	barrelModel := rl.LoadModel("../assets/models/dungeon/props/barrel.gltf.glb")
+	defer rl.UnloadModel(barrelModel)
+	applyShaderToModel(barrelModel, shader)
+
+	crateModel := rl.LoadModel("../assets/models/dungeon/props/crate.gltf.glb")
+	defer rl.UnloadModel(crateModel)
+	applyShaderToModel(crateModel, shader)
+
+	tableSmallModel := rl.LoadModel("../assets/models/dungeon/props/tableSmall.gltf.glb")
+	defer rl.UnloadModel(tableSmallModel)
+	applyShaderToModel(tableSmallModel, shader)
+
+	tableLargeModel := rl.LoadModel("../assets/models/dungeon/props/tableLarge.gltf.glb")
+	defer rl.UnloadModel(tableLargeModel)
+	applyShaderToModel(tableLargeModel, shader)
+
+	chairModel := rl.LoadModel("../assets/models/dungeon/props/chair.gltf.glb")
+	defer rl.UnloadModel(chairModel)
+	applyShaderToModel(chairModel, shader)
+
+	stoolModel := rl.LoadModel("../assets/models/dungeon/props/stool.gltf.glb")
+	defer rl.UnloadModel(stoolModel)
+	applyShaderToModel(stoolModel, shader)
+
+	bookcaseModel := rl.LoadModel("../assets/models/dungeon/props/bookcase.gltf.glb")
+	defer rl.UnloadModel(bookcaseModel)
+	applyShaderToModel(bookcaseModel, shader)
+
+	bookcaseFilledModel := rl.LoadModel("../assets/models/dungeon/props/bookcaseFilled.gltf.glb")
+	defer rl.UnloadModel(bookcaseFilledModel)
+	applyShaderToModel(bookcaseFilledModel, shader)
+
+	potsModel := rl.LoadModel("../assets/models/dungeon/props/pots.gltf.glb")
+	defer rl.UnloadModel(potsModel)
+	applyShaderToModel(potsModel, shader)
+
+	bucketModel := rl.LoadModel("../assets/models/dungeon/props/bucket.gltf.glb")
+	defer rl.UnloadModel(bucketModel)
+	applyShaderToModel(bucketModel, shader)
+
+	weaponRackModel := rl.LoadModel("../assets/models/dungeon/props/weaponRack.gltf.glb")
+	defer rl.UnloadModel(weaponRackModel)
+	applyShaderToModel(weaponRackModel, shader)
+
+	bannerModel := rl.LoadModel("../assets/models/dungeon/props/banner.gltf.glb")
+	defer rl.UnloadModel(bannerModel)
+	applyShaderToModel(bannerModel, shader)
+
+	chestCommonModel := rl.LoadModel("../assets/models/loot/chest_common.gltf.glb")
+	defer rl.UnloadModel(chestCommonModel)
+	applyShaderToModel(chestCommonModel, shader)
+
+	chestRareModel := rl.LoadModel("../assets/models/loot/chest_rare.gltf.glb")
+	defer rl.UnloadModel(chestRareModel)
+	applyShaderToModel(chestRareModel, shader)
+
+	torchModel := rl.LoadModel("../assets/models/dungeon/hazards/torch.gltf.glb")
+	defer rl.UnloadModel(torchModel)
+	applyShaderToModel(torchModel, shader)
+
+	torchWallModel := rl.LoadModel("../assets/models/dungeon/hazards/torchWall.gltf.glb")
+	defer rl.UnloadModel(torchWallModel)
+	applyShaderToModel(torchWallModel, shader)
+
+	spikesModel := rl.LoadModel("../assets/models/dungeon/hazards/tileSpikes.gltf.glb")
+	defer rl.UnloadModel(spikesModel)
+	applyShaderToModel(spikesModel, shader)
+
 	knightModel := rl.LoadModel("../assets/models/characters/character_knight.gltf")
 	defer rl.UnloadModel(knightModel)
 	applyShaderToModel(knightModel, shader)
+
+	// Map prop types to models
+	propModels := map[PropType]rl.Model{
+		PropBarrel:         barrelModel,
+		PropCrate:          crateModel,
+		PropTableSmall:     tableSmallModel,
+		PropTableLarge:     tableLargeModel,
+		PropChair:          chairModel,
+		PropStool:          stoolModel,
+		PropBookcase:       bookcaseModel,
+		PropBookcaseFilled: bookcaseFilledModel,
+		PropPots:           potsModel,
+		PropBucket:         bucketModel,
+		PropWeaponRack:     weaponRackModel,
+		PropBanner:         bannerModel,
+		PropChestCommon:    chestCommonModel,
+		PropChestRare:      chestRareModel,
+		PropTorch:          torchModel,
+		PropSpikes:         spikesModel,
+	}
+
+	// Map wall decor types to models
+	wallDecorModels := map[WallDecor]rl.Model{
+		WallDecorTorch:  torchWallModel,
+		WallDecorBanner: bannerModel,
+		WallDecorDecoA:  wallDecoAModel,
+		WallDecorDecoB:  wallDecoBModel,
+	}
 
 	// Measure tile for grid unit
 	floorBBox := rl.GetModelBoundingBox(floorModel)
@@ -314,6 +419,53 @@ func main() {
 				if cell.WallE {
 					wallPos := rl.Vector3{X: pos.X + halfTile, Y: floorSurfaceY, Z: pos.Z}
 					rl.DrawModelEx(wallModel, wallPos, rl.Vector3{Y: 1}, 90, wallScaleVec, rl.White)
+				}
+			}
+		}
+
+		// Render props
+		for z := 0; z < dungeon.Height; z++ {
+			for x := 0; x < dungeon.Width; x++ {
+				cell := dungeon.Cells[z][x]
+				if cell.Type != CellFloor {
+					continue
+				}
+				for _, prop := range cell.Props {
+					m, ok := propModels[prop.Type]
+					if !ok {
+						continue
+					}
+					pos := gridToWorld(x, z)
+					pos.Y = floorSurfaceY
+					// Spikes replace the floor surface
+					if prop.Type == PropSpikes {
+						pos.Y = 0
+					}
+					rl.DrawModelEx(m, pos, rl.Vector3{Y: 1}, prop.Rotation, wallScaleVec, rl.White)
+				}
+
+				// Wall decorations
+				pos := gridToWorld(x, z)
+				halfTile := tileUnit * 0.5
+				renderWallDecor := func(decor WallDecor, wallPos rl.Vector3, rotation float32) {
+					m, ok := wallDecorModels[decor]
+					if !ok {
+						return
+					}
+					wallPos.Y = floorSurfaceY
+					rl.DrawModelEx(m, wallPos, rl.Vector3{Y: 1}, rotation, wallScaleVec, rl.White)
+				}
+				if cell.WallDecorN != WallDecorNone {
+					renderWallDecor(cell.WallDecorN, rl.Vector3{X: pos.X, Z: pos.Z - halfTile}, 180)
+				}
+				if cell.WallDecorS != WallDecorNone {
+					renderWallDecor(cell.WallDecorS, rl.Vector3{X: pos.X, Z: pos.Z + halfTile}, 0)
+				}
+				if cell.WallDecorW != WallDecorNone {
+					renderWallDecor(cell.WallDecorW, rl.Vector3{X: pos.X - halfTile, Z: pos.Z}, -90)
+				}
+				if cell.WallDecorE != WallDecorNone {
+					renderWallDecor(cell.WallDecorE, rl.Vector3{X: pos.X + halfTile, Z: pos.Z}, 90)
 				}
 			}
 		}
