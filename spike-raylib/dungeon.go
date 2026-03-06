@@ -329,11 +329,19 @@ func (d *Dungeon) randomWallSpot(room Room, rng *rand.Rand) (int, int) {
 }
 
 func (d *Dungeon) placeBreakableWall(rng *rand.Rand) {
-	// Collect all outer wall segments (walls that face ground)
-	type wallSeg struct {
-		x, z, dir int // dir: 0=N, 1=E, 2=S, 3=W
-	}
+	// Flood fill reachable ground from a corner (guaranteed outside)
+	reachable := d.floodFillGround(0, 0)
+
+	// Collect walls where the ground cell on the other side is reachable
+	type wallSeg struct{ x, z, dir int }
 	var candidates []wallSeg
+
+	dirOffset := [4][2]int{
+		{0, -1}, // N: ground cell is one north
+		{1, 0},  // E: ground cell is one east
+		{0, 1},  // S: ground cell is one south
+		{-1, 0}, // W: ground cell is one west
+	}
 
 	for z := 0; z < d.Height; z++ {
 		for x := 0; x < d.Width; x++ {
@@ -341,17 +349,16 @@ func (d *Dungeon) placeBreakableWall(rng *rand.Rand) {
 			if c.Type != CellFloor {
 				continue
 			}
-			if c.WallN {
-				candidates = append(candidates, wallSeg{x, z, 0})
-			}
-			if c.WallE {
-				candidates = append(candidates, wallSeg{x, z, 1})
-			}
-			if c.WallS {
-				candidates = append(candidates, wallSeg{x, z, 2})
-			}
-			if c.WallW {
-				candidates = append(candidates, wallSeg{x, z, 3})
+			walls := [4]bool{c.WallN, c.WallE, c.WallS, c.WallW}
+			for dir := 0; dir < 4; dir++ {
+				if !walls[dir] {
+					continue
+				}
+				gx := x + dirOffset[dir][0]
+				gz := z + dirOffset[dir][1]
+				if gx >= 0 && gx < d.Width && gz >= 0 && gz < d.Height && reachable[gz][gx] {
+					candidates = append(candidates, wallSeg{x, z, dir})
+				}
 			}
 		}
 	}
@@ -362,6 +369,35 @@ func (d *Dungeon) placeBreakableWall(rng *rand.Rand) {
 		d.BreakableZ = pick.z
 		d.BreakableDir = pick.dir
 	}
+}
+
+// floodFillGround returns a grid of which ground cells are reachable from (sx,sz)
+func (d *Dungeon) floodFillGround(sx, sz int) [][]bool {
+	visited := make([][]bool, d.Height)
+	for z := range visited {
+		visited[z] = make([]bool, d.Width)
+	}
+	if d.Cells[sz][sx].Type != CellGround {
+		return visited
+	}
+
+	queue := [][2]int{{sx, sz}}
+	visited[sz][sx] = true
+	dirs := [4][2]int{{0, -1}, {0, 1}, {-1, 0}, {1, 0}}
+
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		for _, dir := range dirs {
+			nx, nz := cur[0]+dir[0], cur[1]+dir[1]
+			if nx >= 0 && nx < d.Width && nz >= 0 && nz < d.Height &&
+				!visited[nz][nx] && d.Cells[nz][nx].Type == CellGround {
+				visited[nz][nx] = true
+				queue = append(queue, [2]int{nx, nz})
+			}
+		}
+	}
+	return visited
 }
 
 func (d *Dungeon) placePickaxe(rng *rand.Rand) {
