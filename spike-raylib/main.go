@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"math"
+	"time"
 	"unsafe"
 
 	rl "github.com/gen2brain/raylib-go/raylib"
@@ -11,7 +12,6 @@ import (
 const (
 	screenWidth  = 1280
 	screenHeight = 720
-	gridSize     = 10
 )
 
 // Basic lighting vertex shader (GLSL 330)
@@ -82,7 +82,7 @@ func applyShaderToModel(model rl.Model, shader rl.Shader) {
 }
 
 func main() {
-	rl.InitWindow(screenWidth, screenHeight, "Slumbgate - Raylib Spike")
+	rl.InitWindow(screenWidth, screenHeight, "Slumbgate - Dungeon Generation")
 	defer rl.CloseWindow()
 	rl.SetTargetFPS(60)
 
@@ -90,14 +90,12 @@ func main() {
 	shader := rl.LoadShaderFromMemory(lightingVS, lightingFS)
 	defer rl.UnloadShader(shader)
 
-	// Get shader uniform locations
 	locLightDir := rl.GetShaderLocation(shader, "lightDir")
 	locLightColor := rl.GetShaderLocation(shader, "lightColor")
 	locAmbientColor := rl.GetShaderLocation(shader, "ambientColor")
 	locViewPos := rl.GetShaderLocation(shader, "viewPos")
 
-	// Set light properties
-	lightDir := []float32{-0.4, -0.8, -0.3} // angled down
+	lightDir := []float32{-0.4, -0.8, -0.3}
 	lightColor := []float32{1.0, 0.95, 0.9, 1.0}
 	ambientColor := []float32{0.35, 0.35, 0.4, 1.0}
 
@@ -105,7 +103,6 @@ func main() {
 	rl.SetShaderValue(shader, locLightColor, lightColor, rl.ShaderUniformVec4)
 	rl.SetShaderValue(shader, locAmbientColor, ambientColor, rl.ShaderUniformVec4)
 
-	// Shader needs matModel and matNormal locations set
 	shader.UpdateLocation(rl.ShaderLocMatrixModel, rl.GetShaderLocation(shader, "matModel"))
 	shader.UpdateLocation(rl.ShaderLocMatrixNormal, rl.GetShaderLocation(shader, "matNormal"))
 
@@ -114,61 +111,73 @@ func main() {
 	defer rl.UnloadModel(floorModel)
 	applyShaderToModel(floorModel, shader)
 
+	floorCrackedA := rl.LoadModel("../assets/models/dungeon/floors/tileBrickB_largeCrackedA.gltf.glb")
+	defer rl.UnloadModel(floorCrackedA)
+	applyShaderToModel(floorCrackedA, shader)
+
+	floorCrackedB := rl.LoadModel("../assets/models/dungeon/floors/tileBrickB_largeCrackedB.gltf.glb")
+	defer rl.UnloadModel(floorCrackedB)
+	applyShaderToModel(floorCrackedB, shader)
+
+	wallModel := rl.LoadModel("../assets/models/dungeon/walls/wall.gltf.glb")
+	defer rl.UnloadModel(wallModel)
+	applyShaderToModel(wallModel, shader)
+
+	wallCornerModel := rl.LoadModel("../assets/models/dungeon/walls/wallCorner.gltf.glb")
+	defer rl.UnloadModel(wallCornerModel)
+	applyShaderToModel(wallCornerModel, shader)
+
 	knightModel := rl.LoadModel("../assets/models/characters/character_knight.gltf")
 	defer rl.UnloadModel(knightModel)
 	applyShaderToModel(knightModel, shader)
 
-	mageModel := rl.LoadModel("../assets/models/characters/character_mage.gltf")
-	defer rl.UnloadModel(mageModel)
-	applyShaderToModel(mageModel, shader)
-
-	skullModel := rl.LoadModel("../assets/models/characters/skull.gltf.glb")
-	defer rl.UnloadModel(skullModel)
-	applyShaderToModel(skullModel, shader)
-
-	// Measure floor tile to derive grid unit
+	// Measure tile for grid unit
 	floorBBox := rl.GetModelBoundingBox(floorModel)
 	tileUnit := floorBBox.Max.X - floorBBox.Min.X
-	fmt.Printf("Tile unit: %.2f\n", tileUnit)
+	floorSurfaceY := floorBBox.Max.Y
+	fmt.Printf("Tile unit: %.2f, floor surface Y: %.2f\n", tileUnit, floorSurfaceY)
 
-	// Character scale: fill ~60% of a tile
+	// Measure wall
+	wallBBox := rl.GetModelBoundingBox(wallModel)
+	fmt.Printf("Wall bbox: min(%.2f, %.2f, %.2f) max(%.2f, %.2f, %.2f)\n",
+		wallBBox.Min.X, wallBBox.Min.Y, wallBBox.Min.Z,
+		wallBBox.Max.X, wallBBox.Max.Y, wallBBox.Max.Z)
+	wallWidth := wallBBox.Max.X - wallBBox.Min.X
+	wallDepth := wallBBox.Max.Z - wallBBox.Min.Z
+	wallScale := tileUnit / wallWidth // scale wall to span full tile edge
+	fmt.Printf("Wall width: %.2f, depth: %.2f, scale: %.2f\n", wallWidth, wallDepth, wallScale)
+
+	// Character scaling
 	charBBox := rl.GetModelBoundingBox(knightModel)
 	charW := charBBox.Max.X - charBBox.Min.X
 	charScale := (tileUnit * 0.6) / charW
-	fmt.Printf("Character width: %.2f, scale: %.2f\n", charW, charScale)
-
-	// Figure out where the floor surface sits
-	floorSurfaceY := floorBBox.Max.Y // top of the tile mesh
-	fmt.Printf("Floor surface Y: %.2f\n", floorSurfaceY)
-
-	// Calculate Y offsets: place model bottom at floor surface level
-	// offset = floorSurfaceY - (model.Min.Y * scale)
 	knightYOffset := floorSurfaceY - charBBox.Min.Y*charScale
-	mageBBox := rl.GetModelBoundingBox(mageModel)
-	mageYOffset := floorSurfaceY - mageBBox.Min.Y*charScale
-	skullBBox := rl.GetModelBoundingBox(skullModel)
-	skullYOffset := floorSurfaceY - skullBBox.Min.Y*charScale
-	fmt.Printf("BBox mins - knight: %.3f, mage: %.3f, skull: %.3f\n", charBBox.Min.Y, mageBBox.Min.Y, skullBBox.Min.Y)
-	fmt.Printf("BBox maxs - knight: %.3f, mage: %.3f, skull: %.3f\n", charBBox.Max.Y, mageBBox.Max.Y, skullBBox.Max.Y)
-	fmt.Printf("Y offsets - knight: %.2f, mage: %.2f, skull: %.2f\n", knightYOffset, mageYOffset, skullYOffset)
+
+	// Generate dungeon
+	seed := time.Now().UnixNano()
+	dungeon := GenerateDungeon(seed)
+	fmt.Printf("Generated dungeon with %d rooms (seed: %d)\n", len(dungeon.Rooms), seed)
 
 	// Grid world size
-	gridWorld := float32(gridSize) * tileUnit
+	gridWorld := float32(dungeon.Width) * tileUnit
 	centerX := gridWorld * 0.5
 	centerZ := gridWorld * 0.5
 
+	// Place player in center of first room
+	px, pz := dungeon.Rooms[0].Center()
+
 	// Camera
+	orbitAngle := float32(math.Pi / 4)
+	orbitRadius := gridWorld * 0.55
+	cameraHeight := gridWorld * 0.5
+
 	camera := rl.Camera3D{
-		Position:   rl.Vector3{X: centerX, Y: gridWorld * 0.7, Z: centerZ + gridWorld*0.8},
+		Position:   rl.Vector3{X: centerX, Y: cameraHeight, Z: centerZ + orbitRadius},
 		Target:     rl.Vector3{X: centerX, Y: 0, Z: centerZ},
 		Up:         rl.Vector3{X: 0, Y: 1, Z: 0},
-		Fovy:       40,
+		Fovy:       45,
 		Projection: rl.CameraPerspective,
 	}
-
-	playerX, playerZ := 5, 5
-	enemies := [][2]int{{2, 2}, {7, 3}, {4, 8}}
-	orbitAngle := float32(math.Pi / 4)
 
 	gridToWorld := func(gx, gz int) rl.Vector3 {
 		return rl.Vector3{
@@ -193,6 +202,18 @@ func main() {
 		return ray.Position.X + ray.Direction.X*t, ray.Position.Z + ray.Direction.Z*t, true
 	}
 
+	// Floor tile variants for visual variety (seeded by position)
+	floorVariant := func(x, z int) rl.Model {
+		h := (x*7 + z*13 + x*z*3) % 10
+		if h == 0 {
+			return floorCrackedA
+		}
+		if h == 1 {
+			return floorCrackedB
+		}
+		return floorModel
+	}
+
 	for !rl.WindowShouldClose() {
 		// Camera orbit
 		if rl.IsKeyDown(rl.KeyLeft) {
@@ -201,14 +222,24 @@ func main() {
 		if rl.IsKeyDown(rl.KeyRight) {
 			orbitAngle += 0.02
 		}
+		// Zoom
+		wheel := rl.GetMouseWheelMove()
+		if wheel != 0 {
+			orbitRadius -= wheel * tileUnit * 0.5
+			if orbitRadius < gridWorld*0.2 {
+				orbitRadius = gridWorld * 0.2
+			}
+			if orbitRadius > gridWorld*1.0 {
+				orbitRadius = gridWorld * 1.0
+			}
+		}
 
-		radius := gridWorld * 0.8
-		camera.Position.X = centerX + radius*float32(math.Cos(float64(orbitAngle)))
-		camera.Position.Z = centerZ + radius*float32(math.Sin(float64(orbitAngle)))
+		camera.Position.X = centerX + orbitRadius*float32(math.Cos(float64(orbitAngle)))
+		camera.Position.Z = centerZ + orbitRadius*float32(math.Sin(float64(orbitAngle)))
+		camera.Position.Y = cameraHeight
 		camera.Target.X = centerX
 		camera.Target.Z = centerZ
 
-		// Update view position for specular
 		viewPos := []float32{camera.Position.X, camera.Position.Y, camera.Position.Z}
 		rl.SetShaderValue(shader, locViewPos, viewPos, rl.ShaderUniformVec3)
 
@@ -217,76 +248,100 @@ func main() {
 			ray := rl.GetScreenToWorldRay(rl.GetMousePosition(), camera)
 			if wx, wz, ok := rayHitGround(ray); ok {
 				gx, gz := worldToGrid(wx, wz)
-				if gx >= 0 && gx < gridSize && gz >= 0 && gz < gridSize {
-					playerX, playerZ = gx, gz
+				if gx >= 0 && gx < dungeon.Width && gz >= 0 && gz < dungeon.Height {
+					if dungeon.Cells[gz][gx].Type == CellFloor {
+						px, pz = gx, gz
+					}
 				}
 			}
 		}
 
+		// Regenerate dungeon with R key
+		if rl.IsKeyPressed(rl.KeyR) {
+			seed = time.Now().UnixNano()
+			dungeon = GenerateDungeon(seed)
+			px, pz = dungeon.Rooms[0].Center()
+			fmt.Printf("Regenerated dungeon with %d rooms (seed: %d)\n", len(dungeon.Rooms), seed)
+		}
+
 		rl.BeginDrawing()
-		rl.ClearBackground(rl.Color{R: 20, G: 20, B: 30, A: 255})
+		rl.ClearBackground(rl.Color{R: 10, G: 10, B: 15, A: 255})
 		rl.BeginMode3D(camera)
 
-		// Floor tiles at natural size with small gaps
-		ones := rl.Vector3{X: 0.98, Y: 1, Z: 0.98} // slightly smaller for grid lines
-		for x := 0; x < gridSize; x++ {
-			for z := 0; z < gridSize; z++ {
+		ones := rl.Vector3{X: 1, Y: 1, Z: 1}
+
+		// Render floor tiles
+		for z := 0; z < dungeon.Height; z++ {
+			for x := 0; x < dungeon.Width; x++ {
+				if dungeon.Cells[z][x].Type != CellFloor {
+					continue
+				}
 				pos := gridToWorld(x, z)
-				rl.DrawModelEx(floorModel, pos, rl.Vector3{Y: 1}, 0, ones, rl.White)
+				fm := floorVariant(x, z)
+				rl.DrawModelEx(fm, pos, rl.Vector3{Y: 1}, 0, ones, rl.White)
 			}
 		}
 
-		// Grid lines on the floor for tile visibility
-		gridLineColor := rl.Color{R: 40, G: 40, B: 50, A: 255}
-		for i := 0; i <= gridSize; i++ {
-			x := float32(i) * tileUnit
-			rl.DrawLine3D(
-				rl.Vector3{X: x, Y: 0.02, Z: 0},
-				rl.Vector3{X: x, Y: 0.02, Z: gridWorld},
-				gridLineColor,
-			)
-			z := float32(i) * tileUnit
-			rl.DrawLine3D(
-				rl.Vector3{X: 0, Y: 0.02, Z: z},
-				rl.Vector3{X: gridWorld, Y: 0.02, Z: z},
-				gridLineColor,
-			)
+		// Render walls
+		wallScaleVec := rl.Vector3{X: wallScale, Y: wallScale, Z: wallScale}
+		for z := 0; z < dungeon.Height; z++ {
+			for x := 0; x < dungeon.Width; x++ {
+				cell := dungeon.Cells[z][x]
+				if cell.Type != CellFloor {
+					continue
+				}
+				pos := gridToWorld(x, z)
+				halfTile := tileUnit * 0.5
+
+				// Wall model: centered on X (-2..2), depth on Z (-0.75..0.75), height Y (0..4)
+				// Default orientation: spans along X axis, faces +Z
+				// North wall: at north edge, rotated 180° to face south (into the room)
+				if cell.WallN {
+					wallPos := rl.Vector3{X: pos.X, Y: floorSurfaceY, Z: pos.Z - halfTile}
+					rl.DrawModelEx(wallModel, wallPos, rl.Vector3{Y: 1}, 180, wallScaleVec, rl.White)
+				}
+				// South wall: at south edge, default orientation (faces +Z = north, into room)
+				if cell.WallS {
+					wallPos := rl.Vector3{X: pos.X, Y: floorSurfaceY, Z: pos.Z + halfTile}
+					rl.DrawModelEx(wallModel, wallPos, rl.Vector3{Y: 1}, 0, wallScaleVec, rl.White)
+				}
+				// West wall: at west edge, rotated -90° (faces east, into room)
+				if cell.WallW {
+					wallPos := rl.Vector3{X: pos.X - halfTile, Y: floorSurfaceY, Z: pos.Z}
+					rl.DrawModelEx(wallModel, wallPos, rl.Vector3{Y: 1}, -90, wallScaleVec, rl.White)
+				}
+				// East wall: at east edge, rotated 90° (faces west, into room)
+				if cell.WallE {
+					wallPos := rl.Vector3{X: pos.X + halfTile, Y: floorSurfaceY, Z: pos.Z}
+					rl.DrawModelEx(wallModel, wallPos, rl.Vector3{Y: 1}, 90, wallScaleVec, rl.White)
+				}
+			}
 		}
 
-		// Player (knight)
+		// Player
 		scaleVec := rl.Vector3{X: charScale, Y: charScale, Z: charScale}
-		knightPos := gridToWorld(playerX, playerZ)
+		knightPos := gridToWorld(px, pz)
 		knightPos.Y = knightYOffset
 		rl.DrawModelEx(knightModel, knightPos, rl.Vector3{Y: 1}, 0, scaleVec, rl.White)
-
-		// Enemies
-		for i, e := range enemies {
-			pos := gridToWorld(e[0], e[1])
-			if i == 0 {
-				pos.Y = mageYOffset
-				rl.DrawModelEx(mageModel, pos, rl.Vector3{Y: 1}, 0, scaleVec, rl.White)
-			} else {
-				pos.Y = skullYOffset
-				rl.DrawModelEx(skullModel, pos, rl.Vector3{Y: 1}, 0, scaleVec, rl.White)
-			}
-		}
 
 		// Tile hover highlight
 		ray := rl.GetScreenToWorldRay(rl.GetMousePosition(), camera)
 		if wx, wz, ok := rayHitGround(ray); ok {
 			gx, gz := worldToGrid(wx, wz)
-			if gx >= 0 && gx < gridSize && gz >= 0 && gz < gridSize {
-				hlPos := gridToWorld(gx, gz)
-				hlPos.Y = 0.05
-				rl.DrawCubeV(hlPos, rl.Vector3{X: tileUnit * 0.95, Y: 0.1, Z: tileUnit * 0.95}, rl.Color{R: 100, G: 200, B: 255, A: 60})
+			if gx >= 0 && gx < dungeon.Width && gz >= 0 && gz < dungeon.Height {
+				if dungeon.Cells[gz][gx].Type == CellFloor {
+					hlPos := gridToWorld(gx, gz)
+					hlPos.Y = floorSurfaceY + 0.05
+					rl.DrawCubeV(hlPos, rl.Vector3{X: tileUnit * 0.95, Y: 0.1, Z: tileUnit * 0.95}, rl.Color{R: 100, G: 200, B: 255, A: 60})
+				}
 			}
 		}
 
 		rl.EndMode3D()
 
 		// HUD
-		rl.DrawText(fmt.Sprintf("Player: (%d, %d)", playerX, playerZ), 10, 10, 20, rl.White)
-		rl.DrawText("Click to move | Left/Right arrows to orbit camera", 10, 35, 16, rl.Gray)
+		rl.DrawText(fmt.Sprintf("Rooms: %d | Player: (%d, %d)", len(dungeon.Rooms), px, pz), 10, 10, 20, rl.White)
+		rl.DrawText("Click to move | Left/Right to orbit | Scroll to zoom | R to regenerate", 10, 35, 16, rl.Gray)
 		rl.DrawFPS(screenWidth-90, 10)
 
 		rl.EndDrawing()
