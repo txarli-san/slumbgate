@@ -604,16 +604,18 @@ func main() {
 			rl.DrawModelEx(wallBrokenModel, bwPos, rl.Vector3{Y: 1}, bwRot, wallScaleVec, rl.White)
 		}
 
-		// Player — lerp between previous and current tile
+		// Player — lerp between tiles + walk bob
 		scaleVec := rl.Vector3{X: charScale, Y: charScale, Z: charScale}
 		var knightPos rl.Vector3
 		if game.Moving {
 			from := gridToWorld(game.PrevX, game.PrevZ)
 			to := gridToWorld(game.PlayerX, game.PlayerZ)
 			t := game.StepProgress
+			// Vertical bounce: sin curve peaks at mid-step
+			bounce := float32(math.Sin(float64(t)*math.Pi)) * 0.3
 			knightPos = rl.Vector3{
 				X: from.X + (to.X-from.X)*t,
-				Y: knightYOffset,
+				Y: knightYOffset + bounce,
 				Z: from.Z + (to.Z-from.Z)*t,
 			}
 		} else {
