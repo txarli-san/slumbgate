@@ -110,19 +110,19 @@ func main() {
 	shader.UpdateLocation(rl.ShaderLocMatrixNormal, rl.GetShaderLocation(shader, "matNormal"))
 
 	// Load models
-	floorModel := rl.LoadModel("../assets/KayKit Dungeon Pack 1.0/Models/gltf/tileBrickB_large.gltf.glb")
+	floorModel := rl.LoadModel("../assets/models/dungeon/floors/tileBrickB_large.gltf.glb")
 	defer rl.UnloadModel(floorModel)
 	applyShaderToModel(floorModel, shader)
 
-	knightModel := rl.LoadModel("../assets/KayKit Dungeon Pack 1.0/Models/Characters/gltf/character_knight.gltf")
+	knightModel := rl.LoadModel("../assets/models/characters/character_knight.gltf")
 	defer rl.UnloadModel(knightModel)
 	applyShaderToModel(knightModel, shader)
 
-	mageModel := rl.LoadModel("../assets/KayKit Dungeon Pack 1.0/Models/Characters/gltf/character_mage.gltf")
+	mageModel := rl.LoadModel("../assets/models/characters/character_mage.gltf")
 	defer rl.UnloadModel(mageModel)
 	applyShaderToModel(mageModel, shader)
 
-	skullModel := rl.LoadModel("../assets/KayKit Dungeon Pack 1.0/Models/Characters/gltf/extra heads/skull.gltf.glb")
+	skullModel := rl.LoadModel("../assets/models/characters/skull.gltf.glb")
 	defer rl.UnloadModel(skullModel)
 	applyShaderToModel(skullModel, shader)
 
