@@ -81,6 +81,37 @@ func applyShaderToModel(model rl.Model, shader rl.Shader) {
 	}
 }
 
+// Find a ground cell adjacent to the first room's wall
+func findStartPosition(d *Dungeon) (int, int) {
+	r := d.Rooms[0]
+	// Try south of the room
+	z := r.Y + r.H
+	x := r.X + r.W/2
+	if z < d.Height && d.Cells[z][x].Type == CellGround {
+		return x, z
+	}
+	// Try north
+	z = r.Y - 1
+	if z >= 0 && d.Cells[z][x].Type == CellGround {
+		return x, z
+	}
+	// Try east
+	x = r.X + r.W
+	z = r.Y + r.H/2
+	if x < d.Width && d.Cells[z][x].Type == CellGround {
+		return x, z
+	}
+	// Fallback: just pick any ground cell
+	for gz := 0; gz < d.Height; gz++ {
+		for gx := 0; gx < d.Width; gx++ {
+			if d.Cells[gz][gx].Type == CellGround {
+				return gx, gz
+			}
+		}
+	}
+	return 0, 0
+}
+
 func main() {
 	rl.InitWindow(screenWidth, screenHeight, "Slumbgate - Dungeon Generation")
 	defer rl.CloseWindow()
@@ -122,10 +153,6 @@ func main() {
 	wallModel := rl.LoadModel("../assets/models/dungeon/walls/wall.gltf.glb")
 	defer rl.UnloadModel(wallModel)
 	applyShaderToModel(wallModel, shader)
-
-	wallCornerModel := rl.LoadModel("../assets/models/dungeon/walls/wallCorner.gltf.glb")
-	defer rl.UnloadModel(wallCornerModel)
-	applyShaderToModel(wallCornerModel, shader)
 
 	wallDecoAModel := rl.LoadModel("../assets/models/dungeon/walls/wallDecorationA.gltf.glb")
 	defer rl.UnloadModel(wallDecoAModel)
@@ -230,10 +257,9 @@ func main() {
 
 	// Map wall decor types to models
 	wallDecorModels := map[WallDecor]rl.Model{
-		WallDecorTorch:  torchWallModel,
-		WallDecorBanner: bannerModel,
-		WallDecorDecoA:  wallDecoAModel,
-		WallDecorDecoB:  wallDecoBModel,
+		WallDecorTorch: torchWallModel,
+		WallDecorDecoA: wallDecoAModel,
+		WallDecorDecoB: wallDecoBModel,
 	}
 
 	// Measure tile for grid unit
@@ -268,8 +294,11 @@ func main() {
 	centerX := gridWorld * 0.5
 	centerZ := gridWorld * 0.5
 
-	// Place player in center of first room
-	px, pz := dungeon.Rooms[0].Center()
+	// Player starts on ground outside the dungeon
+	// Find a ground cell adjacent to the first room
+	startX, startZ := findStartPosition(dungeon)
+	px, pz := startX, startZ
+	dungeon.RevealAround(px, pz)
 
 	// Camera
 	orbitAngle := float32(math.Pi / 4)
@@ -348,14 +377,16 @@ func main() {
 		viewPos := []float32{camera.Position.X, camera.Position.Y, camera.Position.Z}
 		rl.SetShaderValue(shader, locViewPos, viewPos, rl.ShaderUniformVec3)
 
-		// Click to move
+		// Click to move (walkable = ground or floor)
 		if rl.IsMouseButtonPressed(rl.MouseButtonLeft) {
 			ray := rl.GetScreenToWorldRay(rl.GetMousePosition(), camera)
 			if wx, wz, ok := rayHitGround(ray); ok {
 				gx, gz := worldToGrid(wx, wz)
 				if gx >= 0 && gx < dungeon.Width && gz >= 0 && gz < dungeon.Height {
-					if dungeon.Cells[gz][gx].Type == CellFloor {
+					ct := dungeon.Cells[gz][gx].Type
+					if ct == CellGround || ct == CellFloor {
 						px, pz = gx, gz
+						dungeon.RevealAround(gx, gz)
 					}
 				}
 			}
@@ -365,7 +396,9 @@ func main() {
 		if rl.IsKeyPressed(rl.KeyR) {
 			seed = time.Now().UnixNano()
 			dungeon = GenerateDungeon(seed)
-			px, pz = dungeon.Rooms[0].Center()
+			sx, sz := findStartPosition(dungeon)
+			px, pz = sx, sz
+			dungeon.RevealAround(px, pz)
 			fmt.Printf("Regenerated dungeon with %d rooms (seed: %d)\n", len(dungeon.Rooms), seed)
 		}
 
@@ -374,79 +407,66 @@ func main() {
 		rl.BeginMode3D(camera)
 
 		ones := rl.Vector3{X: 1, Y: 1, Z: 1}
+		wallScaleVec := rl.Vector3{X: wallScale, Y: wallScale, Z: wallScale}
 
-		// Render floor tiles
-		for z := 0; z < dungeon.Height; z++ {
-			for x := 0; x < dungeon.Width; x++ {
-				if dungeon.Cells[z][x].Type != CellFloor {
-					continue
-				}
-				pos := gridToWorld(x, z)
-				fm := floorVariant(x, z)
-				rl.DrawModelEx(fm, pos, rl.Vector3{Y: 1}, 0, ones, rl.White)
-			}
+		// Helper to render a wall segment
+		drawWall := func(model rl.Model, pos rl.Vector3, rotation float32) {
+			pos.Y = floorSurfaceY
+			rl.DrawModelEx(model, pos, rl.Vector3{Y: 1}, rotation, wallScaleVec, rl.White)
 		}
 
-		// Render walls
-		wallScaleVec := rl.Vector3{X: wallScale, Y: wallScale, Z: wallScale}
 		for z := 0; z < dungeon.Height; z++ {
 			for x := 0; x < dungeon.Width; x++ {
 				cell := dungeon.Cells[z][x]
-				if cell.Type != CellFloor {
-					continue
-				}
 				pos := gridToWorld(x, z)
 				halfTile := tileUnit * 0.5
 
-				// Wall model: centered on X (-2..2), depth on Z (-0.75..0.75), height Y (0..4)
-				// Default orientation: spans along X axis, faces +Z
-				// North wall: at north edge, rotated 180° to face south (into the room)
-				if cell.WallN {
-					wallPos := rl.Vector3{X: pos.X, Y: floorSurfaceY, Z: pos.Z - halfTile}
-					rl.DrawModelEx(wallModel, wallPos, rl.Vector3{Y: 1}, 180, wallScaleVec, rl.White)
-				}
-				// South wall: at south edge, default orientation (faces +Z = north, into room)
-				if cell.WallS {
-					wallPos := rl.Vector3{X: pos.X, Y: floorSurfaceY, Z: pos.Z + halfTile}
-					rl.DrawModelEx(wallModel, wallPos, rl.Vector3{Y: 1}, 0, wallScaleVec, rl.White)
-				}
-				// West wall: at west edge, rotated -90° (faces east, into room)
-				if cell.WallW {
-					wallPos := rl.Vector3{X: pos.X - halfTile, Y: floorSurfaceY, Z: pos.Z}
-					rl.DrawModelEx(wallModel, wallPos, rl.Vector3{Y: 1}, -90, wallScaleVec, rl.White)
-				}
-				// East wall: at east edge, rotated 90° (faces west, into room)
-				if cell.WallE {
-					wallPos := rl.Vector3{X: pos.X + halfTile, Y: floorSurfaceY, Z: pos.Z}
-					rl.DrawModelEx(wallModel, wallPos, rl.Vector3{Y: 1}, 90, wallScaleVec, rl.White)
-				}
-			}
-		}
-
-		// Render props
-		for z := 0; z < dungeon.Height; z++ {
-			for x := 0; x < dungeon.Width; x++ {
-				cell := dungeon.Cells[z][x]
-				if cell.Type != CellFloor {
+				if cell.Type == CellGround {
+					// Open ground — always visible
+					rl.DrawModelEx(floorModel, pos, rl.Vector3{Y: 1}, 0, ones, rl.Color{R: 140, G: 140, B: 130, A: 255})
 					continue
 				}
+
+				// CellFloor — dungeon interior
+
+				// Walls always visible from outside (they ARE the structure)
+				if cell.WallN {
+					drawWall(wallModel, rl.Vector3{X: pos.X, Z: pos.Z - halfTile}, 180)
+				}
+				if cell.WallS {
+					drawWall(wallModel, rl.Vector3{X: pos.X, Z: pos.Z + halfTile}, 0)
+				}
+				if cell.WallW {
+					drawWall(wallModel, rl.Vector3{X: pos.X - halfTile, Z: pos.Z}, -90)
+				}
+				if cell.WallE {
+					drawWall(wallModel, rl.Vector3{X: pos.X + halfTile, Z: pos.Z}, 90)
+				}
+
+				// Interior only rendered when revealed
+				if !cell.Revealed {
+					continue
+				}
+
+				// Floor
+				fm := floorVariant(x, z)
+				rl.DrawModelEx(fm, pos, rl.Vector3{Y: 1}, 0, ones, rl.White)
+
+				// Props
 				for _, prop := range cell.Props {
 					m, ok := propModels[prop.Type]
 					if !ok {
 						continue
 					}
-					pos := gridToWorld(x, z)
-					pos.Y = floorSurfaceY
-					// Spikes replace the floor surface
+					propPos := pos
+					propPos.Y = floorSurfaceY
 					if prop.Type == PropSpikes {
-						pos.Y = 0
+						propPos.Y = 0
 					}
-					rl.DrawModelEx(m, pos, rl.Vector3{Y: 1}, prop.Rotation, wallScaleVec, rl.White)
+					rl.DrawModelEx(m, propPos, rl.Vector3{Y: 1}, prop.Rotation, wallScaleVec, rl.White)
 				}
 
 				// Wall decorations
-				pos := gridToWorld(x, z)
-				halfTile := tileUnit * 0.5
 				renderWallDecor := func(decor WallDecor, wallPos rl.Vector3, rotation float32) {
 					m, ok := wallDecorModels[decor]
 					if !ok {
@@ -476,12 +496,13 @@ func main() {
 		knightPos.Y = knightYOffset
 		rl.DrawModelEx(knightModel, knightPos, rl.Vector3{Y: 1}, 0, scaleVec, rl.White)
 
-		// Tile hover highlight
+		// Tile hover highlight (ground always, floor only if revealed)
 		ray := rl.GetScreenToWorldRay(rl.GetMousePosition(), camera)
 		if wx, wz, ok := rayHitGround(ray); ok {
 			gx, gz := worldToGrid(wx, wz)
 			if gx >= 0 && gx < dungeon.Width && gz >= 0 && gz < dungeon.Height {
-				if dungeon.Cells[gz][gx].Type == CellFloor {
+				c := dungeon.Cells[gz][gx]
+				if c.Type == CellGround || (c.Type == CellFloor && c.Revealed) {
 					hlPos := gridToWorld(gx, gz)
 					hlPos.Y = floorSurfaceY + 0.05
 					rl.DrawCubeV(hlPos, rl.Vector3{X: tileUnit * 0.95, Y: 0.1, Z: tileUnit * 0.95}, rl.Color{R: 100, G: 200, B: 255, A: 60})
