@@ -1,5 +1,7 @@
 package main
 
+import "container/heap"
+
 type CameraMode int
 
 const (
@@ -34,27 +36,73 @@ func FacingAngleFromDir(dx, dz int) float32 {
 	return 0
 }
 
-// Simple pathfinding for flat terrain — just walk straight (no obstacles yet)
+// A* pathfinding with cardinal movement
+type astarNode struct {
+	x, z, g, f int
+	parent     *astarNode
+}
+
+type astarHeap []*astarNode
+
+func (h astarHeap) Len() int            { return len(h) }
+func (h astarHeap) Less(i, j int) bool   { return h[i].f < h[j].f }
+func (h astarHeap) Swap(i, j int)        { h[i], h[j] = h[j], h[i] }
+func (h *astarHeap) Push(x interface{})  { *h = append(*h, x.(*astarNode)) }
+func (h *astarHeap) Pop() interface{} {
+	old := *h
+	n := len(old)
+	item := old[n-1]
+	*h = old[:n-1]
+	return item
+}
+
+func abs(a int) int {
+	if a < 0 {
+		return -a
+	}
+	return a
+}
+
 func FindPath(w *World, sx, sz, gx, gz int) [][2]int {
 	if !w.IsWalkable(gx, gz) {
 		return nil
 	}
 
-	var path [][2]int
-	x, z := sx, sz
+	type key struct{ x, z int }
+	closed := map[key]bool{}
+	open := &astarHeap{}
+	heap.Init(open)
 
-	for x != gx || z != gz {
-		if x < gx {
-			x++
-		} else if x > gx {
-			x--
+	start := &astarNode{x: sx, z: sz, g: 0, f: abs(gx-sx) + abs(gz-sz)}
+	heap.Push(open, start)
+
+	dirs := [4][2]int{{0, -1}, {0, 1}, {-1, 0}, {1, 0}}
+
+	for open.Len() > 0 {
+		cur := heap.Pop(open).(*astarNode)
+		if cur.x == gx && cur.z == gz {
+			var path [][2]int
+			for n := cur; n != nil && (n.x != sx || n.z != sz); n = n.parent {
+				path = append([][2]int{{n.x, n.z}}, path...)
+			}
+			return path
 		}
-		if z < gz {
-			z++
-		} else if z > gz {
-			z--
+
+		k := key{cur.x, cur.z}
+		if closed[k] {
+			continue
 		}
-		path = append(path, [2]int{x, z})
+		closed[k] = true
+
+		for _, dir := range dirs {
+			nx, nz := cur.x+dir[0], cur.z+dir[1]
+			if closed[key{nx, nz}] || !w.IsWalkable(nx, nz) {
+				continue
+			}
+			ng := cur.g + 1
+			nf := ng + abs(gx-nx) + abs(gz-nz)
+			heap.Push(open, &astarNode{x: nx, z: nz, g: ng, f: nf, parent: cur})
+		}
 	}
-	return path
+	return nil
 }

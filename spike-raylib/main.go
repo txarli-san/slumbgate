@@ -111,6 +111,10 @@ func main() {
 	defer rl.UnloadModel(floorCrackedB)
 	applyShaderToModel(floorCrackedB, shader)
 
+	wallModel := rl.LoadModel("../assets/models/dungeon/walls/wall.gltf.glb")
+	defer rl.UnloadModel(wallModel)
+	applyShaderToModel(wallModel, shader)
+
 	knightModel := rl.LoadModel("../assets/models/characters/character_knight.gltf")
 	defer rl.UnloadModel(knightModel)
 	applyShaderToModel(knightModel, shader)
@@ -119,6 +123,10 @@ func main() {
 	floorBBox := rl.GetModelBoundingBox(floorModel)
 	tileUnit := floorBBox.Max.X - floorBBox.Min.X
 	floorSurfaceY := floorBBox.Max.Y
+
+	wallBBox := rl.GetModelBoundingBox(wallModel)
+	wallWidth := wallBBox.Max.X - wallBBox.Min.X
+	wallScale := tileUnit / wallWidth
 
 	charBBox := rl.GetModelBoundingBox(knightModel)
 	charScale := (tileUnit * 0.6) / (charBBox.Max.X - charBBox.Min.X)
@@ -142,9 +150,12 @@ func main() {
 	// World
 	seed := time.Now().UnixNano()
 	world := NewWorld(seed)
-	game := &GameState{}
-	world.EnsureChunksAround(0, 0)
-	world.MarkExplored(0, 0)
+	// Spawn player outside the dungeon wall
+	spawnX := DungeonRadius + DungeonWarpAmp + 5
+	game := &GameState{PlayerX: spawnX, PlayerZ: 0}
+	cx, cz := TileToChunk(spawnX, 0)
+	world.EnsureChunksAround(cx, cz)
+	world.MarkExplored(spawnX, 0)
 
 	// Camera state — local
 	orbitAngle := float32(math.Pi / 4)
@@ -312,9 +323,9 @@ func main() {
 		rl.ClearBackground(rl.Color{R: 10, G: 10, B: 15, A: 255})
 
 		if game.Camera == CameraLocal {
-			drawLocal(camera, world, game, tileUnit, floorSurfaceY, knightYOffset, charScale,
+			drawLocal(camera, world, game, tileUnit, floorSurfaceY, knightYOffset, charScale, wallScale,
 				floorVariant, gridToWorld, worldToGrid, rayHitGround,
-				knightModel)
+				knightModel, wallModel)
 		} else {
 			drawMap(world, game, mapScale, mapPanX, mapPanZ)
 		}
@@ -337,26 +348,54 @@ func drawLocal(
 	camera rl.Camera3D,
 	world *World,
 	game *GameState,
-	tileUnit, floorSurfaceY, knightYOffset, charScale float32,
+	tileUnit, floorSurfaceY, knightYOffset, charScale, wallScale float32,
 	floorVariant func(int, int) rl.Model,
 	gridToWorld func(int, int) rl.Vector3,
 	worldToGrid func(float32, float32) (int, int),
 	rayHitGround func(rl.Ray) (float32, float32, bool),
-	knightModel rl.Model,
+	knightModel, wallModel rl.Model,
 ) {
 	rl.BeginMode3D(camera)
 
 	ones := rl.Vector3{X: 1, Y: 1, Z: 1}
+	wallScaleVec := rl.Vector3{X: wallScale, Y: wallScale, Z: wallScale}
 
-	// Render floor tiles for loaded chunks
 	for _, chunk := range world.Chunks {
 		ox, oz := ChunkOrigin(chunk.CX, chunk.CZ)
 		for lz := 0; lz < ChunkSize; lz++ {
 			for lx := 0; lx < ChunkSize; lx++ {
 				tx, tz := ox+lx, oz+lz
+				tile := chunk.Tiles[lz][lx]
 				pos := gridToWorld(tx, tz)
-				fm := floorVariant(tx, tz)
-				rl.DrawModelEx(fm, pos, rl.Vector3{Y: 1}, 0, ones, rl.White)
+
+				halfTile := tileUnit * 0.5
+
+				switch tile {
+				case TileGround:
+					fm := floorVariant(tx, tz)
+					rl.DrawModelEx(fm, pos, rl.Vector3{Y: 1}, 0, ones, rl.Color{R: 140, G: 140, B: 130, A: 255})
+				case TileFloor:
+					fm := floorVariant(tx, tz)
+					rl.DrawModelEx(fm, pos, rl.Vector3{Y: 1}, 0, ones, rl.Color{R: 40, G: 40, B: 50, A: 255})
+
+					// Walls on edges facing ground
+					drawWall := func(wallPos rl.Vector3, rotation float32) {
+						wallPos.Y = floorSurfaceY
+						rl.DrawModelEx(wallModel, wallPos, rl.Vector3{Y: 1}, rotation, wallScaleVec, rl.White)
+					}
+					if world.TileTypeAt(tx, tz-1) == TileGround {
+						drawWall(rl.Vector3{X: pos.X, Z: pos.Z - halfTile}, 180)
+					}
+					if world.TileTypeAt(tx, tz+1) == TileGround {
+						drawWall(rl.Vector3{X: pos.X, Z: pos.Z + halfTile}, 0)
+					}
+					if world.TileTypeAt(tx-1, tz) == TileGround {
+						drawWall(rl.Vector3{X: pos.X - halfTile, Z: pos.Z}, -90)
+					}
+					if world.TileTypeAt(tx+1, tz) == TileGround {
+						drawWall(rl.Vector3{X: pos.X + halfTile, Z: pos.Z}, 90)
+					}
+				}
 			}
 		}
 	}
@@ -399,32 +438,33 @@ func drawMap(world *World, game *GameState, scale, panX, panZ float32) {
 	centerX := float32(screenWidth) / 2
 	centerY := float32(screenHeight) / 2
 
-	chunkPx := scale * float32(ChunkSize) // pixels per chunk
-
-	// Player tile position as pixel offset from center
 	playerOffX := centerX + panX
 	playerOffY := centerY + panZ
 
+	// Draw per-tile for each loaded chunk
 	for _, chunk := range world.Chunks {
 		ox, oz := ChunkOrigin(chunk.CX, chunk.CZ)
+		for lz := range ChunkSize {
+			for lx := range ChunkSize {
+				tx, tz := ox+lx, oz+lz
+				sx := playerOffX + float32(tx-game.PlayerX)*scale
+				sy := playerOffY + float32(tz-game.PlayerZ)*scale
 
-		// Chunk rect in screen space, relative to player
-		sx := playerOffX + float32(ox-game.PlayerX)*scale
-		sy := playerOffY + float32(oz-game.PlayerZ)*scale
+				var color rl.Color
+				switch chunk.Tiles[lz][lx] {
+				case TileGround:
+					color = rl.Color{R: 45, G: 50, B: 40, A: 255}
+				case TileFloor:
+					color = rl.Color{R: 30, G: 30, B: 45, A: 255}
+				}
 
-		// Chunk fill
-		color := rl.Color{R: 30, G: 30, B: 40, A: 255}
-		if chunk.Explored {
-			color = rl.Color{R: 60, G: 75, B: 90, A: 255}
+				sz := int32(math.Ceil(float64(scale)))
+				rl.DrawRectangle(int32(sx), int32(sy), sz, sz, color)
+			}
 		}
-		rl.DrawRectangle(int32(sx), int32(sy), int32(chunkPx), int32(chunkPx), color)
-
-		// Chunk border
-		rl.DrawRectangleLines(int32(sx), int32(sy), int32(chunkPx), int32(chunkPx),
-			rl.Color{R: 50, G: 60, B: 80, A: 255})
 	}
 
 	// Player marker
 	rl.DrawCircle(int32(playerOffX+scale*0.5), int32(playerOffY+scale*0.5),
-		scale*0.8+2, rl.Color{R: 255, G: 220, B: 80, A: 255})
+		scale+2, rl.Color{R: 255, G: 220, B: 80, A: 255})
 }
