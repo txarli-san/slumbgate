@@ -74,6 +74,11 @@ type Dungeon struct {
 	Width, Height int
 	Cells         [][]Cell
 	Rooms         []Room
+	// Breakable wall: one outer wall that can be destroyed with pickaxe
+	BreakableX, BreakableZ int
+	BreakableDir           int // 0=N, 1=E, 2=S, 3=W
+	// Pickaxe location on ground
+	PickaxeX, PickaxeZ int
 }
 
 func NewDungeon() *Dungeon {
@@ -135,6 +140,12 @@ func GenerateDungeon(seed int64) *Dungeon {
 
 	// Wall decor
 	d.placeWallDecor(rng)
+
+	// Pick one outer wall as the breakable entry point
+	d.placeBreakableWall(rng)
+
+	// Place pickaxe on a random ground cell
+	d.placePickaxe(rng)
 
 	return d
 }
@@ -207,13 +218,19 @@ func (d *Dungeon) generateWalls() {
 	}
 }
 
-// RevealAround reveals the cell at (x,z) and neighbors
+// RevealAround reveals nearby cells, but only reveals interior (floor) cells
+// when the player is inside the dungeon (standing on floor)
 func (d *Dungeon) RevealAround(cx, cz int) {
+	onFloor := d.Cells[cz][cx].Type == CellFloor
 	for dz := -2; dz <= 2; dz++ {
 		for dx := -2; dx <= 2; dx++ {
 			x, z := cx+dx, cz+dz
 			if x >= 0 && x < d.Width && z >= 0 && z < d.Height {
-				d.Cells[z][x].Revealed = true
+				c := &d.Cells[z][x]
+				if c.Type == CellFloor && !onFloor {
+					continue // don't reveal interior from outside
+				}
+				c.Revealed = true
 			}
 		}
 	}
@@ -309,6 +326,70 @@ func (d *Dungeon) randomWallSpot(room Room, rng *rand.Rand) (int, int) {
 		}
 	}
 	return room.Center()
+}
+
+func (d *Dungeon) placeBreakableWall(rng *rand.Rand) {
+	// Collect all outer wall segments (walls that face ground)
+	type wallSeg struct {
+		x, z, dir int // dir: 0=N, 1=E, 2=S, 3=W
+	}
+	var candidates []wallSeg
+
+	for z := 0; z < d.Height; z++ {
+		for x := 0; x < d.Width; x++ {
+			c := d.Cells[z][x]
+			if c.Type != CellFloor {
+				continue
+			}
+			if c.WallN {
+				candidates = append(candidates, wallSeg{x, z, 0})
+			}
+			if c.WallE {
+				candidates = append(candidates, wallSeg{x, z, 1})
+			}
+			if c.WallS {
+				candidates = append(candidates, wallSeg{x, z, 2})
+			}
+			if c.WallW {
+				candidates = append(candidates, wallSeg{x, z, 3})
+			}
+		}
+	}
+
+	if len(candidates) > 0 {
+		pick := candidates[rng.Intn(len(candidates))]
+		d.BreakableX = pick.x
+		d.BreakableZ = pick.z
+		d.BreakableDir = pick.dir
+	}
+}
+
+func (d *Dungeon) placePickaxe(rng *rand.Rand) {
+	// Place on a random ground cell
+	for range 100 {
+		x := rng.Intn(d.Width)
+		z := rng.Intn(d.Height)
+		if d.Cells[z][x].Type == CellGround {
+			d.PickaxeX = x
+			d.PickaxeZ = z
+			return
+		}
+	}
+}
+
+// BreakWall removes the breakable wall segment, allowing passage
+func (d *Dungeon) BreakWall() {
+	c := &d.Cells[d.BreakableZ][d.BreakableX]
+	switch d.BreakableDir {
+	case 0:
+		c.WallN = false
+	case 1:
+		c.WallE = false
+	case 2:
+		c.WallS = false
+	case 3:
+		c.WallW = false
+	}
 }
 
 func (d *Dungeon) placeWallDecor(rng *rand.Rand) {

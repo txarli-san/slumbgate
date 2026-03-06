@@ -81,6 +81,22 @@ func applyShaderToModel(model rl.Model, shader rl.Shader) {
 	}
 }
 
+// isAdjacentToBreakable checks if (gx,gz) is the ground cell adjacent to the breakable wall
+func isAdjacentToBreakable(d *Dungeon, gx, gz int) bool {
+	bx, bz := d.BreakableX, d.BreakableZ
+	switch d.BreakableDir {
+	case 0: // N wall — ground cell is one north
+		return gx == bx && gz == bz-1
+	case 1: // E wall — ground cell is one east
+		return gx == bx+1 && gz == bz
+	case 2: // S wall — ground cell is one south
+		return gx == bx && gz == bz+1
+	case 3: // W wall — ground cell is one west
+		return gx == bx-1 && gz == bz
+	}
+	return false
+}
+
 // Find a ground cell adjacent to the first room's wall
 func findStartPosition(d *Dungeon) (int, int) {
 	r := d.Rooms[0]
@@ -294,11 +310,25 @@ func main() {
 	centerX := gridWorld * 0.5
 	centerZ := gridWorld * 0.5
 
-	// Player starts on ground outside the dungeon
-	// Find a ground cell adjacent to the first room
+	// Load breakable wall model
+	wallBrokenModel := rl.LoadModel("../assets/models/dungeon/walls/wall_broken.gltf.glb")
+	defer rl.UnloadModel(wallBrokenModel)
+	applyShaderToModel(wallBrokenModel, shader)
+
+	// Use an axe model for the pickaxe item on the ground
+	pickaxeModel := rl.LoadModel("../assets/models/weapons/axe_common.gltf.glb")
+	defer rl.UnloadModel(pickaxeModel)
+	applyShaderToModel(pickaxeModel, shader)
+
+	// Game state
 	startX, startZ := findStartPosition(dungeon)
-	px, pz := startX, startZ
-	dungeon.RevealAround(px, pz)
+	game := &GameState{
+		PlayerX:  startX,
+		PlayerZ:  startZ,
+		PickaxeX: dungeon.PickaxeX,
+		PickaxeZ: dungeon.PickaxeZ,
+	}
+	dungeon.RevealAround(game.PlayerX, game.PlayerZ)
 
 	// Camera
 	orbitAngle := float32(math.Pi / 4)
@@ -377,19 +407,52 @@ func main() {
 		viewPos := []float32{camera.Position.X, camera.Position.Y, camera.Position.Z}
 		rl.SetShaderValue(shader, locViewPos, viewPos, rl.ShaderUniformVec3)
 
-		// Click to move (walkable = ground or floor)
+		dt := rl.GetFrameTime()
+
+		// Click to pathfind
 		if rl.IsMouseButtonPressed(rl.MouseButtonLeft) {
 			ray := rl.GetScreenToWorldRay(rl.GetMousePosition(), camera)
 			if wx, wz, ok := rayHitGround(ray); ok {
 				gx, gz := worldToGrid(wx, wz)
 				if gx >= 0 && gx < dungeon.Width && gz >= 0 && gz < dungeon.Height {
-					ct := dungeon.Cells[gz][gx].Type
-					if ct == CellGround || ct == CellFloor {
-						px, pz = gx, gz
-						dungeon.RevealAround(gx, gz)
+					// Check if clicking adjacent to breakable wall with pickaxe
+					if game.HasPickaxe && !game.WallBroken && isAdjacentToBreakable(dungeon, gx, gz) {
+						dungeon.BreakWall()
+						game.WallBroken = true
+						game.SetMessage("Wall broken! You can enter the dungeon.")
+					} else {
+						path := FindPath(dungeon, game.PlayerX, game.PlayerZ, gx, gz)
+						if path != nil {
+							game.Path = path
+							game.StepTimer = 0
+						}
 					}
 				}
 			}
+		}
+
+		// Step along path
+		if len(game.Path) > 0 {
+			game.StepTimer -= dt
+			if game.StepTimer <= 0 {
+				next := game.Path[0]
+				game.Path = game.Path[1:]
+				game.PlayerX, game.PlayerZ = next[0], next[1]
+				game.TimeTicks++
+				game.StepTimer = stepInterval
+				dungeon.RevealAround(game.PlayerX, game.PlayerZ)
+
+				// Check pickaxe pickup
+				if !game.HasPickaxe && game.PlayerX == dungeon.PickaxeX && game.PlayerZ == dungeon.PickaxeZ {
+					game.HasPickaxe = true
+					game.SetMessage("Picked up a pickaxe! Find the cracked wall.")
+				}
+			}
+		}
+
+		// Message timer
+		if game.MessageTimer > 0 {
+			game.MessageTimer -= dt
 		}
 
 		// Regenerate dungeon with R key
@@ -397,8 +460,13 @@ func main() {
 			seed = time.Now().UnixNano()
 			dungeon = GenerateDungeon(seed)
 			sx, sz := findStartPosition(dungeon)
-			px, pz = sx, sz
-			dungeon.RevealAround(px, pz)
+			game = &GameState{
+				PlayerX:  sx,
+				PlayerZ:  sz,
+				PickaxeX: dungeon.PickaxeX,
+				PickaxeZ: dungeon.PickaxeZ,
+			}
+			dungeon.RevealAround(sx, sz)
 			fmt.Printf("Regenerated dungeon with %d rooms (seed: %d)\n", len(dungeon.Rooms), seed)
 		}
 
@@ -430,17 +498,21 @@ func main() {
 				// CellFloor — dungeon interior
 
 				// Walls always visible from outside (they ARE the structure)
-				if cell.WallN {
+				// Skip the breakable wall segment — it's rendered separately
+				isBreakable := func(dir int) bool {
+					return !game.WallBroken && x == dungeon.BreakableX && z == dungeon.BreakableZ && dir == dungeon.BreakableDir
+				}
+				if cell.WallN && !isBreakable(0) {
 					drawWall(wallModel, rl.Vector3{X: pos.X, Z: pos.Z - halfTile}, 180)
 				}
-				if cell.WallS {
+				if cell.WallE && !isBreakable(1) {
+					drawWall(wallModel, rl.Vector3{X: pos.X + halfTile, Z: pos.Z}, 90)
+				}
+				if cell.WallS && !isBreakable(2) {
 					drawWall(wallModel, rl.Vector3{X: pos.X, Z: pos.Z + halfTile}, 0)
 				}
-				if cell.WallW {
+				if cell.WallW && !isBreakable(3) {
 					drawWall(wallModel, rl.Vector3{X: pos.X - halfTile, Z: pos.Z}, -90)
-				}
-				if cell.WallE {
-					drawWall(wallModel, rl.Vector3{X: pos.X + halfTile, Z: pos.Z}, 90)
 				}
 
 				// Interior only rendered when revealed
@@ -490,9 +562,41 @@ func main() {
 			}
 		}
 
+		// Pickaxe on ground (if not picked up)
+		if !game.HasPickaxe {
+			pickPos := gridToWorld(dungeon.PickaxeX, dungeon.PickaxeZ)
+			pickPos.Y = floorSurfaceY
+			rl.DrawModelEx(pickaxeModel, pickPos, rl.Vector3{Y: 1}, 45, wallScaleVec, rl.White)
+		}
+
+		// Breakable wall (render differently from normal walls)
+		if !game.WallBroken {
+			bx, bz := dungeon.BreakableX, dungeon.BreakableZ
+			bpos := gridToWorld(bx, bz)
+			ht := tileUnit * 0.5
+			var bwPos rl.Vector3
+			var bwRot float32
+			switch dungeon.BreakableDir {
+			case 0: // N
+				bwPos = rl.Vector3{X: bpos.X, Z: bpos.Z - ht}
+				bwRot = 180
+			case 1: // E
+				bwPos = rl.Vector3{X: bpos.X + ht, Z: bpos.Z}
+				bwRot = 90
+			case 2: // S
+				bwPos = rl.Vector3{X: bpos.X, Z: bpos.Z + ht}
+				bwRot = 0
+			case 3: // W
+				bwPos = rl.Vector3{X: bpos.X - ht, Z: bpos.Z}
+				bwRot = -90
+			}
+			bwPos.Y = floorSurfaceY
+			rl.DrawModelEx(wallBrokenModel, bwPos, rl.Vector3{Y: 1}, bwRot, wallScaleVec, rl.White)
+		}
+
 		// Player
 		scaleVec := rl.Vector3{X: charScale, Y: charScale, Z: charScale}
-		knightPos := gridToWorld(px, pz)
+		knightPos := gridToWorld(game.PlayerX, game.PlayerZ)
 		knightPos.Y = knightYOffset
 		rl.DrawModelEx(knightModel, knightPos, rl.Vector3{Y: 1}, 0, scaleVec, rl.White)
 
@@ -513,8 +617,15 @@ func main() {
 		rl.EndMode3D()
 
 		// HUD
-		rl.DrawText(fmt.Sprintf("Rooms: %d | Player: (%d, %d)", len(dungeon.Rooms), px, pz), 10, 10, 20, rl.White)
+		inv := "none"
+		if game.HasPickaxe {
+			inv = "Pickaxe"
+		}
+		rl.DrawText(fmt.Sprintf("Time: %d | Inventory: %s", game.TimeTicks, inv), 10, 10, 20, rl.White)
 		rl.DrawText("Click to move | Left/Right to orbit | Scroll to zoom | R to regenerate", 10, 35, 16, rl.Gray)
+		if game.MessageTimer > 0 {
+			rl.DrawText(game.Message, 10, 60, 20, rl.Color{R: 255, G: 220, B: 100, A: 255})
+		}
 		rl.DrawFPS(screenWidth-90, 10)
 
 		rl.EndDrawing()
