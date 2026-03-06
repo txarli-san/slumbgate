@@ -331,6 +331,8 @@ func main() {
 	dungeon.RevealAround(game.PlayerX, game.PlayerZ)
 
 	// Camera
+	camTargetX := (float32(game.PlayerX) + 0.5) * tileUnit
+	camTargetZ := (float32(game.PlayerZ) + 0.5) * tileUnit
 	orbitAngle := float32(math.Pi / 4)
 	orbitRadius := gridWorld * 0.55
 	cameraHeight := gridWorld * 0.5
@@ -379,35 +381,48 @@ func main() {
 	}
 
 	for !rl.WindowShouldClose() {
-		// Camera orbit
-		if rl.IsKeyDown(rl.KeyLeft) {
-			orbitAngle -= 0.02
+		dt := rl.GetFrameTime()
+
+		// Camera: right-click drag to orbit, scroll to zoom
+		if rl.IsMouseButtonDown(rl.MouseButtonRight) {
+			delta := rl.GetMouseDelta()
+			orbitAngle += delta.X * 0.005
+			cameraHeight -= delta.Y * tileUnit * 0.01
+			if cameraHeight < tileUnit*2 {
+				cameraHeight = tileUnit * 2
+			}
+			if cameraHeight > gridWorld*0.8 {
+				cameraHeight = gridWorld * 0.8
+			}
 		}
-		if rl.IsKeyDown(rl.KeyRight) {
-			orbitAngle += 0.02
-		}
-		// Zoom
 		wheel := rl.GetMouseWheelMove()
 		if wheel != 0 {
 			orbitRadius -= wheel * tileUnit * 0.5
-			if orbitRadius < gridWorld*0.2 {
-				orbitRadius = gridWorld * 0.2
+			if orbitRadius < tileUnit*3 {
+				orbitRadius = tileUnit * 3
 			}
 			if orbitRadius > gridWorld*1.0 {
 				orbitRadius = gridWorld * 1.0
 			}
 		}
 
-		camera.Position.X = centerX + orbitRadius*float32(math.Cos(float64(orbitAngle)))
-		camera.Position.Z = centerZ + orbitRadius*float32(math.Sin(float64(orbitAngle)))
+		// Camera follows player (smooth lerp)
+		playerWorld := gridToWorld(game.PlayerX, game.PlayerZ)
+		camSmooth := float32(5.0) * dt
+		if camSmooth > 1 {
+			camSmooth = 1
+		}
+		camTargetX += (playerWorld.X - camTargetX) * camSmooth
+		camTargetZ += (playerWorld.Z - camTargetZ) * camSmooth
+		camera.Target.X = camTargetX
+		camera.Target.Z = camTargetZ
+		camera.Target.Y = 0
+		camera.Position.X = camTargetX + orbitRadius*float32(math.Cos(float64(orbitAngle)))
+		camera.Position.Z = camTargetZ + orbitRadius*float32(math.Sin(float64(orbitAngle)))
 		camera.Position.Y = cameraHeight
-		camera.Target.X = centerX
-		camera.Target.Z = centerZ
 
 		viewPos := []float32{camera.Position.X, camera.Position.Y, camera.Position.Z}
 		rl.SetShaderValue(shader, locViewPos, viewPos, rl.ShaderUniformVec3)
-
-		dt := rl.GetFrameTime()
 
 		// Click to pathfind
 		if rl.IsMouseButtonPressed(rl.MouseButtonLeft) {
@@ -646,7 +661,7 @@ func main() {
 			inv = "Pickaxe"
 		}
 		rl.DrawText(fmt.Sprintf("Time: %d | Inventory: %s", game.TimeTicks, inv), 10, 10, 20, rl.White)
-		rl.DrawText("Click to move | Left/Right to orbit | Scroll to zoom | R to regenerate", 10, 35, 16, rl.Gray)
+		rl.DrawText("Click to move | Right-drag to orbit | Scroll to zoom | R to regenerate", 10, 35, 16, rl.Gray)
 		if game.MessageTimer > 0 {
 			rl.DrawText(game.Message, 10, 60, 20, rl.Color{R: 255, G: 220, B: 100, A: 255})
 		}
