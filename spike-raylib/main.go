@@ -278,7 +278,7 @@ func main() {
 				clickedTile, _ := world.GetTile(gx, gz)
 
 				if game.HasPickaxe && isAdj && clickedTile == TileSolid {
-					world.SetTile(gx, gz, TileFloor)
+					world.SetTile(gx, gz, TileDoorway)
 					world.RevealAround(gx, gz)
 					game.SetMessage("Wall broken!")
 				} else {
@@ -416,55 +416,62 @@ func drawLocal(
 					rl.DrawModelEx(fm, pos, rl.Vector3{Y: 1}, 0, ones, rl.Color{R: 140, G: 140, B: 130, A: 255})
 
 				case TileSolid:
-					// Walls on edges facing ground (visible from outside)
-					if world.TileTypeAt(tx, tz-1) == TileGround {
+					// Walls on edges facing open space (ground, floor, doorway)
+					solidWall := func(nx, nz int) bool {
+						n := world.TileTypeAt(nx, nz)
+						if n == TileGround || n == TileDoorway {
+							return true
+						}
+						// Show wall toward revealed floor
+						if n == TileFloor && world.IsRevealed(nx, nz) {
+							return true
+						}
+						return false
+					}
+					if solidWall(tx, tz-1) {
 						drawWall(rl.Vector3{X: pos.X, Z: pos.Z - halfTile}, 180)
 					}
-					if world.TileTypeAt(tx, tz+1) == TileGround {
+					if solidWall(tx, tz+1) {
 						drawWall(rl.Vector3{X: pos.X, Z: pos.Z + halfTile}, 0)
 					}
-					if world.TileTypeAt(tx-1, tz) == TileGround {
+					if solidWall(tx-1, tz) {
 						drawWall(rl.Vector3{X: pos.X - halfTile, Z: pos.Z}, -90)
 					}
-					if world.TileTypeAt(tx+1, tz) == TileGround {
+					if solidWall(tx+1, tz) {
 						drawWall(rl.Vector3{X: pos.X + halfTile, Z: pos.Z}, 90)
 					}
-					// Walls on edges facing revealed floor (visible from inside)
-					if revealed {
-						if world.TileTypeAt(tx, tz-1) == TileFloor && world.IsRevealed(tx, tz-1) {
-							drawWall(rl.Vector3{X: pos.X, Z: pos.Z - halfTile}, 180)
-						}
-						if world.TileTypeAt(tx, tz+1) == TileFloor && world.IsRevealed(tx, tz+1) {
-							drawWall(rl.Vector3{X: pos.X, Z: pos.Z + halfTile}, 0)
-						}
-						if world.TileTypeAt(tx-1, tz) == TileFloor && world.IsRevealed(tx-1, tz) {
-							drawWall(rl.Vector3{X: pos.X - halfTile, Z: pos.Z}, -90)
-						}
-						if world.TileTypeAt(tx+1, tz) == TileFloor && world.IsRevealed(tx+1, tz) {
-							drawWall(rl.Vector3{X: pos.X + halfTile, Z: pos.Z}, 90)
-						}
-					}
 
-				case TileFloor:
+			case TileFloor:
 					if !revealed {
 						continue
 					}
 					fm := floorVariant(tx, tz)
 					rl.DrawModelEx(fm, pos, rl.Vector3{Y: 1}, 0, ones, rl.White)
 
-					// Walls on edges facing ground
-					if world.TileTypeAt(tx, tz-1) == TileGround {
+					// Walls on edges facing ground (not doorways)
+					needsWall := func(nx, nz int) bool {
+						n := world.TileTypeAt(nx, nz)
+						return n == TileGround
+					}
+					if needsWall(tx, tz-1) {
 						drawWall(rl.Vector3{X: pos.X, Z: pos.Z - halfTile}, 180)
 					}
-					if world.TileTypeAt(tx, tz+1) == TileGround {
+					if needsWall(tx, tz+1) {
 						drawWall(rl.Vector3{X: pos.X, Z: pos.Z + halfTile}, 0)
 					}
-					if world.TileTypeAt(tx-1, tz) == TileGround {
+					if needsWall(tx-1, tz) {
 						drawWall(rl.Vector3{X: pos.X - halfTile, Z: pos.Z}, -90)
 					}
-					if world.TileTypeAt(tx+1, tz) == TileGround {
+					if needsWall(tx+1, tz) {
 						drawWall(rl.Vector3{X: pos.X + halfTile, Z: pos.Z}, 90)
 					}
+
+				case TileDoorway:
+					if !revealed {
+						continue
+					}
+					fm := floorVariant(tx, tz)
+					rl.DrawModelEx(fm, pos, rl.Vector3{Y: 1}, 0, ones, rl.White)
 
 				case TileCore:
 					// Nothing rendered — void
@@ -542,6 +549,8 @@ func drawMap(world *World, game *GameState, scale, panX, panZ float32) {
 					} else {
 						color = rl.Color{R: 25, G: 25, B: 35, A: 255}
 					}
+				case TileDoorway:
+					color = rl.Color{R: 80, G: 80, B: 90, A: 255}
 				case TileCore:
 					color = rl.Color{R: 15, G: 15, B: 20, A: 255}
 				}

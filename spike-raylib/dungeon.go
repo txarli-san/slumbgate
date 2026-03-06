@@ -29,10 +29,11 @@ const (
 type TileType int
 
 const (
-	TileGround TileType = iota // outside — walkable
-	TileSolid                  // ring fill — breakable wall
-	TileFloor                  // carved room/corridor — walkable
-	TileCore                   // inner area — impenetrable
+	TileGround  TileType = iota // outside — walkable
+	TileSolid                   // ring fill — breakable wall
+	TileFloor                   // carved room/corridor — walkable
+	TileDoorway                 // broken wall — walkable, no walls rendered
+	TileCore                    // inner area — impenetrable
 )
 
 type ChunkCoord struct {
@@ -346,5 +347,5 @@ func (w *World) IsWalkable(tx, tz int) bool {
 	if !ok {
 		return false
 	}
-	return t == TileGround || t == TileFloor
+	return t == TileGround || t == TileFloor || t == TileDoorway
 }
