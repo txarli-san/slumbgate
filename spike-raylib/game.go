@@ -1,166 +1,60 @@
 package main
 
-import "container/heap"
+type CameraMode int
 
-// Game state for the exploration PoC
+const (
+	CameraLocal    CameraMode = iota // 3D tactical view
+	CameraStrategic                  // 2D top-down map
+)
+
 type GameState struct {
 	PlayerX, PlayerZ int
-	PrevX, PrevZ     int     // previous tile (for lerp)
-	Path             [][2]int // queued path to walk
-	StepTimer        float32  // time until next step
-	StepProgress     float32  // 0..1 lerp between prev and current pos
+	PrevX, PrevZ     int
+	StepProgress     float32
 	Moving           bool
-	FacingAngle      float32 // Y rotation in degrees
-	HasPickaxe       bool
+	FacingAngle      float32
 	TimeTicks        int
-	PickaxeX         int
-	PickaxeZ         int
-	BreakableWallX   int
-	BreakableWallZ   int
-	BreakableWallDir int // 0=N, 1=E, 2=S, 3=W
-	WallBroken       bool
-	Message          string
-	MessageTimer     float32
+	Path             [][2]int
+	Camera           CameraMode
 }
 
-const stepInterval = 0.15 // seconds between steps
+const stepInterval = 0.15
 
-// FacingAngleFromDir returns Y rotation for a movement direction
 func FacingAngleFromDir(dx, dz int) float32 {
 	switch {
-	case dz == -1: // north
+	case dz == -1:
 		return 180
-	case dz == 1: // south
+	case dz == 1:
 		return 0
-	case dx == -1: // west
+	case dx == -1:
 		return 90
-	case dx == 1: // east
+	case dx == 1:
 		return -90
 	}
 	return 0
 }
 
-func (g *GameState) SetMessage(msg string) {
-	g.Message = msg
-	g.MessageTimer = 3.0
-}
-
-// CanWalk checks if moving from (fx,fz) to (tx,tz) is allowed (no wall crossing)
-func CanWalk(d *Dungeon, fx, fz, tx, tz int) bool {
-	if tx < 0 || tx >= d.Width || tz < 0 || tz >= d.Height {
-		return false
-	}
-	// Can't walk into unrevealed floor (unless adjacent to current pos and ground)
-	target := d.Cells[tz][tx]
-	if target.Type != CellGround && target.Type != CellFloor {
-		return false
+// Simple pathfinding for flat terrain — just walk straight (no obstacles yet)
+func FindPath(w *World, sx, sz, gx, gz int) [][2]int {
+	if !w.IsWalkable(gx, gz) {
+		return nil
 	}
 
-	// Check wall between from and to
-	from := d.Cells[fz][fx]
-	dx, dz := tx-fx, tz-fz
+	var path [][2]int
+	x, z := sx, sz
 
-	// Moving north (dz=-1): check from's north wall
-	if dz == -1 && dx == 0 && from.WallN {
-		return false
-	}
-	// Moving south
-	if dz == 1 && dx == 0 && from.WallS {
-		return false
-	}
-	// Moving west
-	if dx == -1 && dz == 0 && from.WallW {
-		return false
-	}
-	// Moving east
-	if dx == 1 && dz == 0 && from.WallE {
-		return false
-	}
-
-	// Also check target cell's wall from the opposite side
-	if dz == -1 && dx == 0 && target.WallS {
-		return false
-	}
-	if dz == 1 && dx == 0 && target.WallN {
-		return false
-	}
-	if dx == -1 && dz == 0 && target.WallE {
-		return false
-	}
-	if dx == 1 && dz == 0 && target.WallW {
-		return false
-	}
-
-	return true
-}
-
-// A* pathfinding
-type astarNode struct {
-	x, z, g, f int
-	parent     *astarNode
-}
-
-type astarHeap []*astarNode
-
-func (h astarHeap) Len() int            { return len(h) }
-func (h astarHeap) Less(i, j int) bool   { return h[i].f < h[j].f }
-func (h astarHeap) Swap(i, j int)        { h[i], h[j] = h[j], h[i] }
-func (h *astarHeap) Push(x interface{})  { *h = append(*h, x.(*astarNode)) }
-func (h *astarHeap) Pop() interface{} {
-	old := *h
-	n := len(old)
-	item := old[n-1]
-	*h = old[:n-1]
-	return item
-}
-
-func abs(a int) int {
-	if a < 0 {
-		return -a
-	}
-	return a
-}
-
-func FindPath(d *Dungeon, sx, sz, gx, gz int) [][2]int {
-	type key struct{ x, z int }
-	closed := map[key]bool{}
-	open := &astarHeap{}
-	heap.Init(open)
-
-	start := &astarNode{x: sx, z: sz, g: 0, f: abs(gx-sx) + abs(gz-sz)}
-	heap.Push(open, start)
-
-	dirs := [][2]int{{0, -1}, {0, 1}, {-1, 0}, {1, 0}}
-
-	for open.Len() > 0 {
-		cur := heap.Pop(open).(*astarNode)
-		if cur.x == gx && cur.z == gz {
-			// Reconstruct path (skip start)
-			var path [][2]int
-			for n := cur; n != nil && (n.x != sx || n.z != sz); n = n.parent {
-				path = append([][2]int{{n.x, n.z}}, path...)
-			}
-			return path
+	for x != gx || z != gz {
+		if x < gx {
+			x++
+		} else if x > gx {
+			x--
 		}
-
-		k := key{cur.x, cur.z}
-		if closed[k] {
-			continue
+		if z < gz {
+			z++
+		} else if z > gz {
+			z--
 		}
-		closed[k] = true
-
-		for _, dir := range dirs {
-			nx, nz := cur.x+dir[0], cur.z+dir[1]
-			if closed[(key{nx, nz})] {
-				continue
-			}
-			if !CanWalk(d, cur.x, cur.z, nx, nz) {
-				continue
-			}
-			ng := cur.g + 1
-			nf := ng + abs(gx-nx) + abs(gz-nz)
-			heap.Push(open, &astarNode{x: nx, z: nz, g: ng, f: nf, parent: cur})
-		}
+		path = append(path, [2]int{x, z})
 	}
-	return nil // no path
+	return path
 }
