@@ -61,9 +61,15 @@ const (
 )
 
 type Threat struct {
-	X, Z    int
-	Type    SkeletonType
-	RoomIdx int // which room this enemy belongs to
+	X, Z       int
+	Type       SkeletonType
+	RoomIdx    int
+	HP, MaxHP  int
+	AC         int
+	STR, DEX   int
+	MoveSpeed  int
+	AttackDice int // e.g. 6 = 1d6
+	MaxRange   int // 1 = melee
 }
 
 func (t Threat) ThreatLevel() int {
@@ -76,6 +82,8 @@ func (t Threat) ThreatLevel() int {
 		return 2
 	}
 }
+
+func (t Threat) AttackMod() int { return (t.DEX - 10) / 2 }
 
 type World struct {
 	Seed             int64
@@ -495,7 +503,27 @@ func (w *World) placeThreats() {
 			if _, taken := w.Threats[key]; taken {
 				continue
 			}
-			w.Threats[key] = Threat{X: tx, Z: tz, Type: w.rollSkeletonType(rng), RoomIdx: ri}
+			st := w.rollSkeletonType(rng)
+			t := Threat{X: tx, Z: tz, Type: st, RoomIdx: ri}
+			switch st {
+			case SkeletonMinion:
+				t.HP, t.MaxHP, t.AC = 8, 8, 11
+				t.STR, t.DEX = 10, 12
+				t.MoveSpeed, t.AttackDice, t.MaxRange = 4, 4, 1
+			case SkeletonWarrior:
+				t.HP, t.MaxHP, t.AC = 13, 13, 13
+				t.STR, t.DEX = 10, 14
+				t.MoveSpeed, t.AttackDice, t.MaxRange = 4, 6, 1
+			case SkeletonRogue:
+				t.HP, t.MaxHP, t.AC = 11, 11, 14
+				t.STR, t.DEX = 8, 16
+				t.MoveSpeed, t.AttackDice, t.MaxRange = 5, 6, 1
+			case SkeletonMage:
+				t.HP, t.MaxHP, t.AC = 9, 9, 12
+				t.STR, t.DEX = 8, 14
+				t.MoveSpeed, t.AttackDice, t.MaxRange = 4, 8, 5
+			}
+			w.Threats[key] = t
 		}
 	}
 }

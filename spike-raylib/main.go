@@ -212,7 +212,12 @@ func main() {
 
 	// Spawn company
 	game.Entities = []*Entity{
-		{Name: "Brynn", X: spawnX, Z: 0, Tier: TierVeteran, RevealDist: 8, Scouted: map[[2]int]bool{}},
+		{Name: "Brynn", X: spawnX, Z: 0, Tier: TierVeteran, RevealDist: 8, Scouted: map[[2]int]bool{},
+			Stats: &CombatStats{
+				HP: 28, MaxHP: 28, AC: 16,
+				STR: 16, DEX: 12, CON: 14, INT: 10, WIS: 12, CHA: 10,
+				Level: 3, ProfBonus: 2, MoveSpeed: 5, Class: "Fighter",
+			}},
 		{Name: "Kael", X: spawnX - 1, Z: 1, Tier: TierSoldier, RevealDist: 3, Scouted: map[[2]int]bool{}},
 		{Name: "Pip", X: spawnX - 1, Z: -1, Tier: TierRecruit, RevealDist: 3, Scouted: map[[2]int]bool{}},
 	}
@@ -306,8 +311,8 @@ func main() {
 			}
 		}
 
-		// Click in 3D view: select entity or assign move task
-		if game.Alert == nil && rl.IsMouseButtonPressed(rl.MouseButtonLeft) {
+		// Click in 3D view: select entity or assign move task (continuous mode only)
+		if game.Combat == nil && game.Alert == nil && rl.IsMouseButtonPressed(rl.MouseButtonLeft) {
 			ray := rl.GetScreenToWorldRay(rl.GetMousePosition(), camera)
 			if wx, wz, ok := rayHitGround(ray); ok {
 				gx, gz := worldToGrid(wx, wz)
@@ -337,8 +342,8 @@ func main() {
 			}
 		}
 
-		// Entities with tasks drive the clock — time flows when anyone is busy
-		if game.Alert == nil && game.AnyEntityBusy() {
+		// Entities with tasks drive the clock (continuous mode only)
+		if game.Combat == nil && game.Alert == nil && game.AnyEntityBusy() {
 			game.TickAccum += dt
 			for game.TickAccum >= stepInterval {
 				game.TickAccum -= stepInterval
@@ -361,8 +366,32 @@ func main() {
 			}
 		}
 
-		// Orders for selected entity: 1=Scout  2=Stop
-		if game.SelectedEnt >= 0 {
+		// Combat input
+		if game.Combat != nil {
+			c := game.Combat
+			cur := c.Current()
+
+			// Space to end turn
+			if rl.IsKeyPressed(rl.KeySpace) && !cur.IsEnemy {
+				c.NextTurn()
+				// Set move points for new combatant
+				next := c.Current()
+				if !next.IsEnemy {
+					if s := game.Entities[next.EntityIdx].Stats; s != nil {
+						c.MoveLeft = s.MoveSpeed
+					}
+				} else {
+					if t, ok := world.Threats[next.ThreatKey]; ok {
+						c.MoveLeft = t.MoveSpeed
+					}
+				}
+			}
+
+			// TODO: click to move, click enemy to attack, enemy AI turns
+		}
+
+		// Orders for selected entity: 1=Scout  2=Stop (continuous mode only)
+		if game.Combat == nil && game.SelectedEnt >= 0 {
 			ent := game.Entities[game.SelectedEnt]
 			if rl.IsKeyPressed(rl.KeyOne) {
 				ent.Task = &Task{Type: TaskExplore}
@@ -425,9 +454,14 @@ func main() {
 			knightModel, wallModel, pickaxeModel, skeletonModels, game.Entities, game.SelectedEnt)
 
 		// HUD
-		rl.DrawText(fmt.Sprintf("Time: %d | Chunks: %d",
-			game.TimeTicks, len(world.Chunks)), 10, 10, 20, rl.White)
-		rl.DrawText("Click select/move | Tab cycle | 1 Scout | 2 Stop | Right-drag orbit | Scroll zoom", 10, 35, 16, rl.Gray)
+		if game.Combat != nil {
+			rl.DrawText("COMBAT", 10, 10, 24, rl.Color{R: 255, G: 60, B: 60, A: 255})
+			rl.DrawText("Click tile to move | Click enemy to attack | Space end turn", 10, 38, 16, rl.Gray)
+		} else {
+			rl.DrawText(fmt.Sprintf("Time: %d | Chunks: %d",
+				game.TimeTicks, len(world.Chunks)), 10, 10, 20, rl.White)
+			rl.DrawText("Click select/move | Tab cycle | 1 Scout | 2 Stop | Right-drag orbit | Scroll zoom", 10, 35, 16, rl.Gray)
+		}
 		if game.MessageTimer > 0 {
 			rl.DrawText(game.Message, 10, 60, 20, rl.Color{R: 255, G: 220, B: 100, A: 255})
 		}
@@ -458,6 +492,66 @@ func main() {
 
 			rl.DrawText("[1] Scout  [2] Stop  [Click] Move to", panelX+10, panelY+80, 14, rl.Gray)
 			rl.DrawText(fmt.Sprintf("< Tab (%d/%d) >", game.SelectedEnt+1, len(game.Entities)), panelX+10, panelY+98, 12, rl.DarkGray)
+		}
+
+		// Combat UI
+		if game.Combat != nil {
+			c := game.Combat
+			// Initiative order — right side
+			panelX := int32(screenWidth - 220)
+			panelY := int32(10)
+			panelW := int32(210)
+			panelH := int32(30 + int32(len(c.Combatants))*22)
+			rl.DrawRectangle(panelX, panelY, panelW, panelH, rl.Color{R: 20, G: 20, B: 30, A: 210})
+			rl.DrawRectangleLines(panelX, panelY, panelW, panelH, rl.Color{R: 255, G: 60, B: 60, A: 255})
+			rl.DrawText("Initiative", panelX+10, panelY+6, 16, rl.White)
+
+			for ci, cb := range c.Combatants {
+				y := panelY + 26 + int32(ci)*22
+				color := rl.LightGray
+				name := ""
+				if cb.IsEnemy {
+					if t, ok := world.Threats[cb.ThreatKey]; ok {
+						switch t.Type {
+						case SkeletonMinion:
+							name = "Sk. Minion"
+						case SkeletonWarrior:
+							name = "Sk. Warrior"
+						case SkeletonRogue:
+							name = "Sk. Rogue"
+						case SkeletonMage:
+							name = "Sk. Mage"
+						}
+						name = fmt.Sprintf("%s (%d/%d)", name, t.HP, t.MaxHP)
+					}
+					color = rl.Color{R: 255, G: 100, B: 100, A: 255}
+				} else {
+					ent := game.Entities[cb.EntityIdx]
+					name = ent.Name
+					if ent.Stats != nil {
+						name = fmt.Sprintf("%s (%d/%d)", name, ent.Stats.HP, ent.Stats.MaxHP)
+					}
+					color = tierColor(ent.Tier)
+				}
+				if ci == c.TurnIndex {
+					rl.DrawText(">", panelX+4, y, 14, rl.Yellow)
+				}
+				rl.DrawText(fmt.Sprintf("%2d  %s", cb.Initiative, name), panelX+16, y, 14, color)
+			}
+
+			// Active turn info — bottom center
+			cur := c.Current()
+			if !cur.IsEnemy {
+				ent := game.Entities[cur.EntityIdx]
+				info := fmt.Sprintf("%s's turn | Move: %d", ent.Name, c.MoveLeft)
+				if !c.ActionTaken {
+					info += " | Action available"
+				}
+				tw := rl.MeasureText(info, 20)
+				rl.DrawText(info, (screenWidth-tw)/2, screenHeight-40, 20, rl.Yellow)
+			} else {
+				rl.DrawText("Enemy turn...", (screenWidth-130)/2, screenHeight-40, 20, rl.Color{R: 255, G: 100, B: 100, A: 255})
+			}
 		}
 
 		// Alert overlay
