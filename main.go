@@ -124,7 +124,7 @@ func main() {
 			Stats: &CombatStats{
 				HP: 28, MaxHP: 28, AC: 16,
 				STR: 16, DEX: 12, CON: 14, INT: 10, WIS: 12, CHA: 10,
-				Level: 3, ProfBonus: 2, MoveSpeed: 5, Class: "Fighter",
+				Level: 3, ProfBonus: 2, MoveSpeed: 5, Class: "Fighter", ClassCharges: 2,
 			}},
 		{Name: "Kael", X: spawnX - 1, Z: 1, Tier: TierSoldier, RevealDist: 3, Scouted: map[[2]int]bool{}},
 		{Name: "Pip", X: spawnX - 1, Z: -1, Tier: TierRecruit, RevealDist: 3, Scouted: map[[2]int]bool{}},
@@ -284,25 +284,41 @@ func main() {
 				game.RunEnemyTurn(world)
 			}
 
-			// Space to end turn (ally only)
-			if !cur.IsEnemy && rl.IsKeyPressed(rl.KeySpace) {
-				c.NextTurn(game, world)
+			// Ally turn — action hotkeys
+			if !cur.IsEnemy && c.Actions != nil {
+				for _, action := range c.Actions {
+					var pressed bool
+					switch action.Hotkey {
+					case "1": pressed = rl.IsKeyPressed(rl.KeyOne)
+					case "2": pressed = rl.IsKeyPressed(rl.KeyTwo)
+					case "3": pressed = rl.IsKeyPressed(rl.KeyThree)
+					case "4": pressed = rl.IsKeyPressed(rl.KeyFour)
+					case "5": pressed = rl.IsKeyPressed(rl.KeyFive)
+					case "Space": pressed = rl.IsKeyPressed(rl.KeySpace)
+					}
+					if pressed {
+						game.TryExecuteAction(world, action)
+						break
+					}
+				}
 			}
 
-			// Click to move or attack (ally turn only)
+			// Ally turn — click: target primed action, or move
 			if !cur.IsEnemy && rl.IsMouseButtonPressed(rl.MouseButtonLeft) {
 				ray := rl.GetScreenToWorldRay(rl.GetMousePosition(), camera)
 				if wx, wz, ok := rayHitGround(ray); ok {
 					gx, gz := worldToGrid(wx, wz)
 					ent := game.Entities[cur.EntityIdx]
 
-					// Check if clicking on an enemy threat
-					if threat, ok := world.GetThreat(gx, gz); ok {
-						// Attack if adjacent
-						if withinRange(ent.X, ent.Z, gx, gz, 1) && !c.ActionTaken {
-							game.ResolveCombatAttack(world, cur, threat, gx, gz)
+					if c.PrimedAction != nil {
+						// Execute primed action on target
+						if world.IsThreatAt(gx, gz) {
+							game.ExecutePrimedOnTarget(world, gx, gz)
+						} else {
+							c.PrimedAction = nil
+							game.SetMessage("No valid target there.")
 						}
-					} else if world.IsWalkable(gx, gz) && c.MoveLeft > 0 {
+					} else if world.IsWalkable(gx, gz) && !world.IsThreatAt(gx, gz) && c.MoveLeft > 0 {
 						// Move to clicked tile
 						path := FindPath(world, ent.X, ent.Z, gx, gz)
 						if path != nil && len(path) <= c.MoveLeft {
@@ -322,6 +338,12 @@ func main() {
 						}
 					}
 				}
+			}
+
+			// Right click cancels primed action
+			if !cur.IsEnemy && rl.IsMouseButtonPressed(rl.MouseButtonRight) && c.PrimedAction != nil {
+				c.PrimedAction = nil
+				game.SetMessage("Action cancelled.")
 			}
 		}
 

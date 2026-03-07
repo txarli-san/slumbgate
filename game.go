@@ -46,6 +46,7 @@ type CombatStats struct {
 	ProfBonus    int
 	MoveSpeed    int // tiles per combat turn
 	Class        string // "Fighter", "Mage", etc.
+	ClassCharges int // Second Wind / Action Surge uses
 }
 
 func (s CombatStats) Mod(stat int) int { return (stat - 10) / 2 }
@@ -272,6 +273,12 @@ func (g *GameState) TickEntities(w *World) *Alert {
 func withinRange(ax, az, bx, bz, r int) bool {
 	dx, dz := ax-bx, az-bz
 	return dx*dx+dz*dz <= r*r
+}
+
+// adjacent returns true if two tiles are within 1 step (cardinal or diagonal)
+func adjacent(ax, az, bx, bz int) bool {
+	dx, dz := abs(ax-bx), abs(az-bz)
+	return dx <= 1 && dz <= 1 && (dx+dz) > 0
 }
 
 // nearestWalkable spirals out from (tx,tz) to find the closest walkable tile.

@@ -345,16 +345,51 @@ func drawLocal(
 			rl.DrawText(fmt.Sprintf("%2d  %s", cb.Initiative, name), panelX+16, y, 14, color)
 		}
 
-		// Active turn info — bottom center
+		// Active turn info + action bar — bottom
 		cur := c.Current()
 		if !cur.IsEnemy {
 			ent := game.Entities[cur.EntityIdx]
-			info := fmt.Sprintf("%s's turn | Move: %d", ent.Name, c.MoveLeft)
-			if !c.ActionTaken {
-				info += " | Action available"
+
+			// Action bar background
+			barH := int32(52)
+			barY := int32(screenHeight) - barH
+			rl.DrawRectangle(0, barY, screenWidth, barH, rl.Color{R: 20, G: 20, B: 30, A: 230})
+
+			// Status line
+			info := fmt.Sprintf("%s | HP: %d/%d | Move: %d",
+				ent.Name, ent.Stats.HP, ent.Stats.MaxHP, c.MoveLeft)
+			rl.DrawText(info, 10, barY+4, 16, rl.Yellow)
+
+			// Action buttons
+			btnX := int32(10)
+			btnY := barY + 24
+			for _, action := range c.Actions {
+				canUse := action.CanUse != nil && action.CanUse(game, ent)
+				label := fmt.Sprintf("[%s] %s", action.Hotkey, action.Name)
+				tw := rl.MeasureText(label, 14)
+				padW := tw + 12
+
+				btnColor := rl.Color{R: 40, G: 40, B: 55, A: 255}
+				textColor := rl.LightGray
+				if !canUse {
+					textColor = rl.Color{R: 80, G: 80, B: 80, A: 255}
+				} else if c.PrimedAction != nil && c.PrimedAction.ID == action.ID {
+					btnColor = rl.Color{R: 80, G: 60, B: 20, A: 255}
+					textColor = rl.Yellow
+				}
+
+				rl.DrawRectangle(btnX, btnY, padW, 22, btnColor)
+				rl.DrawRectangleLines(btnX, btnY, padW, 22, rl.Color{R: 80, G: 80, B: 100, A: 255})
+				rl.DrawText(label, btnX+6, btnY+4, 14, textColor)
+
+				btnX += padW + 4
 			}
-			tw := rl.MeasureText(info, 20)
-			rl.DrawText(info, (screenWidth-tw)/2, screenHeight-40, 20, rl.Yellow)
+
+			if c.PrimedAction != nil {
+				msg := fmt.Sprintf(">> Click target for %s | Right-click cancel", c.PrimedAction.Name)
+				tw := rl.MeasureText(msg, 16)
+				rl.DrawText(msg, (screenWidth-tw)/2, barY-24, 16, rl.Yellow)
+			}
 		} else {
 			rl.DrawText("Enemy turn...", (screenWidth-130)/2, screenHeight-40, 20, rl.Color{R: 255, G: 100, B: 100, A: 255})
 		}

@@ -5,29 +5,55 @@ import (
 	"math/rand"
 )
 
-// Combat mode types
+// Action economy types
 
-type CombatTurnPhase int
+type ActionCost int
 
 const (
-	PhaseMovement CombatTurnPhase = iota
-	PhaseAction
+	CostFree     ActionCost = iota
+	CostStandard            // one per turn
+	CostBonus               // one per turn
+	CostReaction            // one per round
 )
+
+type TargetMode int
+
+const (
+	TargetNone          TargetMode = iota // no target needed
+	TargetSelf                            // self-cast
+	TargetEnemyAdjacent                   // click adjacent enemy
+	TargetEnemyRange                      // click enemy in range
+)
+
+type CombatAction struct {
+	ID       string
+	Name     string
+	Cost     ActionCost
+	Target   TargetMode
+	Range    int
+	Hotkey   string // display hint
+	CanUse   func(g *GameState, ent *Entity) bool
+	Execute  func(g *GameState, w *World, ent *Entity, tx, tz int)
+}
+
+// Combat state
 
 type Combatant struct {
 	IsEnemy    bool
-	EntityIdx  int      // index into GameState.Entities (allies)
-	ThreatKey  [2]int   // key into World.Threats (enemies)
+	EntityIdx  int    // index into GameState.Entities (allies)
+	ThreatKey  [2]int // key into World.Threats (enemies)
 	Initiative int
 }
 
 type Combat struct {
-	Combatants  []Combatant
-	TurnIndex   int // whose turn in initiative order
-	Phase       CombatTurnPhase
-	MoveLeft    int // remaining movement for current combatant
-	ActionTaken bool
-	RoomIdx     int // which room this fight is in
+	Combatants    []Combatant
+	TurnIndex     int
+	MoveLeft      int
+	ActionUsed    bool // standard action spent this turn
+	BonusUsed     bool
+	RoomIdx       int
+	PrimedAction  *CombatAction // selected action awaiting target
+	Actions       []*CombatAction // available actions for current entity
 }
 
 func (c *Combat) Current() *Combatant {
@@ -36,30 +62,31 @@ func (c *Combat) Current() *Combatant {
 
 func (c *Combat) NextTurn(g *GameState, w *World) {
 	c.TurnIndex = (c.TurnIndex + 1) % len(c.Combatants)
-	c.Phase = PhaseMovement
-	c.ActionTaken = false
+	c.ActionUsed = false
+	c.BonusUsed = false
+	c.PrimedAction = nil
 	// Set move points for new combatant
 	next := c.Current()
 	if !next.IsEnemy {
 		if s := g.Entities[next.EntityIdx].Stats; s != nil {
 			c.MoveLeft = s.MoveSpeed
 		}
+		c.Actions = BuildActions(g, g.Entities[next.EntityIdx])
 	} else {
 		if t, ok := w.Threats[next.ThreatKey]; ok {
 			c.MoveLeft = t.MoveSpeed
 		}
+		c.Actions = nil
 	}
 }
 
 // StartCombat initiates combat with an entity entering a room with threats.
-// Rolls initiative (d20 + DEX mod) for all participants.
 func (g *GameState) StartCombat(w *World, entityIdx int, roomIdx int) {
 	ent := g.Entities[entityIdx]
-	ent.Task = nil // stop whatever they were doing
+	ent.Task = nil
 
 	var combatants []Combatant
 
-	// Add the entity as ally
 	dexMod := 0
 	if ent.Stats != nil {
 		dexMod = ent.Stats.Mod(ent.Stats.DEX)
@@ -70,7 +97,6 @@ func (g *GameState) StartCombat(w *World, entityIdx int, roomIdx int) {
 		Initiative: rollD20() + dexMod,
 	})
 
-	// Add all threats in the same room
 	for key, threat := range w.Threats {
 		if threat.RoomIdx == roomIdx {
 			combatants = append(combatants, Combatant{
@@ -90,13 +116,14 @@ func (g *GameState) StartCombat(w *World, entityIdx int, roomIdx int) {
 		}
 	}
 
-	// Set move points for first combatant
 	moveLeft := 0
 	first := combatants[0]
+	var actions []*CombatAction
 	if !first.IsEnemy {
 		if s := g.Entities[first.EntityIdx].Stats; s != nil {
 			moveLeft = s.MoveSpeed
 		}
+		actions = BuildActions(g, g.Entities[first.EntityIdx])
 	} else {
 		if t, ok := w.Threats[first.ThreatKey]; ok {
 			moveLeft = t.MoveSpeed
@@ -106,45 +133,149 @@ func (g *GameState) StartCombat(w *World, entityIdx int, roomIdx int) {
 	g.Combat = &Combat{
 		Combatants: combatants,
 		TurnIndex:  0,
-		Phase:      PhaseMovement,
 		MoveLeft:   moveLeft,
 		RoomIdx:    roomIdx,
+		Actions:    actions,
 	}
 	g.SelectedEnt = entityIdx
 	g.SetMessage("Combat started! Roll initiative!")
 }
 
-// ResolveCombatAttack handles an ally entity attacking a threat.
-// d20 + ability mod + proficiency vs AC. Crit on nat 20, fumble on nat 1.
-func (g *GameState) ResolveCombatAttack(w *World, attacker *Combatant, threat Threat, tx, tz int) {
-	ent := g.Entities[attacker.EntityIdx]
-	stats := ent.Stats
-	if stats == nil {
+// BuildActions returns the available combat actions for an entity based on class.
+func BuildActions(g *GameState, ent *Entity) []*CombatAction {
+	if ent.Stats == nil {
+		return nil
+	}
+
+	var actions []*CombatAction
+
+	switch ent.Stats.Class {
+	case "Fighter":
+		actions = append(actions,
+			&CombatAction{
+				ID: "melee_attack", Name: "Melee Attack", Cost: CostStandard,
+				Target: TargetEnemyAdjacent, Range: 1, Hotkey: "1",
+				CanUse: func(g *GameState, e *Entity) bool { return !g.Combat.ActionUsed },
+				Execute: executeMeleeAttack,
+			},
+			&CombatAction{
+				ID: "second_wind", Name: "Second Wind", Cost: CostStandard,
+				Target: TargetSelf, Hotkey: "2",
+				CanUse: func(g *GameState, e *Entity) bool {
+					return !g.Combat.ActionUsed && e.Stats.ClassCharges > 0
+				},
+				Execute: executeSecondWind,
+			},
+			&CombatAction{
+				ID: "dash", Name: "Dash", Cost: CostStandard,
+				Target: TargetSelf, Hotkey: "3",
+				CanUse: func(g *GameState, e *Entity) bool { return !g.Combat.ActionUsed },
+				Execute: executeDash,
+			},
+			&CombatAction{
+				ID: "shove", Name: "Shove", Cost: CostStandard,
+				Target: TargetEnemyAdjacent, Range: 1, Hotkey: "4",
+				CanUse: func(g *GameState, e *Entity) bool { return !g.Combat.ActionUsed },
+				Execute: executeShove,
+			},
+			&CombatAction{
+				ID: "action_surge", Name: "Action Surge", Cost: CostFree,
+				Target: TargetSelf, Hotkey: "5",
+				CanUse: func(g *GameState, e *Entity) bool {
+					return g.Combat.ActionUsed && e.Stats.ClassCharges > 0
+				},
+				Execute: executeActionSurge,
+			},
+		)
+	}
+
+	// End turn is always available
+	actions = append(actions, &CombatAction{
+		ID: "end_turn", Name: "End Turn", Cost: CostFree,
+		Target: TargetNone, Hotkey: "Space",
+		CanUse:  func(g *GameState, e *Entity) bool { return true },
+		Execute: func(g *GameState, w *World, e *Entity, tx, tz int) {
+			g.Combat.NextTurn(g, w)
+		},
+	})
+
+	return actions
+}
+
+// TryExecuteAction primes or executes an action.
+// Self/None targets execute immediately. Enemy targets need a click.
+func (g *GameState) TryExecuteAction(w *World, action *CombatAction) {
+	c := g.Combat
+	cur := c.Current()
+	ent := g.Entities[cur.EntityIdx]
+
+	if action.CanUse != nil && !action.CanUse(g, ent) {
+		g.SetMessage("Can't use " + action.Name + " right now.")
 		return
 	}
 
-	// Face the target
+	switch action.Target {
+	case TargetNone, TargetSelf:
+		action.Execute(g, w, ent, 0, 0)
+	case TargetEnemyAdjacent, TargetEnemyRange:
+		c.PrimedAction = action
+		g.SetMessage("Select target for " + action.Name)
+	}
+}
+
+// ExecutePrimedOnTarget resolves a primed action on a clicked target.
+func (g *GameState) ExecutePrimedOnTarget(w *World, tx, tz int) {
+	c := g.Combat
+	action := c.PrimedAction
+	if action == nil {
+		return
+	}
+	cur := c.Current()
+	ent := g.Entities[cur.EntityIdx]
+
+	// Validate target
+	if action.Target == TargetEnemyAdjacent && !adjacent(ent.X, ent.Z, tx, tz) {
+		g.SetMessage("Target not adjacent!")
+		return
+	}
+	if action.Target == TargetEnemyRange && !withinRange(ent.X, ent.Z, tx, tz, action.Range) {
+		g.SetMessage("Target out of range!")
+		return
+	}
+
+	action.Execute(g, w, ent, tx, tz)
+	c.PrimedAction = nil
+}
+
+// Execute functions — ported from old combat system
+
+func executeMeleeAttack(g *GameState, w *World, ent *Entity, tx, tz int) {
+	stats := ent.Stats
+	threat, ok := w.GetThreat(tx, tz)
+	if !ok || stats == nil {
+		return
+	}
+
 	ent.FacingAngle = FacingAngleFromDir(tx-ent.X, tz-ent.Z)
 
-	// Attack roll: d20 + STR mod + proficiency (melee for now)
 	roll := rollD20()
 	atkMod := stats.Mod(stats.STR)
 	total := roll + atkMod + stats.ProfBonus
 
 	if roll == 1 {
 		g.SetMessage(fmt.Sprintf("%s attacks — nat 1! Miss!", ent.Name))
-		g.Combat.ActionTaken = true
+		g.Combat.ActionUsed = true
 		return
 	}
 
 	if roll < 20 && total < threat.AC {
 		g.SetMessage(fmt.Sprintf("%s attacks (%d+%d=%d vs AC %d) — miss!",
 			ent.Name, roll, atkMod+stats.ProfBonus, total, threat.AC))
-		g.Combat.ActionTaken = true
+		g.Combat.ActionUsed = true
 		return
 	}
 
-	// Hit — roll damage: 1d8 + STR mod (longsword). Crit doubles dice.
+	// Hit — 1d8 + STR mod, crit doubles dice
 	damageDice := rollDice(8)
 	if roll == 20 {
 		damageDice += rollDice(8)
@@ -162,18 +293,80 @@ func (g *GameState) ResolveCombatAttack(w *World, attacker *Combatant, threat Th
 			ent.Name, roll, atkMod+stats.ProfBonus, total, threat.AC, damage))
 	}
 
-	// Check if threat dies
 	if threat.HP <= 0 {
 		w.RemoveThreat(tx, tz)
-		g.removeCombatant(attacker, tx, tz)
+		g.removeCombatant(tx, tz)
 		g.SetMessage(fmt.Sprintf("%s slays the skeleton! (%d damage)", ent.Name, damage))
 	}
 
-	g.Combat.ActionTaken = true
+	g.Combat.ActionUsed = true
+}
+
+func executeSecondWind(g *GameState, w *World, ent *Entity, _, _ int) {
+	stats := ent.Stats
+	heal := rollDice(10) + stats.Mod(stats.CON)
+	if heal < 1 {
+		heal = 1
+	}
+	stats.HP += heal
+	if stats.HP > stats.MaxHP {
+		stats.HP = stats.MaxHP
+	}
+	stats.ClassCharges--
+	g.Combat.ActionUsed = true
+	g.SetMessage(fmt.Sprintf("%s uses Second Wind! Heals %d (HP: %d/%d)",
+		ent.Name, heal, stats.HP, stats.MaxHP))
+}
+
+func executeDash(g *GameState, w *World, ent *Entity, _, _ int) {
+	g.Combat.MoveLeft += ent.Stats.MoveSpeed
+	g.Combat.ActionUsed = true
+	g.SetMessage(fmt.Sprintf("%s dashes! +%d movement", ent.Name, ent.Stats.MoveSpeed))
+}
+
+func executeShove(g *GameState, w *World, ent *Entity, tx, tz int) {
+	threat, ok := w.GetThreat(tx, tz)
+	if !ok {
+		return
+	}
+
+	// Push direction: from entity toward threat
+	dx, dz := tx-ent.X, tz-ent.Z
+	// Normalize to unit step
+	if dx > 0 { dx = 1 } else if dx < 0 { dx = -1 }
+	if dz > 0 { dz = 1 } else if dz < 0 { dz = -1 }
+
+	pushX, pushZ := tx+dx, tz+dz
+	if w.IsWalkable(pushX, pushZ) && !w.IsThreatAt(pushX, pushZ) {
+		// Move threat to pushed position
+		delete(w.Threats, [2]int{tx, tz})
+		threat.X, threat.Z = pushX, pushZ
+		newKey := [2]int{pushX, pushZ}
+		w.Threats[newKey] = threat
+		// Update combatant key
+		for i := range g.Combat.Combatants {
+			if g.Combat.Combatants[i].IsEnemy && g.Combat.Combatants[i].ThreatKey == [2]int{tx, tz} {
+				g.Combat.Combatants[i].ThreatKey = newKey
+				break
+			}
+		}
+		g.SetMessage(fmt.Sprintf("%s shoves the skeleton back!", ent.Name))
+	} else {
+		g.SetMessage(fmt.Sprintf("%s shoves but the skeleton can't be pushed!", ent.Name))
+	}
+
+	ent.FacingAngle = FacingAngleFromDir(tx-ent.X, tz-ent.Z)
+	g.Combat.ActionUsed = true
+}
+
+func executeActionSurge(g *GameState, w *World, ent *Entity, _, _ int) {
+	g.Combat.ActionUsed = false // regain standard action
+	ent.Stats.ClassCharges--
+	g.SetMessage(fmt.Sprintf("%s surges! Action restored!", ent.Name))
 }
 
 // removeCombatant removes a dead enemy from the initiative order.
-func (g *GameState) removeCombatant(_ *Combatant, tx, tz int) {
+func (g *GameState) removeCombatant(tx, tz int) {
 	c := g.Combat
 	key := [2]int{tx, tz}
 	for i := len(c.Combatants) - 1; i >= 0; i-- {
@@ -186,7 +379,6 @@ func (g *GameState) removeCombatant(_ *Combatant, tx, tz int) {
 		}
 	}
 
-	// Check if all enemies are dead — end combat
 	anyEnemy := false
 	for _, cb := range c.Combatants {
 		if cb.IsEnemy {
@@ -223,7 +415,7 @@ func (g *GameState) RunEnemyTurn(w *World) {
 		if ent.Stats == nil || ent.Stats.HP <= 0 {
 			continue
 		}
-		d := abs(threat.X-ent.X) + abs(threat.Z-ent.Z) // manhattan
+		d := abs(threat.X-ent.X) + abs(threat.Z-ent.Z)
 		if d < bestDist {
 			bestDist = d
 			bestIdx = i
@@ -235,10 +427,10 @@ func (g *GameState) RunEnemyTurn(w *World) {
 	}
 	target := g.Entities[bestIdx]
 
-	// If adjacent, attack
-	if withinRange(threat.X, threat.Z, target.X, target.Z, threat.MaxRange) && !c.ActionTaken {
+	inRange := threat.MaxRange <= 1 && adjacent(threat.X, threat.Z, target.X, target.Z) ||
+		threat.MaxRange > 1 && withinRange(threat.X, threat.Z, target.X, target.Z, threat.MaxRange)
+	if inRange {
 		g.ResolveEnemyAttack(w, threat, target)
-		c.ActionTaken = true
 		c.NextTurn(g, w)
 		return
 	}
@@ -251,7 +443,6 @@ func (g *GameState) RunEnemyTurn(w *World) {
 			if steps > len(path) {
 				steps = len(path)
 			}
-			// Don't step onto the target's tile
 			for steps > 0 {
 				dest := path[steps-1]
 				if dest[0] == target.X && dest[1] == target.Z {
@@ -262,23 +453,24 @@ func (g *GameState) RunEnemyTurn(w *World) {
 			}
 			if steps > 0 {
 				dest := path[steps-1]
-				old := [2]int{threat.X, threat.Z}
 				threat.X, threat.Z = dest[0], dest[1]
-				w.Threats[cur.ThreatKey] = threat
-				// Update threat key if position changed
-				if old != cur.ThreatKey {
-					// Key is the original spawn position, doesn't change
-				}
+				newKey := [2]int{dest[0], dest[1]}
+				delete(w.Threats, cur.ThreatKey)
+				w.Threats[newKey] = threat
+				cur.ThreatKey = newKey
 				c.MoveLeft -= steps
 			}
 		}
 	}
 
-	// Try attack again after moving
+	// Try attack after moving
 	threat, ok = w.Threats[cur.ThreatKey]
-	if ok && !c.ActionTaken && withinRange(threat.X, threat.Z, target.X, target.Z, threat.MaxRange) {
-		g.ResolveEnemyAttack(w, threat, target)
-		c.ActionTaken = true
+	if ok {
+		inRange = threat.MaxRange <= 1 && adjacent(threat.X, threat.Z, target.X, target.Z) ||
+			threat.MaxRange > 1 && withinRange(threat.X, threat.Z, target.X, target.Z, threat.MaxRange)
+		if inRange {
+			g.ResolveEnemyAttack(w, threat, target)
+		}
 	}
 
 	c.NextTurn(g, w)
@@ -320,8 +512,6 @@ func (g *GameState) ResolveEnemyAttack(w *World, threat Threat, target *Entity) 
 		g.SetMessage(fmt.Sprintf("Skeleton hits %s for %d damage (HP: %d/%d)",
 			target.Name, damage, target.Stats.HP, target.Stats.MaxHP))
 	}
-
-	// TODO: entity death handling
 }
 
 func rollD20() int { return rand.Intn(20) + 1 }
