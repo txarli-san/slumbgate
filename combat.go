@@ -39,10 +39,12 @@ type CombatAction struct {
 // Combat state
 
 type Combatant struct {
-	IsEnemy    bool
-	EntityIdx  int    // index into GameState.Entities (allies)
-	ThreatKey  [2]int // key into World.Threats (enemies)
-	Initiative int
+	IsEnemy      bool
+	EntityIdx    int    // index into GameState.Entities (allies)
+	ThreatKey    [2]int // key into World.Threats (enemies)
+	Initiative   int
+	SpawnPos     [2]int // original position, for leashing back
+	PursuitLeft  int    // turns left before giving up chase (enemies only)
 }
 
 type Combat struct {
@@ -100,9 +102,11 @@ func (g *GameState) StartCombat(w *World, entityIdx int, roomIdx int) {
 	for key, threat := range w.Threats {
 		if threat.RoomIdx == roomIdx {
 			combatants = append(combatants, Combatant{
-				IsEnemy:    true,
-				ThreatKey:  key,
-				Initiative: rollD20() + (threat.DEX-10)/2,
+				IsEnemy:     true,
+				ThreatKey:   key,
+				Initiative:  rollD20() + (threat.DEX-10)/2,
+				SpawnPos:    key,
+				PursuitLeft: 3,
 			})
 		}
 	}
@@ -393,6 +397,7 @@ func (g *GameState) removeCombatant(tx, tz int) {
 }
 
 // RunEnemyTurn executes a simple enemy AI: move toward nearest ally, attack if adjacent.
+// Enemies have a pursuit timer — if they can't attack for 3 turns, they leash back to spawn.
 func (g *GameState) RunEnemyTurn(w *World) {
 	c := g.Combat
 	if c == nil {
@@ -404,7 +409,18 @@ func (g *GameState) RunEnemyTurn(w *World) {
 	}
 	threat, ok := w.Threats[cur.ThreatKey]
 	if !ok {
-		c.NextTurn(g, w)
+		// Threat gone (killed or key collision) — remove ghost combatant
+		g.leashCombatant(w)
+		return
+	}
+
+	// Leashing: pursuit expired — drop from combat, walk home outside initiative
+	if cur.PursuitLeft <= 0 {
+		w.LeashingThreats = append(w.LeashingThreats, LeashingThreat{
+			ThreatKey: cur.ThreatKey,
+			SpawnPos:  cur.SpawnPos,
+		})
+		g.leashCombatant(w)
 		return
 	}
 
@@ -427,10 +443,13 @@ func (g *GameState) RunEnemyTurn(w *World) {
 	}
 	target := g.Entities[bestIdx]
 
+	attacked := false
+
 	inRange := threat.MaxRange <= 1 && adjacent(threat.X, threat.Z, target.X, target.Z) ||
 		threat.MaxRange > 1 && withinRange(threat.X, threat.Z, target.X, target.Z, threat.MaxRange)
 	if inRange {
 		g.ResolveEnemyAttack(w, threat, target)
+		cur.PursuitLeft = 3
 		c.NextTurn(g, w)
 		return
 	}
@@ -470,10 +489,62 @@ func (g *GameState) RunEnemyTurn(w *World) {
 			threat.MaxRange > 1 && withinRange(threat.X, threat.Z, target.X, target.Z, threat.MaxRange)
 		if inRange {
 			g.ResolveEnemyAttack(w, threat, target)
+			attacked = true
 		}
 	}
 
+	if attacked {
+		cur.PursuitLeft = 3
+	} else {
+		cur.PursuitLeft--
+	}
+
 	c.NextTurn(g, w)
+}
+
+// leashCombatant removes an enemy from initiative (they gave up chasing).
+// Ends combat if no enemies remain in initiative.
+func (g *GameState) leashCombatant(w *World) {
+	c := g.Combat
+	idx := c.TurnIndex
+	c.Combatants = append(c.Combatants[:idx], c.Combatants[idx+1:]...)
+	if len(c.Combatants) == 0 {
+		g.Combat = nil
+		g.SetMessage("Enemies lost interest.")
+		return
+	}
+	if c.TurnIndex >= len(c.Combatants) {
+		c.TurnIndex = 0
+	}
+
+	anyEnemy := false
+	for _, cb := range c.Combatants {
+		if cb.IsEnemy {
+			anyEnemy = true
+			break
+		}
+	}
+	if !anyEnemy {
+		g.Combat = nil
+		g.SetMessage("Enemies lost interest.")
+	} else {
+		// Set up the next combatant's turn
+		next := c.Current()
+		if !next.IsEnemy {
+			if s := g.Entities[next.EntityIdx].Stats; s != nil {
+				c.MoveLeft = s.MoveSpeed
+			}
+			c.Actions = BuildActions(g, g.Entities[next.EntityIdx])
+		} else {
+			if t, ok := w.Threats[next.ThreatKey]; ok {
+				c.MoveLeft = t.MoveSpeed
+			}
+			c.Actions = nil
+		}
+		c.ActionUsed = false
+		c.BonusUsed = false
+		c.PrimedAction = nil
+	}
 }
 
 // ResolveEnemyAttack handles an enemy threat attacking an ally entity.

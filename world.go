@@ -85,11 +85,17 @@ func (t Threat) ThreatLevel() int {
 
 func (t Threat) AttackMod() int { return (t.DEX - 10) / 2 }
 
+type LeashingThreat struct {
+	ThreatKey [2]int
+	SpawnPos  [2]int
+}
+
 type World struct {
 	Seed             int64
 	Chunks           map[ChunkCoord]*Chunk
 	Rooms            []Room
 	Threats          map[[2]int]Threat
+	LeashingThreats  []LeashingThreat
 	PickaxeX         int
 	PickaxeZ         int
 }
@@ -521,4 +527,43 @@ func (w *World) GetThreat(tx, tz int) (Threat, bool) {
 
 func (w *World) RemoveThreat(tx, tz int) {
 	delete(w.Threats, [2]int{tx, tz})
+}
+
+func (w *World) IsThreatAt(tx, tz int) bool {
+	_, ok := w.Threats[[2]int{tx, tz}]
+	return ok
+}
+
+// TickLeashingThreats moves disengaged threats one step toward their spawn each call.
+func (w *World) TickLeashingThreats() {
+	remaining := w.LeashingThreats[:0]
+	for _, lt := range w.LeashingThreats {
+		threat, ok := w.Threats[lt.ThreatKey]
+		if !ok {
+			continue // killed while leashing
+		}
+		if threat.X == lt.SpawnPos[0] && threat.Z == lt.SpawnPos[1] {
+			continue // arrived, done
+		}
+		path := FindPath(w, threat.X, threat.Z, lt.SpawnPos[0], lt.SpawnPos[1])
+		if path == nil || len(path) == 0 {
+			continue // can't path, just drop
+		}
+		steps := threat.MoveSpeed
+		if steps > len(path) {
+			steps = len(path)
+		}
+		dest := path[steps-1]
+		newKey := [2]int{dest[0], dest[1]}
+		threat.X, threat.Z = dest[0], dest[1]
+		delete(w.Threats, lt.ThreatKey)
+		w.Threats[newKey] = threat
+		lt.ThreatKey = newKey
+
+		if threat.X == lt.SpawnPos[0] && threat.Z == lt.SpawnPos[1] {
+			continue // just arrived
+		}
+		remaining = append(remaining, lt)
+	}
+	w.LeashingThreats = remaining
 }

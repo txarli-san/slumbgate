@@ -137,6 +137,7 @@ func FacingAngleFromDir(dx, dz int) float32 {
 // Called once per player action (move, break wall, wait). Time only moves when someone acts.
 func (g *GameState) WorldStep(w *World) *Alert {
 	g.TimeTicks++
+	w.TickLeashingThreats()
 	return g.TickEntities(w)
 }
 
