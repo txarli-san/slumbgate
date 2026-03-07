@@ -230,7 +230,7 @@ PLAN → DEPLOY → EXECUTE → RECOVER → MANAGE → PLAN
 
 **Continuous mode** (default) — 3D isometric view. Point-and-click company management. Click to select entities, click ground to move-to, Tab to cycle, hotkeys for orders (1=Scout, 2=Stop). No direct character control. Camera follows selected entity. This is where exploration, scouting, and resource gathering happen.
 
-**Combat mode** (triggered by threat encounter) — D&D initiative turns. Point-and-click movement and targeting within the combat arena. Space to end turn. Initiative order displayed on screen. Currently implemented: combat trigger on threat encounter, initiative rolls (d20 + DEX mod), turn cycling, basic combat UI. WIP: click-to-move with movement points, click-to-attack with d20 resolution, enemy AI turns, combat end → back to continuous.
+**Combat mode** (triggered by threat encounter) — D&D initiative turns. Action bar at bottom shows class abilities with hotkeys (1-5). Select action → if it needs a target, click target → execute. Space to end turn. Initiative order displayed on screen. Movement points per turn. Full d20 attack resolution (roll + mods vs AC, crits, damage dice). Enemy AI: pathfind toward nearest ally, attack if adjacent, pursuit leash (give up after 3 turns without attacking, walk back to spawn). Combat ends on victory (all enemies dead) or disengage (all enemies leashed).
 
 Player never controls a "main character" outside combat. You're the commander, not a hero.
 
@@ -291,9 +291,9 @@ Combat is the only mode change: threat encounter → initiative turns → back t
 - Distribution: 70% Minion, 25% Warrior, 5% Elite (Rogue or Mage)
 - Each skeleton type has distinct stats (HP, AC, DEX, attack dice, move speed, range)
 - Threats keyed by tile position, stored globally on the World
-- Combat triggers when a combat-capable entity (has CombatStats) sees a revealed threat within perception range
-- Wall-breaking that reveals threats also triggers combat immediately
-- Threats must be on revealed tiles AND within entity reveal distance — no fighting what you can't see
+- Combat triggers when a combat-capable entity has line-of-sight to a threat within 4 tiles
+- Wall-breaking that reveals threats also triggers combat if within range + LOS
+- Aggro requires both proximity and line-of-sight — no fighting through walls
 
 ## Decided: Tech Stack
 
@@ -304,10 +304,26 @@ Combat is the only mode change: threat encounter → initiative turns → back t
 - Custom vertex + fragment shader for directional lighting with specular
 - No Ebiten dependency — fully migrated to Raylib
 
-## Open Questions
+## Decided: Event System
 
-- **Company size.** How many adventurers? Start with 4, recruit up to 12? Or start solo, build the company from NPCs found in the dungeon?
-- **Recruitment.** Where do new adventurers come from? Found as prisoners in the dungeon? Arrive from the surface periodically? Hired with resources?
+**Trigger→effect events that fire at game moments.**
+
+- Events have a trigger type (RoomEntered, RoomCleared), a check function, and a fire function
+- OneShot events fire once and never again
+- EventContext carries the moment (which room, which entity)
+- Events are checked at natural game points: combat start, combat victory
+- First implementation: mage rescue — first room entered gets 2 weak minions, clearing them spawns Elara the Mage as an ally
+- This is the foundation for narrative content in a proc-gen world: prisoners, boss encounters, ambushes, NPC events, environmental triggers
+
+## Decided: Recruitment
+
+**Start solo, build the company from allies found in the dungeon.**
+
+- Brynn (Fighter) starts alone. First room cleared rescues Elara (Mage).
+- Future allies found through events deeper in the dungeon.
+- Company grows organically through exploration, not menus.
+
+## Open Questions
 - **Biome count and depth.** How many rings to the core? 5 biomes (short campaign)? 10+ (long haul)?
 - **How visible is the clock?** Explicit time display? Or felt through consequences (torch dimming, character yawning, hunger icon)?
 - **Automation level.** Can you auto-resolve easy fights to keep the management pace? Or is every combat hand-played? (Probably: player choice — auto-resolve with risk, or manual for control.)

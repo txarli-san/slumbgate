@@ -16,17 +16,24 @@ Go + Raylib-go 3D game. Two modes: continuous (point-and-click company managemen
 - Orders: 1=Scout (autonomous perimeter patrol), 2=Stop
 - Action-driven clock — time only advances when entities act
 - Pickaxe discovery and wall-breaking (A* pathfinding through walls)
+- Manual wall breaking — click a wall to path there and break through
 - Skeleton enemy packs spawning in rooms (Minion/Warrior/Rogue/Mage)
-- Combat trigger on threat encounter with initiative rolls
-- Basic combat UI: initiative panel, turn cycling, Space to end turn
+- Combat: initiative, action bar, movement points, d20 attack resolution
+- Fighter action system: Melee Attack, Second Wind, Dash, Shove, Action Surge
+- Prime→target flow: select action → click target → execute
+- Enemy AI: pathfinding toward allies, melee attacks, pursuit/leash system
+- Pursuit leash: enemies give up chase after 3 turns, walk back to spawn
+- Event system: trigger→effect events (room entered, room cleared)
+- Mage rescue: first room cleared spawns Elara the Mage as ally
+- Combat aggro requires line-of-sight + proximity (4 tiles)
 - 3D rendering with custom GLSL lighting shader
 - Camera orbit (right-drag) and zoom (scroll)
 
 ### WIP
-- Click-to-move in combat (movement points)
-- Click-to-attack (d20 resolution)
-- Enemy AI turns
-- Combat end → back to continuous mode
+- Mage class actions
+- Click action bar buttons (currently hotkey-only)
+- Entity death handling
+- Map generation improvements (room connectivity)
 
 ## Code Structure
 
