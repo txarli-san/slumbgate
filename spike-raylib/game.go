@@ -159,26 +159,38 @@ func (g *GameState) TickEntities(w *World) *Alert {
 			continue
 		}
 
-		// Explore: patrol dungeon perimeter, advance angle each waypoint
+		// Explore: patrol dungeon perimeter (or push inward with pickaxe)
 		if ent.Task.Type == TaskExplore && (ent.Task.Path == nil || ent.Task.PathIdx >= len(ent.Task.Path)) {
-			// Init angle from entity position relative to origin
 			if ent.Task.ExploreAngle == 0 {
 				ent.Task.ExploreAngle = math.Atan2(float64(ent.Z), float64(ent.X))
 			}
-			// Advance ~20 degrees along the perimeter
-			ent.Task.ExploreAngle += 0.35
-			outerR := w.OuterEdge(ent.Task.ExploreAngle)
-			// Stay a few tiles outside the wall — perception does the rest
-			patrolR := outerR + float64(ent.RevealDist)/2
-			tx := int(math.Cos(ent.Task.ExploreAngle) * patrolR)
-			tz := int(math.Sin(ent.Task.ExploreAngle) * patrolR)
-			// Find nearest walkable tile to the target
-			fx, fz, found := nearestWalkable(w, tx, tz)
-			if found {
-				path := FindPath(w, ent.X, ent.Z, fx, fz)
+
+			if g.HasPickaxe {
+				// With pickaxe: push inward at current angle, then advance
+				midR := (w.OuterEdge(ent.Task.ExploreAngle) + w.InnerEdge(ent.Task.ExploreAngle)) / 2
+				tx := int(math.Cos(ent.Task.ExploreAngle) * midR)
+				tz := int(math.Sin(ent.Task.ExploreAngle) * midR)
+				path := FindPathBreakable(w, ent.X, ent.Z, tx, tz)
 				if path != nil {
 					ent.Task.Path = path
 					ent.Task.PathIdx = 0
+				}
+				// Only advance angle after committing to a breach
+				ent.Task.ExploreAngle += 0.35
+			} else {
+				// No pickaxe: patrol outside the wall
+				ent.Task.ExploreAngle += 0.35
+				outerR := w.OuterEdge(ent.Task.ExploreAngle)
+				patrolR := outerR + float64(ent.RevealDist)/2
+				tx := int(math.Cos(ent.Task.ExploreAngle) * patrolR)
+				tz := int(math.Sin(ent.Task.ExploreAngle) * patrolR)
+				fx, fz, found := nearestWalkable(w, tx, tz)
+				if found {
+					path := FindPath(w, ent.X, ent.Z, fx, fz)
+					if path != nil {
+						ent.Task.Path = path
+						ent.Task.PathIdx = 0
+					}
 				}
 			}
 		}
@@ -194,6 +206,14 @@ func (g *GameState) TickEntities(w *World) *Alert {
 		nx, nz := next[0], next[1]
 
 		if !w.IsWalkable(nx, nz) {
+			// Break wall if we have the pickaxe
+			if g.HasPickaxe {
+				if t, ok := w.GetTile(nx, nz); ok && t == TileSolid {
+					w.SetTile(nx, nz, TileDoorway)
+					w.RevealAround(nx, nz)
+					continue // spend this tick breaking, move next tick
+				}
+			}
 			ent.Task.Path = nil // force re-plan on next tick
 			continue
 		}
@@ -208,6 +228,7 @@ func (g *GameState) TickEntities(w *World) *Alert {
 
 		cx, cz := TileToChunk(ent.X, ent.Z)
 		w.EnsureChunksAround(cx, cz)
+		w.UnloadFarChunks(cx, cz)
 		w.RevealAroundDist(ent.X, ent.Z, ent.RevealDist)
 
 		// Track scouted area
@@ -280,8 +301,19 @@ func nearestWalkable(w *World, tx, tz int) (int, int, bool) {
 	return 0, 0, false
 }
 
-func FindPath(w *World, sx, sz, gx, gz int) [][2]int {
-	if !w.IsWalkable(gx, gz) {
+func findPath(w *World, sx, sz, gx, gz int, breakWalls bool) [][2]int {
+	canPass := func(tx, tz int) bool {
+		if w.IsWalkable(tx, tz) {
+			return true
+		}
+		if breakWalls {
+			t, ok := w.GetTile(tx, tz)
+			return ok && t == TileSolid
+		}
+		return false
+	}
+
+	if !canPass(gx, gz) {
 		return nil
 	}
 
@@ -313,13 +345,27 @@ func FindPath(w *World, sx, sz, gx, gz int) [][2]int {
 
 		for _, dir := range dirs {
 			nx, nz := cur.x+dir[0], cur.z+dir[1]
-			if closed[key{nx, nz}] || !w.IsWalkable(nx, nz) {
+			if closed[key{nx, nz}] || !canPass(nx, nz) {
 				continue
 			}
 			ng := cur.g + 1
+			// Wall tiles cost more so entities prefer existing paths
+			if breakWalls {
+				if t, ok := w.GetTile(nx, nz); ok && t == TileSolid {
+					ng += 5
+				}
+			}
 			nf := ng + abs(gx-nx) + abs(gz-nz)
 			heap.Push(open, &astarNode{x: nx, z: nz, g: ng, f: nf, parent: cur})
 		}
 	}
 	return nil
+}
+
+func FindPath(w *World, sx, sz, gx, gz int) [][2]int {
+	return findPath(w, sx, sz, gx, gz, false)
+}
+
+func FindPathBreakable(w *World, sx, sz, gx, gz int) [][2]int {
+	return findPath(w, sx, sz, gx, gz, true)
 }

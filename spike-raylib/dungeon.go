@@ -286,7 +286,7 @@ func (w *World) MarkExplored(tx, tz int) {
 	}
 }
 
-// RevealAroundDist reveals tiles within a given radius
+// RevealAroundDist reveals tiles within a given radius, blocked by solid walls
 func (w *World) RevealAroundDist(tx, tz, radius int) {
 	for dz := -radius; dz <= radius; dz++ {
 		for dx := -radius; dx <= radius; dx++ {
@@ -294,6 +294,9 @@ func (w *World) RevealAroundDist(tx, tz, radius int) {
 				continue
 			}
 			nx, nz := tx+dx, tz+dz
+			if !w.hasLineOfSight(tx, tz, nx, nz) {
+				continue
+			}
 			cx, cz := TileToChunk(nx, nz)
 			c, ok := w.Chunks[ChunkCoord{cx, cz}]
 			if !ok {
@@ -304,6 +307,50 @@ func (w *World) RevealAroundDist(tx, tz, radius int) {
 			if lx >= 0 && lx < ChunkSize && lz >= 0 && lz < ChunkSize {
 				c.Revealed[lz][lx] = true
 			}
+		}
+	}
+}
+
+// hasLineOfSight walks a line from (x0,z0) to (x1,z1), returns false if blocked by TileSolid
+func (w *World) hasLineOfSight(x0, z0, x1, z1 int) bool {
+	dx := x1 - x0
+	dz := z1 - z0
+	adx := dx
+	if adx < 0 {
+		adx = -adx
+	}
+	adz := dz
+	if adz < 0 {
+		adz = -adz
+	}
+	sx := 1
+	if dx < 0 {
+		sx = -1
+	}
+	sz := 1
+	if dz < 0 {
+		sz = -1
+	}
+	err := adx - adz
+	cx, cz := x0, z0
+	for {
+		if cx == x1 && cz == z1 {
+			return true
+		}
+		// Check intermediate tiles (not the source or destination)
+		if cx != x0 || cz != z0 {
+			if t := w.TileTypeAt(cx, cz); t == TileSolid {
+				return false
+			}
+		}
+		e2 := err * 2
+		if e2 > -adz {
+			err -= adz
+			cx += sx
+		}
+		if e2 < adx {
+			err += adx
+			cz += sz
 		}
 	}
 }
