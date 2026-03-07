@@ -1,4 +1,4 @@
-# Coso — Game Design Document
+# Slumbgate — Game Design Document
 
 ## The Premise
 
@@ -230,7 +230,7 @@ PLAN → DEPLOY → EXECUTE → RECOVER → MANAGE → PLAN
 
 **Continuous mode** (default) — 3D isometric view. Point-and-click company management. Click to select entities, click ground to move-to, Tab to cycle, hotkeys for orders (1=Scout, 2=Stop). No direct character control. Camera follows selected entity. This is where exploration, scouting, and resource gathering happen.
 
-**Combat mode** (triggered by threat encounter) — D&D initiative turns. WASD direct control of the active character. Screen-relative movement, E to interact. Not yet implemented — continuous mode only for now.
+**Combat mode** (triggered by threat encounter) — D&D initiative turns. Point-and-click movement and targeting within the combat arena. Space to end turn. Initiative order displayed on screen. Currently implemented: combat trigger on threat encounter, initiative rolls (d20 + DEX mod), turn cycling, basic combat UI. WIP: click-to-move with movement points, click-to-attack with d20 resolution, enemy AI turns, combat end → back to continuous.
 
 Player never controls a "main character" outside combat. You're the commander, not a hero.
 
@@ -250,7 +250,7 @@ This creates massive tension: giving a recruit a scout order means watching the 
 
 Combat is the only mode change: threat encounter → initiative turns → back to continuous.
 
-## Decided: Dungeon Generation (Raylib spike)
+## Decided: Dungeon Generation
 
 **Concentric ring structure, chunked world, sector-based rooms.**
 
@@ -276,10 +276,33 @@ Combat is the only mode change: threat encounter → initiative turns → back t
 - 1=Scout, 2=Stop (hotkeys for orders)
 - Right-drag to orbit camera, scroll to zoom
 
-**Combat mode (future):**
-- WASD screen-relative movement (transformed by camera orbit angle)
-- Diagonal movement with corner-cutting prevention and wall sliding
-- E to interact/break walls in facing direction
+**Combat mode:**
+- Point-and-click movement (spending movement points per tile)
+- Click enemy to target attack (d20 + mod + prof vs AC)
+- Space to end turn
+- Initiative panel on screen (right side), active turn info (bottom center)
+
+## Decided: Threat Spawning
+
+**Skeleton packs in dungeon rooms.**
+
+- ~50% of real rooms (not corridors) get a pack of enemies
+- Pack size scales with room area: 1 skeleton per ~8 tiles, minimum 1
+- Distribution: 70% Minion, 25% Warrior, 5% Elite (Rogue or Mage)
+- Each skeleton type has distinct stats (HP, AC, DEX, attack dice, move speed, range)
+- Threats keyed by tile position, stored globally on the World
+- Combat triggers when a combat-capable entity (has CombatStats) sees a revealed threat within perception range
+- Wall-breaking that reveals threats also triggers combat immediately
+- Threats must be on revealed tiles AND within entity reveal distance — no fighting what you can't see
+
+## Decided: Tech Stack
+
+**Go + Raylib-go, 3D renderer with custom GLSL lighting.**
+
+- 5 source files: main.go, render.go, world.go, game.go, combat.go
+- KayKit Dungeon Pack for environment models, KayKit Skeletons for enemies
+- Custom vertex + fragment shader for directional lighting with specular
+- No Ebiten dependency — fully migrated to Raylib
 
 ## Open Questions
 
