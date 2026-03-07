@@ -384,23 +384,9 @@ func (w *World) hasLineOfSight(x0, z0, x1, z1 int) bool {
 	}
 }
 
-// RevealAround reveals tiles near the player
+// RevealAround reveals tiles near a position, blocked by solid walls
 func (w *World) RevealAround(tx, tz int) {
-	for dz := -RevealRadius; dz <= RevealRadius; dz++ {
-		for dx := -RevealRadius; dx <= RevealRadius; dx++ {
-			nx, nz := tx+dx, tz+dz
-			cx, cz := TileToChunk(nx, nz)
-			c, ok := w.Chunks[ChunkCoord{cx, cz}]
-			if !ok {
-				continue
-			}
-			ox, oz := ChunkOrigin(cx, cz)
-			lx, lz := nx-ox, nz-oz
-			if lx >= 0 && lx < ChunkSize && lz >= 0 && lz < ChunkSize {
-				c.Revealed[lz][lx] = true
-			}
-		}
-	}
+	w.RevealAroundDist(tx, tz, RevealRadius)
 }
 
 // GetTile returns tile type from loaded chunk
