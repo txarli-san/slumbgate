@@ -84,6 +84,16 @@ func (g *GameState) SetMessage(msg string) {
 	g.MessageTimer = 3.0
 }
 
+// AnyEntityBusy returns true if any entity has an active task
+func (g *GameState) AnyEntityBusy() bool {
+	for _, ent := range g.Entities {
+		if ent.Task != nil {
+			return true
+		}
+	}
+	return false
+}
+
 const stepInterval = 0.08
 
 func FacingAngleFromDir(dx, dz int) float32 {
@@ -135,7 +145,12 @@ func abs(a int) int {
 	return a
 }
 
-const tickRate = 0.25 // seconds per simulation tick in Live mode
+// WorldStep advances the global clock by one tick and lets all entities act.
+// Called once per player action (move, break wall, wait). Time only moves when someone acts.
+func (g *GameState) WorldStep(w *World) *Alert {
+	g.TimeTicks++
+	return g.TickEntities(w)
+}
 
 // TickEntities advances all entities one step. Returns an alert if triggered.
 func (g *GameState) TickEntities(w *World) *Alert {

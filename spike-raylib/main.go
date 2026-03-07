@@ -250,14 +250,23 @@ func main() {
 	for !rl.WindowShouldClose() {
 		dt := rl.GetFrameTime()
 
-		// Toggle camera mode with Tab (not during alert — alert has its own Tab handler)
-		if game.Alert == nil && rl.IsKeyPressed(rl.KeyTab) {
+		// M to toggle map view
+		if game.Alert == nil && rl.IsKeyPressed(rl.KeyM) {
 			if game.Camera == CameraLocal {
 				game.Camera = CameraStrategic
 				mapPanX = 0
 				mapPanZ = 0
 			} else {
 				game.Camera = CameraLocal
+			}
+		}
+
+		// Tab to cycle selected entity
+		if game.Alert == nil && rl.IsKeyPressed(rl.KeyTab) {
+			if len(game.Entities) > 0 {
+				game.SelectedEnt = (game.SelectedEnt + 1) % len(game.Entities)
+				ent := game.Entities[game.SelectedEnt]
+				game.SetMessage(fmt.Sprintf("Selected %s (%s)", ent.Name, tierName(ent.Tier)))
 			}
 		}
 
@@ -392,7 +401,6 @@ func main() {
 					game.PlayerX, game.PlayerZ = nx, nz
 					game.StepProgress = 0
 					game.Moving = true
-					game.TimeTicks++
 
 					cx, cz := TileToChunk(game.PlayerX, game.PlayerZ)
 					world.EnsureChunksAround(cx, cz)
@@ -403,6 +411,12 @@ func main() {
 					if !game.HasPickaxe && game.PlayerX == world.PickaxeX && game.PlayerZ == world.PickaxeZ {
 						game.HasPickaxe = true
 						game.SetMessage("Picked up pickaxe! Press E near walls to break them.")
+					}
+
+					// Advance world — entities act, clock ticks
+					if alert := game.WorldStep(world); alert != nil {
+						game.Alert = alert
+						game.SetMessage(alert.Message)
 					}
 				}
 			}
@@ -415,30 +429,33 @@ func main() {
 				world.SetTile(tx, tz, TileDoorway)
 				world.RevealAround(tx, tz)
 				game.SetMessage("Wall broken!")
-			}
-		}
-
-		// Entity step animation — synced to tick rate for smooth movement
-		for _, ent := range game.Entities {
-			if ent.Moving {
-				ent.StepProgress += dt / tickRate
-				if ent.StepProgress >= 1.0 {
-					ent.StepProgress = 1.0
-					ent.Moving = false
+				if alert := game.WorldStep(world); alert != nil {
+					game.Alert = alert
+					game.SetMessage(alert.Message)
 				}
 			}
 		}
 
-		// Simulation tick — runs in any view, pauses on alert
-		if game.Alert == nil {
+		// Entities with tasks drive the clock — time flows when anyone is busy
+		if game.Alert == nil && game.AnyEntityBusy() {
 			game.TickAccum += dt
-			for game.TickAccum >= tickRate {
-				game.TickAccum -= tickRate
-				game.TimeTicks++
-				if alert := game.TickEntities(world); alert != nil {
+			for game.TickAccum >= stepInterval {
+				game.TickAccum -= stepInterval
+				if alert := game.WorldStep(world); alert != nil {
 					game.Alert = alert
 					game.SetMessage(alert.Message)
 					break
+				}
+			}
+		}
+
+		// Entity step animation — same speed as player steps
+		for _, ent := range game.Entities {
+			if ent.Moving {
+				ent.StepProgress += dt / stepInterval
+				if ent.StepProgress >= 1.0 {
+					ent.StepProgress = 1.0
+					ent.Moving = false
 				}
 			}
 		}
@@ -477,25 +494,26 @@ func main() {
 			}
 		}
 
-		// X to assign explore task to selected entity
-		if game.SelectedEnt >= 0 && rl.IsKeyPressed(rl.KeyX) {
+		// Orders for selected entity: 1=Scout  2=Stop
+		if game.SelectedEnt >= 0 {
 			ent := game.Entities[game.SelectedEnt]
-			ent.Task = &Task{Type: TaskExplore}
-			game.SetMessage(fmt.Sprintf("%s is now exploring.", ent.Name))
+			if rl.IsKeyPressed(rl.KeyOne) {
+				ent.Task = &Task{Type: TaskExplore}
+				game.SetMessage(fmt.Sprintf("%s is now scouting.", ent.Name))
+			}
+			if rl.IsKeyPressed(rl.KeyTwo) {
+				ent.Task = nil
+				game.SetMessage(fmt.Sprintf("%s holding position.", ent.Name))
+			}
 		}
 
 		// Dismiss alert with Space
 		if game.Alert != nil && rl.IsKeyPressed(rl.KeySpace) {
-			game.Alert = nil
-		}
-
-		// Alert handshake: Tab during alert snaps 3D camera to the entity
-		if game.Alert != nil && rl.IsKeyPressed(rl.KeyTab) {
 			ent := game.Entities[game.Alert.EntityIdx]
+			game.SelectedEnt = game.Alert.EntityIdx
 			pos := gridToWorld(ent.X, ent.Z)
 			camTargetX = pos.X
 			camTargetZ = pos.Z
-			game.Camera = CameraLocal
 			game.Alert = nil
 		}
 
@@ -543,13 +561,37 @@ func main() {
 		}
 		rl.DrawText(fmt.Sprintf("Time: %d | Chunks: %d | Mode: %s",
 			game.TimeTicks, len(world.Chunks), modeStr), 10, 10, 20, rl.White)
-		if game.Camera == CameraLocal {
-			rl.DrawText("WASD move | E break wall | Tab map | Right-drag orbit | Scroll zoom", 10, 35, 16, rl.Gray)
-		} else {
-			rl.DrawText("Click entity to select | Click ground to send | X explore | Right-drag pan | Tab 3D", 10, 35, 16, rl.Gray)
-		}
+		rl.DrawText("WASD move | E break | Space wait | M map | Tab cycle | Right-drag orbit | Scroll zoom", 10, 35, 16, rl.Gray)
 		if game.MessageTimer > 0 {
 			rl.DrawText(game.Message, 10, 60, 20, rl.Color{R: 255, G: 220, B: 100, A: 255})
+		}
+
+		// Entity panel — bottom left
+		if game.SelectedEnt >= 0 && game.SelectedEnt < len(game.Entities) {
+			ent := game.Entities[game.SelectedEnt]
+			panelX := int32(10)
+			panelY := int32(screenHeight - 130)
+			panelW := int32(260)
+			panelH := int32(120)
+			rl.DrawRectangle(panelX, panelY, panelW, panelH, rl.Color{R: 20, G: 20, B: 30, A: 210})
+			rl.DrawRectangleLines(panelX, panelY, panelW, panelH, tierColor(ent.Tier))
+
+			rl.DrawText(fmt.Sprintf("%s  [%s]", ent.Name, tierName(ent.Tier)), panelX+10, panelY+8, 20, tierColor(ent.Tier))
+			rl.DrawText(fmt.Sprintf("Pos: (%d, %d)  Sight: %d", ent.X, ent.Z, ent.RevealDist), panelX+10, panelY+34, 14, rl.LightGray)
+
+			taskStr := "Idle"
+			if ent.Task != nil {
+				switch ent.Task.Type {
+				case TaskMoveTo:
+					taskStr = fmt.Sprintf("Moving to (%d,%d)", ent.Task.TargetX, ent.Task.TargetZ)
+				case TaskExplore:
+					taskStr = "Scouting"
+				}
+			}
+			rl.DrawText("Task: "+taskStr, panelX+10, panelY+54, 14, rl.White)
+
+			rl.DrawText("[1] Scout  [2] Stop  [Click] Move to", panelX+10, panelY+80, 14, rl.Gray)
+			rl.DrawText(fmt.Sprintf("< Tab (%d/%d) >", game.SelectedEnt+1, len(game.Entities)), panelX+10, panelY+98, 12, rl.DarkGray)
 		}
 
 		// Alert overlay
@@ -561,7 +603,7 @@ func main() {
 			rl.DrawRectangleLines(boxX, boxY, boxW, boxH, rl.Color{R: 255, G: 60, B: 60, A: 255})
 			rl.DrawText("ALERT", boxX+boxW/2-40, boxY+12, 28, rl.Color{R: 255, G: 60, B: 60, A: 255})
 			rl.DrawText(game.Alert.Message, boxX+20, boxY+50, 18, rl.White)
-			rl.DrawText("[Space] Dismiss  |  [Tab] Go to 3D view", boxX+20, boxY+80, 16, rl.Gray)
+			rl.DrawText("[Space] Dismiss and focus", boxX+20, boxY+80, 16, rl.Gray)
 		}
 
 		rl.DrawFPS(screenWidth-90, 10)
