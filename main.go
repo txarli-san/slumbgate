@@ -126,8 +126,6 @@ func main() {
 				STR: 16, DEX: 12, CON: 14, INT: 10, WIS: 12, CHA: 10,
 				Level: 3, ProfBonus: 2, MoveSpeed: 5, Class: "Fighter", ClassCharges: 2,
 			}},
-		{Name: "Kael", X: spawnX - 1, Z: 1, Tier: TierSoldier, RevealDist: 3, Scouted: map[[2]int]bool{}},
-		{Name: "Pip", X: spawnX - 1, Z: -1, Tier: TierRecruit, RevealDist: 3, Scouted: map[[2]int]bool{}},
 	}
 	for _, ent := range game.Entities {
 		cx, cz := TileToChunk(ent.X, ent.Z)
@@ -145,19 +143,24 @@ func main() {
 			},
 			Fire: func(g *GameState, w *World, ctx EventContext) {
 				mageRescueRoom = ctx.RoomIdx
-				// Replace whatever threats with 2 weak minions
+				// Replace whatever threats with 2 weak minions near the entity
 				for key, t := range w.Threats {
 					if t.RoomIdx == ctx.RoomIdx {
 						delete(w.Threats, key)
 					}
 				}
-				room := w.Rooms[ctx.RoomIdx]
-				for i := range 2 {
-					tx := room.X + i
-					tz := room.Z
-					key := [2]int{tx, tz}
+				ent := g.Entities[ctx.EntityIdx]
+				offsets := [2][2]int{{1, 0}, {0, 1}}
+				for _, off := range offsets {
+					tx, tz := ent.X+off[0], ent.Z+off[1]
+					// Find nearest walkable spot if this one isn't
+					fx, fz, ok := nearestWalkable(w, tx, tz)
+					if !ok {
+						continue
+					}
+					key := [2]int{fx, fz}
 					w.Threats[key] = Threat{
-						X: tx, Z: tz, Type: SkeletonMinion, RoomIdx: ctx.RoomIdx,
+						X: fx, Z: fz, Type: SkeletonMinion, RoomIdx: ctx.RoomIdx,
 						HP: 8, MaxHP: 8, AC: 11, STR: 10, DEX: 12,
 						MoveSpeed: 4, AttackDice: 4, MaxRange: 1,
 					}

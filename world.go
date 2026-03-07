@@ -329,7 +329,7 @@ func (w *World) RevealAroundDist(tx, tz, radius int) {
 				continue
 			}
 			nx, nz := tx+dx, tz+dz
-			if !w.hasLineOfSight(tx, tz, nx, nz) {
+			if !w.HasLineOfSight(tx, tz, nx, nz) {
 				continue
 			}
 			cx, cz := TileToChunk(nx, nz)
@@ -346,8 +346,8 @@ func (w *World) RevealAroundDist(tx, tz, radius int) {
 	}
 }
 
-// hasLineOfSight walks a line from (x0,z0) to (x1,z1), returns false if blocked by TileSolid
-func (w *World) hasLineOfSight(x0, z0, x1, z1 int) bool {
+// HasLineOfSight walks a line from (x0,z0) to (x1,z1), returns false if blocked by TileSolid
+func (w *World) HasLineOfSight(x0, z0, x1, z1 int) bool {
 	dx := x1 - x0
 	dz := z1 - z0
 	adx := dx

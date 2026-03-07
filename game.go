@@ -239,8 +239,8 @@ func (g *GameState) TickEntities(w *World) *Alert {
 					// Wall broken — check if we just revealed threats
 					if ent.Stats != nil {
 						for _, threat := range w.Threats {
-							if w.IsRevealed(threat.X, threat.Z) &&
-								withinRange(ent.X, ent.Z, threat.X, threat.Z, ent.RevealDist+3) {
+							if withinRange(ent.X, ent.Z, threat.X, threat.Z, 4) &&
+								w.HasLineOfSight(ent.X, ent.Z, threat.X, threat.Z) {
 								g.StartCombat(w, i, threat.RoomIdx)
 								return nil
 							}
@@ -288,11 +288,11 @@ func (g *GameState) TickEntities(w *World) *Alert {
 			}
 		}
 
-		// Check if entity can see any revealed threats
+		// Check if entity can see any revealed threats (must be close + LOS)
 		if ent.Stats != nil {
 			for _, threat := range w.Threats {
-				if w.IsRevealed(threat.X, threat.Z) &&
-					withinRange(ent.X, ent.Z, threat.X, threat.Z, ent.RevealDist) {
+				if withinRange(ent.X, ent.Z, threat.X, threat.Z, 4) &&
+					w.HasLineOfSight(ent.X, ent.Z, threat.X, threat.Z) {
 					g.StartCombat(w, i, threat.RoomIdx)
 					return nil
 				}
