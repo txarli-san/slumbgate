@@ -51,20 +51,28 @@ type Room struct {
 	X, Z, W, H int
 }
 
+type Threat struct {
+	X, Z       int
+	Difficulty int // 0=weak, 1=moderate, 2=elite
+}
+
 type World struct {
 	Seed             int64
 	Chunks           map[ChunkCoord]*Chunk
 	Rooms            []Room
+	Threats          map[[2]int]Threat
 	PickaxeX         int
 	PickaxeZ         int
 }
 
 func NewWorld(seed int64) *World {
 	w := &World{
-		Seed:   seed,
-		Chunks: make(map[ChunkCoord]*Chunk),
+		Seed:    seed,
+		Chunks:  make(map[ChunkCoord]*Chunk),
+		Threats: make(map[[2]int]Threat),
 	}
 	w.generateRooms()
+	w.placeThreats()
 	return w
 }
 
@@ -348,4 +356,30 @@ func (w *World) IsWalkable(tx, tz int) bool {
 		return false
 	}
 	return t == TileGround || t == TileFloor || t == TileDoorway
+}
+
+func (w *World) placeThreats() {
+	rng := rand.New(rand.NewSource(w.Seed + 777))
+	for _, r := range w.Rooms {
+		// Skip corridor tiles (1x1 rooms)
+		if r.W <= 1 || r.H <= 1 {
+			continue
+		}
+		// ~40% of real rooms get a threat
+		if rng.Float64() > 0.4 {
+			continue
+		}
+		cx, cz := r.X+r.W/2, r.Z+r.H/2
+		diff := rng.Intn(3) // 0=weak, 1=moderate, 2=elite
+		w.Threats[[2]int{cx, cz}] = Threat{X: cx, Z: cz, Difficulty: diff}
+	}
+}
+
+func (w *World) GetThreat(tx, tz int) (Threat, bool) {
+	t, ok := w.Threats[[2]int{tx, tz}]
+	return t, ok
+}
+
+func (w *World) RemoveThreat(tx, tz int) {
+	delete(w.Threats, [2]int{tx, tz})
 }

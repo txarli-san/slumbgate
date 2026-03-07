@@ -70,6 +70,34 @@ void main() {
 }
 `
 
+func tierName(t AutoTier) string {
+	switch t {
+	case TierRecruit:
+		return "Recruit"
+	case TierSoldier:
+		return "Soldier"
+	case TierVeteran:
+		return "Veteran"
+	case TierLieutenant:
+		return "Lieutenant"
+	}
+	return "?"
+}
+
+func tierColor(t AutoTier) rl.Color {
+	switch t {
+	case TierRecruit:
+		return rl.Color{R: 255, G: 100, B: 100, A: 255}
+	case TierSoldier:
+		return rl.Color{R: 255, G: 220, B: 80, A: 255}
+	case TierVeteran:
+		return rl.Color{R: 80, G: 220, B: 100, A: 255}
+	case TierLieutenant:
+		return rl.Color{R: 100, G: 150, B: 255, A: 255}
+	}
+	return rl.White
+}
+
 func applyShaderToModel(model rl.Model, shader rl.Shader) {
 	materials := unsafe.Slice(model.Materials, model.MaterialCount)
 	for i := range materials {
@@ -157,11 +185,21 @@ func main() {
 	// Spawn player outside the dungeon wall
 	spawnX := OuterRadius + DungeonWarpAmp + 5
 	world.PlacePickaxe(spawnX, 0)
-	game := &GameState{PlayerX: spawnX, PlayerZ: 0}
+	game := &GameState{PlayerX: spawnX, PlayerZ: 0, SelectedEnt: -1}
 	cx, cz := TileToChunk(spawnX, 0)
 	world.EnsureChunksAround(cx, cz)
 	world.MarkExplored(spawnX, 0)
 	world.RevealAround(spawnX, 0)
+
+	// Spawn entities near player
+	game.Entities = []*Entity{
+		{Name: "Brynn", X: spawnX - 2, Z: 1, Tier: TierVeteran},
+		{Name: "Kael", X: spawnX - 1, Z: -1, Tier: TierSoldier},
+		{Name: "Pip", X: spawnX - 2, Z: -1, Tier: TierRecruit},
+	}
+	for _, ent := range game.Entities {
+		world.RevealAround(ent.X, ent.Z)
+	}
 
 	// Camera state — local
 	orbitAngle := float32(math.Pi / 4)
@@ -212,8 +250,8 @@ func main() {
 	for !rl.WindowShouldClose() {
 		dt := rl.GetFrameTime()
 
-		// Toggle camera mode with Tab
-		if rl.IsKeyPressed(rl.KeyTab) {
+		// Toggle camera mode with Tab (not during alert — alert has its own Tab handler)
+		if game.Alert == nil && rl.IsKeyPressed(rl.KeyTab) {
 			if game.Camera == CameraLocal {
 				game.Camera = CameraStrategic
 				mapPanX = 0
@@ -380,6 +418,80 @@ func main() {
 			}
 		}
 
+		// Entity step animation — synced to tick rate for smooth movement
+		for _, ent := range game.Entities {
+			if ent.Moving {
+				ent.StepProgress += dt / tickRate
+				if ent.StepProgress >= 1.0 {
+					ent.StepProgress = 1.0
+					ent.Moving = false
+				}
+			}
+		}
+
+		// Simulation tick — runs in any view, pauses on alert
+		if game.Alert == nil {
+			game.TickAccum += dt
+			for game.TickAccum >= tickRate {
+				game.TickAccum -= tickRate
+				game.TimeTicks++
+				if alert := game.TickEntities(world); alert != nil {
+					game.Alert = alert
+					game.SetMessage(alert.Message)
+					break
+				}
+			}
+		}
+
+		// Strategic mode: click to select entity / assign task
+		if game.Camera == CameraStrategic && game.Alert == nil && rl.IsMouseButtonPressed(rl.MouseButtonLeft) {
+			mouseX := float32(rl.GetMouseX())
+			mouseY := float32(rl.GetMouseY())
+			centerX := float32(screenWidth) / 2
+			centerY := float32(screenHeight) / 2
+			clickTX := game.PlayerX + int(math.Floor(float64((mouseX-centerX-mapPanX)/mapScale)))
+			clickTZ := game.PlayerZ + int(math.Floor(float64((mouseY-centerY-mapPanZ)/mapScale)))
+
+			// Check if clicking on an entity
+			clicked := -1
+			for i, ent := range game.Entities {
+				if ent.X == clickTX && ent.Z == clickTZ {
+					clicked = i
+					break
+				}
+			}
+
+			if clicked >= 0 {
+				game.SelectedEnt = clicked
+				game.SetMessage(fmt.Sprintf("Selected %s (%v)", game.Entities[clicked].Name, tierName(game.Entities[clicked].Tier)))
+			} else if game.SelectedEnt >= 0 && world.IsWalkable(clickTX, clickTZ) {
+				// Assign move task
+				ent := game.Entities[game.SelectedEnt]
+				path := FindPath(world, ent.X, ent.Z, clickTX, clickTZ)
+				if path != nil {
+					ent.Task = &Task{Type: TaskMoveTo, TargetX: clickTX, TargetZ: clickTZ, Path: path}
+					game.SetMessage(fmt.Sprintf("%s moving to (%d, %d)", ent.Name, clickTX, clickTZ))
+				} else {
+					game.SetMessage("No path found!")
+				}
+			}
+		}
+
+		// Dismiss alert with Space
+		if game.Alert != nil && rl.IsKeyPressed(rl.KeySpace) {
+			game.Alert = nil
+		}
+
+		// Alert handshake: Tab during alert snaps 3D camera to the entity
+		if game.Alert != nil && rl.IsKeyPressed(rl.KeyTab) {
+			ent := game.Entities[game.Alert.EntityIdx]
+			pos := gridToWorld(ent.X, ent.Z)
+			camTargetX = pos.X
+			camTargetZ = pos.Z
+			game.Camera = CameraLocal
+			game.Alert = nil
+		}
+
 		// Message timer
 		if game.MessageTimer > 0 {
 			game.MessageTimer -= dt
@@ -412,9 +524,9 @@ func main() {
 		if game.Camera == CameraLocal {
 			drawLocal(camera, world, game, tileUnit, floorSurfaceY, knightYOffset, charScale, wallScale,
 				floorVariant, gridToWorld, worldToGrid, rayHitGround,
-				knightModel, wallModel, pickaxeModel)
+				knightModel, wallModel, pickaxeModel, game.Entities)
 		} else {
-			drawMap(world, game, mapScale, mapPanX, mapPanZ)
+			drawMap(world, game, mapScale, mapPanX, mapPanZ, game.Entities, game.SelectedEnt)
 		}
 
 		// HUD
@@ -424,10 +536,27 @@ func main() {
 		}
 		rl.DrawText(fmt.Sprintf("Time: %d | Chunks: %d | Mode: %s",
 			game.TimeTicks, len(world.Chunks), modeStr), 10, 10, 20, rl.White)
-		rl.DrawText("WASD move | E break wall | Tab map | Right-drag orbit | Scroll zoom", 10, 35, 16, rl.Gray)
+		if game.Camera == CameraLocal {
+			rl.DrawText("WASD move | E break wall | Tab map | Right-drag orbit | Scroll zoom", 10, 35, 16, rl.Gray)
+		} else {
+			rl.DrawText("Click entity to select | Click ground to send | Right-drag pan | Scroll zoom | Tab 3D", 10, 35, 16, rl.Gray)
+		}
 		if game.MessageTimer > 0 {
 			rl.DrawText(game.Message, 10, 60, 20, rl.Color{R: 255, G: 220, B: 100, A: 255})
 		}
+
+		// Alert overlay
+		if game.Alert != nil {
+			boxW, boxH := int32(500), int32(120)
+			boxX := int32(screenWidth/2) - boxW/2
+			boxY := int32(screenHeight/2) - boxH/2
+			rl.DrawRectangle(boxX, boxY, boxW, boxH, rl.Color{R: 40, G: 10, B: 10, A: 230})
+			rl.DrawRectangleLines(boxX, boxY, boxW, boxH, rl.Color{R: 255, G: 60, B: 60, A: 255})
+			rl.DrawText("ALERT", boxX+boxW/2-40, boxY+12, 28, rl.Color{R: 255, G: 60, B: 60, A: 255})
+			rl.DrawText(game.Alert.Message, boxX+20, boxY+50, 18, rl.White)
+			rl.DrawText("[Space] Dismiss  |  [Tab] Go to 3D view", boxX+20, boxY+80, 16, rl.Gray)
+		}
+
 		rl.DrawFPS(screenWidth-90, 10)
 
 		rl.EndDrawing()
@@ -444,6 +573,7 @@ func drawLocal(
 	worldToGrid func(float32, float32) (int, int),
 	rayHitGround func(rl.Ray) (float32, float32, bool),
 	knightModel, wallModel, pickaxeModel rl.Model,
+	entities []*Entity,
 ) {
 	rl.BeginMode3D(camera)
 
@@ -563,6 +693,40 @@ func drawLocal(
 	}
 	rl.DrawModelEx(knightModel, knightPos, rl.Vector3{Y: 1}, game.FacingAngle, scaleVec, rl.White)
 
+	// Entities
+	for _, ent := range entities {
+		var entPos rl.Vector3
+		if ent.Moving {
+			from := gridToWorld(ent.PrevX, ent.PrevZ)
+			to := gridToWorld(ent.X, ent.Z)
+			t := ent.StepProgress
+			bounce := float32(math.Sin(float64(t)*math.Pi)) * 0.3
+			entPos = rl.Vector3{
+				X: from.X + (to.X-from.X)*t,
+				Y: knightYOffset + bounce,
+				Z: from.Z + (to.Z-from.Z)*t,
+			}
+		} else {
+			entPos = gridToWorld(ent.X, ent.Z)
+			entPos.Y = knightYOffset
+		}
+		rl.DrawModelEx(knightModel, entPos, rl.Vector3{Y: 1}, ent.FacingAngle, scaleVec, tierColor(ent.Tier))
+	}
+
+	// Threats (visible as red markers)
+	for _, threat := range world.Threats {
+		if world.IsRevealed(threat.X, threat.Z) {
+			tPos := gridToWorld(threat.X, threat.Z)
+			tPos.Y = floorSurfaceY + tileUnit*0.5
+			size := tileUnit * 0.3
+			color := rl.Color{R: 255, G: 60, B: 60, A: 200}
+			if threat.Difficulty >= 2 {
+				color = rl.Color{R: 200, G: 0, B: 200, A: 200}
+			}
+			rl.DrawCubeV(tPos, rl.Vector3{X: size, Y: size, Z: size}, color)
+		}
+	}
+
 	// Hover highlight
 	ray := rl.GetScreenToWorldRay(rl.GetMousePosition(), camera)
 	if wx, wz, ok := rayHitGround(ray); ok {
@@ -578,7 +742,7 @@ func drawLocal(
 	rl.EndMode3D()
 }
 
-func drawMap(world *World, game *GameState, scale, panX, panZ float32) {
+func drawMap(world *World, game *GameState, scale, panX, panZ float32, entities []*Entity, selectedEnt int) {
 	centerX := float32(screenWidth) / 2
 	centerY := float32(screenHeight) / 2
 
@@ -616,6 +780,33 @@ func drawMap(world *World, game *GameState, scale, panX, panZ float32) {
 				rl.DrawRectangle(int32(sx), int32(sy), sz, sz, color)
 			}
 		}
+	}
+
+	// Threat markers on map
+	for _, threat := range world.Threats {
+		if world.IsRevealed(threat.X, threat.Z) {
+			tx := playerOffX + float32(threat.X-game.PlayerX)*scale
+			tz := playerOffY + float32(threat.Z-game.PlayerZ)*scale
+			color := rl.Color{R: 255, G: 60, B: 60, A: 255}
+			if threat.Difficulty >= 2 {
+				color = rl.Color{R: 200, G: 0, B: 200, A: 255}
+			}
+			rl.DrawRectangle(int32(tx), int32(tz), int32(math.Ceil(float64(scale))), int32(math.Ceil(float64(scale))), color)
+		}
+	}
+
+	// Entity markers
+	for i, ent := range entities {
+		ex := playerOffX + float32(ent.X-game.PlayerX)*scale
+		ey := playerOffY + float32(ent.Z-game.PlayerZ)*scale
+		r := scale + 2
+		if i == selectedEnt {
+			r = scale + 4
+			rl.DrawCircle(int32(ex+scale*0.5), int32(ey+scale*0.5), r+2, rl.White)
+		}
+		rl.DrawCircle(int32(ex+scale*0.5), int32(ey+scale*0.5), r, tierColor(ent.Tier))
+		// Draw name
+		rl.DrawText(ent.Name, int32(ex+scale+4), int32(ey-4), 12, tierColor(ent.Tier))
 	}
 
 	// Player marker

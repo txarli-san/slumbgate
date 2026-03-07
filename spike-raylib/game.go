@@ -9,6 +9,48 @@ const (
 	CameraStrategic                  // 2D top-down map
 )
 
+type AutoTier int
+
+const (
+	TierRecruit    AutoTier = iota // Full manual — can't auto-resolve anything
+	TierSoldier                    // Supervised — handles weak threats
+	TierVeteran                    // Autonomous — handles most threats
+	TierLieutenant                 // Command node — detects before arrival
+)
+
+type TaskType int
+
+const (
+	TaskIdle   TaskType = iota
+	TaskMoveTo
+)
+
+type Task struct {
+	Type    TaskType
+	TargetX int
+	TargetZ int
+	Path    [][2]int
+	PathIdx int
+}
+
+type Entity struct {
+	Name         string
+	X, Z         int
+	PrevX, PrevZ int
+	StepProgress float32
+	Moving       bool
+	FacingAngle  float32
+	Tier         AutoTier
+	Task         *Task
+}
+
+type Alert struct {
+	EntityIdx int
+	ThreatX   int
+	ThreatZ   int
+	Message   string
+}
+
 type GameState struct {
 	PlayerX, PlayerZ int
 	PrevX, PrevZ     int
@@ -23,6 +65,11 @@ type GameState struct {
 	HasPickaxe       bool
 	Message          string
 	MessageTimer     float32
+
+	Entities    []*Entity
+	SelectedEnt int // -1 = none
+	TickAccum   float32
+	Alert       *Alert
 }
 
 func (g *GameState) SetMessage(msg string) {
@@ -79,6 +126,62 @@ func abs(a int) int {
 		return -a
 	}
 	return a
+}
+
+const tickRate = 0.25 // seconds per simulation tick in Live mode
+
+// TickEntities advances all entities one step. Returns an alert if triggered.
+func (g *GameState) TickEntities(w *World) *Alert {
+	for i, ent := range g.Entities {
+		if ent.Task == nil || ent.Task.Type != TaskMoveTo {
+			continue
+		}
+		if ent.Task.PathIdx >= len(ent.Task.Path) {
+			ent.Task = nil
+			continue
+		}
+
+		next := ent.Task.Path[ent.Task.PathIdx]
+		nx, nz := next[0], next[1]
+
+		// Check if path is still walkable
+		if !w.IsWalkable(nx, nz) {
+			ent.Task = nil
+			continue
+		}
+
+		dx, dz := nx-ent.X, nz-ent.Z
+		ent.FacingAngle = FacingAngleFromDir(dx, dz)
+		ent.PrevX, ent.PrevZ = ent.X, ent.Z
+		ent.X, ent.Z = nx, nz
+		ent.StepProgress = 0
+		ent.Moving = true
+		ent.Task.PathIdx++
+
+		w.RevealAround(ent.X, ent.Z)
+
+		// Check for threat at new position
+		if threat, ok := w.GetThreat(ent.X, ent.Z); ok {
+			if int(ent.Tier) >= threat.Difficulty {
+				// Auto-clear: tier is high enough
+				w.RemoveThreat(ent.X, ent.Z)
+			} else {
+				// Can't handle it — ALERT
+				ent.Task = nil
+				return &Alert{
+					EntityIdx: i,
+					ThreatX:   ent.X,
+					ThreatZ:   ent.Z,
+					Message:   ent.Name + " encountered a threat they can't handle!",
+				}
+			}
+		}
+
+		if ent.Task != nil && ent.Task.PathIdx >= len(ent.Task.Path) {
+			ent.Task = nil
+		}
+	}
+	return nil
 }
 
 func FindPath(w *World, sx, sz, gx, gz int) [][2]int {
