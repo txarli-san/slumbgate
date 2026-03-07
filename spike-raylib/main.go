@@ -91,9 +91,9 @@ func main() {
 	locAmbientColor := rl.GetShaderLocation(shader, "ambientColor")
 	locViewPos := rl.GetShaderLocation(shader, "viewPos")
 
-	rl.SetShaderValue(shader, locLightDir, []float32{-0.4, -0.8, -0.3}, rl.ShaderUniformVec3)
-	rl.SetShaderValue(shader, locLightColor, []float32{1.0, 0.95, 0.9, 1.0}, rl.ShaderUniformVec4)
-	rl.SetShaderValue(shader, locAmbientColor, []float32{0.35, 0.35, 0.4, 1.0}, rl.ShaderUniformVec4)
+	rl.SetShaderValue(shader, locLightDir, []float32{-0.5, -0.7, -0.4}, rl.ShaderUniformVec3)
+	rl.SetShaderValue(shader, locLightColor, []float32{1.0, 0.95, 0.85, 1.0}, rl.ShaderUniformVec4)
+	rl.SetShaderValue(shader, locAmbientColor, []float32{0.55, 0.55, 0.6, 1.0}, rl.ShaderUniformVec4)
 
 	shader.UpdateLocation(rl.ShaderLocMatrixModel, rl.GetShaderLocation(shader, "matModel"))
 	shader.UpdateLocation(rl.ShaderLocMatrixNormal, rl.GetShaderLocation(shader, "matNormal"))
@@ -238,12 +238,20 @@ func main() {
 			}
 			wheel := rl.GetMouseWheelMove()
 			if wheel != 0 {
-				orbitRadius -= wheel * tileUnit * 0.5
-				if orbitRadius < tileUnit*4 {
-					orbitRadius = tileUnit * 4
+				zoomFactor := float32(1.0) - wheel*0.1
+				orbitRadius *= zoomFactor
+				localHeight *= zoomFactor
+				if orbitRadius < tileUnit*2 {
+					orbitRadius = tileUnit * 2
 				}
 				if orbitRadius > tileUnit*25 {
 					orbitRadius = tileUnit * 25
+				}
+				if localHeight < tileUnit*2 {
+					localHeight = tileUnit * 2
+				}
+				if localHeight > tileUnit*25 {
+					localHeight = tileUnit * 25
 				}
 			}
 		} else {
@@ -532,7 +540,8 @@ func drawLocal(
 	if !game.HasPickaxe {
 		pickPos := gridToWorld(world.PickaxeX, world.PickaxeZ)
 		pickPos.Y = floorSurfaceY
-		rl.DrawModelEx(pickaxeModel, pickPos, rl.Vector3{Y: 1}, 45, wallScaleVec, rl.White)
+		pickScale := rl.Vector3{X: wallScale * 3, Y: wallScale * 3, Z: wallScale * 3}
+		rl.DrawModelEx(pickaxeModel, pickPos, rl.Vector3{Y: 1}, 45, pickScale, rl.Color{R: 255, G: 200, B: 80, A: 255})
 	}
 
 	// Player
