@@ -249,6 +249,28 @@ This solves the scale problem: the dungeon can be massive without the camera nee
 
 This means a player who wanders inefficiently burns real resources. Time pressure is felt per-step, not per-turn. The spike proved this — watching the tick counter go up with every step creates genuine pressure even without survival mechanics wired up yet.
 
+## Decided: Dungeon Generation (Raylib spike)
+
+**Concentric ring structure, chunked world, sector-based rooms.**
+
+- World centered at origin, dungeon defined by concentric radii with noise-warped irregular boundaries
+- 16x16 tile chunks, loaded/unloaded by proximity to player. Deterministic from seed — same chunk always generates the same content
+- Outer ring is a band between outer and inner radius. Filled with `TileSolid` (breakable wall mass), carved into rooms and corridors by sector-based generation
+- 16 angular sectors per ring, each with room clusters connected by corridors. No guaranteed connections between sectors — wall-breaking is the primary way to create paths
+- Inner area (`TileCore`) is impenetrable until the player finds the right material to break through — natural progression gating
+- Fog of war: dungeon interior hidden until player explores nearby. Ground (outside) always visible
+
+**Material progression:** Each ring's walls require a specific tool/material found in the current ring. Stone pickaxe (found outside) breaks into the outer ring. Better material found inside the outer ring breaks into the next ring. This repeats inward.
+
+**Wall breaking is a core mechanic, not a shortcut.** Players punch through wherever they want. The dungeon provides content, the player provides topology. Breaking walls may lead to rooms, corridors, solid rock, or the wrong side of a threat.
+
+## Decided: Movement & Controls
+
+- WASD screen-relative movement (transformed by camera orbit angle)
+- Diagonal movement with corner-cutting prevention and wall sliding
+- E to interact/break walls in facing direction
+- Right-drag to orbit camera, scroll to zoom (radius + height scale together)
+
 ## Open Questions
 
 - **Company size.** How many adventurers? Start with 4, recruit up to 12? Or start solo, build the company from NPCs found in the dungeon?
