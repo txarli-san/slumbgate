@@ -255,7 +255,7 @@ func (g *GameState) TickEntities(w *World) *Alert {
 
 		// Check for threat at new position
 		if threat, ok := w.GetThreat(ent.X, ent.Z); ok {
-			if int(ent.Tier) >= threat.Difficulty {
+			if int(ent.Tier) >= threat.ThreatLevel() {
 				w.RemoveThreat(ent.X, ent.Z)
 			} else {
 				ent.Task = nil

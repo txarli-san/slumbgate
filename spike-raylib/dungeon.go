@@ -51,9 +51,30 @@ type Room struct {
 	X, Z, W, H int
 }
 
+type SkeletonType int
+
+const (
+	SkeletonMinion  SkeletonType = iota // weak
+	SkeletonWarrior                     // moderate
+	SkeletonRogue                       // elite
+	SkeletonMage                        // elite
+)
+
 type Threat struct {
-	X, Z       int
-	Difficulty int // 0=weak, 1=moderate, 2=elite
+	X, Z    int
+	Type    SkeletonType
+	RoomIdx int // which room this enemy belongs to
+}
+
+func (t Threat) ThreatLevel() int {
+	switch t.Type {
+	case SkeletonMinion:
+		return 0
+	case SkeletonWarrior:
+		return 1
+	default:
+		return 2
+	}
 }
 
 type World struct {
@@ -434,20 +455,48 @@ func (w *World) IsWalkable(tx, tz int) bool {
 	return t == TileGround || t == TileFloor || t == TileDoorway
 }
 
+func (w *World) rollSkeletonType(rng *rand.Rand) SkeletonType {
+	roll := rng.Float64()
+	if roll < 0.70 {
+		return SkeletonMinion
+	}
+	if roll < 0.95 {
+		return SkeletonWarrior
+	}
+	// 5% elite — coin flip between rogue and mage
+	if rng.Intn(2) == 0 {
+		return SkeletonRogue
+	}
+	return SkeletonMage
+}
+
 func (w *World) placeThreats() {
 	rng := rand.New(rand.NewSource(w.Seed + 777))
-	for _, r := range w.Rooms {
+	for ri, r := range w.Rooms {
 		// Skip corridor tiles (1x1 rooms)
 		if r.W <= 1 || r.H <= 1 {
 			continue
 		}
-		// ~40% of real rooms get a threat
-		if rng.Float64() > 0.4 {
+		// ~50% of real rooms get enemies
+		if rng.Float64() > 0.5 {
 			continue
 		}
-		cx, cz := r.X+r.W/2, r.Z+r.H/2
-		diff := rng.Intn(3) // 0=weak, 1=moderate, 2=elite
-		w.Threats[[2]int{cx, cz}] = Threat{X: cx, Z: cz, Difficulty: diff}
+		// Pack size from room area: 1 per ~8 tiles, minimum 1
+		area := r.W * r.H
+		count := area / 8
+		if count < 1 {
+			count = 1
+		}
+		// Scatter enemies on random tiles within the room
+		for range count {
+			tx := r.X + rng.Intn(r.W)
+			tz := r.Z + rng.Intn(r.H)
+			key := [2]int{tx, tz}
+			if _, taken := w.Threats[key]; taken {
+				continue
+			}
+			w.Threats[key] = Threat{X: tx, Z: tz, Type: w.rollSkeletonType(rng), RoomIdx: ri}
+		}
 	}
 }
 

@@ -151,6 +151,30 @@ func main() {
 	defer rl.UnloadModel(knightModel)
 	applyShaderToModel(knightModel, shader)
 
+	// Skeleton models
+	skelMinion := rl.LoadModel("../assets/models/enemies/Skeleton_Minion.glb")
+	defer rl.UnloadModel(skelMinion)
+	applyShaderToModel(skelMinion, shader)
+
+	skelWarrior := rl.LoadModel("../assets/models/enemies/Skeleton_Warrior.glb")
+	defer rl.UnloadModel(skelWarrior)
+	applyShaderToModel(skelWarrior, shader)
+
+	skelRogue := rl.LoadModel("../assets/models/enemies/Skeleton_Rogue.glb")
+	defer rl.UnloadModel(skelRogue)
+	applyShaderToModel(skelRogue, shader)
+
+	skelMage := rl.LoadModel("../assets/models/enemies/Skeleton_Mage.glb")
+	defer rl.UnloadModel(skelMage)
+	applyShaderToModel(skelMage, shader)
+
+	skeletonModels := map[SkeletonType]rl.Model{
+		SkeletonMinion:  skelMinion,
+		SkeletonWarrior: skelWarrior,
+		SkeletonRogue:   skelRogue,
+		SkeletonMage:    skelMage,
+	}
+
 	// Measurements
 	floorBBox := rl.GetModelBoundingBox(floorModel)
 	tileUnit := floorBBox.Max.X - floorBBox.Min.X
@@ -398,7 +422,7 @@ func main() {
 
 		drawLocal(camera, world, game, tileUnit, floorSurfaceY, knightYOffset, charScale, wallScale,
 			floorVariant, gridToWorld,
-			knightModel, wallModel, pickaxeModel, game.Entities, game.SelectedEnt)
+			knightModel, wallModel, pickaxeModel, skeletonModels, game.Entities, game.SelectedEnt)
 
 		// HUD
 		rl.DrawText(fmt.Sprintf("Time: %d | Chunks: %d",
@@ -462,6 +486,7 @@ func drawLocal(
 	floorVariant func(int, int) rl.Model,
 	gridToWorld func(int, int) rl.Vector3,
 	knightModel, wallModel, pickaxeModel rl.Model,
+	skeletonModels map[SkeletonType]rl.Model,
 	entities []*Entity,
 	selectedEnt int,
 ) {
@@ -600,17 +625,14 @@ func drawLocal(
 		rl.DrawModelEx(knightModel, entPos, rl.Vector3{Y: 1}, ent.FacingAngle, scaleVec, tierColor(ent.Tier))
 	}
 
-	// Threats (visible as red markers)
+	// Threats (skeleton models)
 	for _, threat := range world.Threats {
 		if world.IsRevealed(threat.X, threat.Z) {
 			tPos := gridToWorld(threat.X, threat.Z)
-			tPos.Y = floorSurfaceY + tileUnit*0.5
-			size := tileUnit * 0.3
-			color := rl.Color{R: 255, G: 60, B: 60, A: 200}
-			if threat.Difficulty >= 2 {
-				color = rl.Color{R: 200, G: 0, B: 200, A: 200}
+			tPos.Y = knightYOffset
+			if model, ok := skeletonModels[threat.Type]; ok {
+				rl.DrawModelEx(model, tPos, rl.Vector3{Y: 1}, 0, scaleVec, rl.White)
 			}
-			rl.DrawCubeV(tPos, rl.Vector3{X: size, Y: size, Z: size}, color)
 		}
 	}
 
