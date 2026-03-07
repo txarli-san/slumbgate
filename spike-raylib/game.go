@@ -1,6 +1,9 @@
 package main
 
-import "container/heap"
+import (
+	"container/heap"
+	"math"
+)
 
 type CameraMode int
 
@@ -21,16 +24,18 @@ const (
 type TaskType int
 
 const (
-	TaskIdle   TaskType = iota
+	TaskIdle    TaskType = iota
 	TaskMoveTo
+	TaskExplore
 )
 
 type Task struct {
-	Type    TaskType
-	TargetX int
-	TargetZ int
-	Path    [][2]int
-	PathIdx int
+	Type         TaskType
+	TargetX      int
+	TargetZ      int
+	Path         [][2]int
+	PathIdx      int
+	ExploreAngle float64 // current angle for perimeter patrol
 }
 
 type Entity struct {
@@ -41,7 +46,9 @@ type Entity struct {
 	Moving       bool
 	FacingAngle  float32
 	Tier         AutoTier
+	RevealDist   int
 	Task         *Task
+	Scouted map[[2]int]bool // coarse 8x8 cells this entity has covered
 }
 
 type Alert struct {
@@ -133,20 +140,46 @@ const tickRate = 0.25 // seconds per simulation tick in Live mode
 // TickEntities advances all entities one step. Returns an alert if triggered.
 func (g *GameState) TickEntities(w *World) *Alert {
 	for i, ent := range g.Entities {
-		if ent.Task == nil || ent.Task.Type != TaskMoveTo {
+		if ent.Task == nil {
 			continue
 		}
-		if ent.Task.PathIdx >= len(ent.Task.Path) {
-			ent.Task = nil
+
+		// Explore: patrol dungeon perimeter, advance angle each waypoint
+		if ent.Task.Type == TaskExplore && (ent.Task.Path == nil || ent.Task.PathIdx >= len(ent.Task.Path)) {
+			// Init angle from entity position relative to origin
+			if ent.Task.ExploreAngle == 0 {
+				ent.Task.ExploreAngle = math.Atan2(float64(ent.Z), float64(ent.X))
+			}
+			// Advance ~20 degrees along the perimeter
+			ent.Task.ExploreAngle += 0.35
+			outerR := w.OuterEdge(ent.Task.ExploreAngle)
+			// Stay a few tiles outside the wall — perception does the rest
+			patrolR := outerR + float64(ent.RevealDist)/2
+			tx := int(math.Cos(ent.Task.ExploreAngle) * patrolR)
+			tz := int(math.Sin(ent.Task.ExploreAngle) * patrolR)
+			// Find nearest walkable tile to the target
+			fx, fz, found := nearestWalkable(w, tx, tz)
+			if found {
+				path := FindPath(w, ent.X, ent.Z, fx, fz)
+				if path != nil {
+					ent.Task.Path = path
+					ent.Task.PathIdx = 0
+				}
+			}
+		}
+
+		if ent.Task.Type != TaskMoveTo && ent.Task.Type != TaskExplore {
+			continue
+		}
+		if ent.Task.Path == nil || ent.Task.PathIdx >= len(ent.Task.Path) {
 			continue
 		}
 
 		next := ent.Task.Path[ent.Task.PathIdx]
 		nx, nz := next[0], next[1]
 
-		// Check if path is still walkable
 		if !w.IsWalkable(nx, nz) {
-			ent.Task = nil
+			ent.Task.Path = nil // force re-plan on next tick
 			continue
 		}
 
@@ -158,15 +191,35 @@ func (g *GameState) TickEntities(w *World) *Alert {
 		ent.Moving = true
 		ent.Task.PathIdx++
 
-		w.RevealAround(ent.X, ent.Z)
+		w.RevealAroundDist(ent.X, ent.Z, ent.RevealDist)
+
+		// Track scouted area
+		if ent.Scouted != nil {
+			ent.Scouted[[2]int{ent.X >> 3, ent.Z >> 3}] = true
+		}
+
+		// Pickaxe pickup
+		if !g.HasPickaxe && ent.X == w.PickaxeX && ent.Z == w.PickaxeZ {
+			g.HasPickaxe = true
+			g.SetMessage(ent.Name + " picked up the pickaxe!")
+		}
+
+		// Exploring: check for pickaxe within perception range every step — divert if spotted
+		if ent.Task != nil && ent.Task.Type == TaskExplore && !g.HasPickaxe &&
+			withinRange(ent.X, ent.Z, w.PickaxeX, w.PickaxeZ, ent.RevealDist) {
+			path := FindPath(w, ent.X, ent.Z, w.PickaxeX, w.PickaxeZ)
+			if path != nil {
+				ent.Task.Path = path
+				ent.Task.PathIdx = 0
+				g.SetMessage(ent.Name + " spotted something interesting!")
+			}
+		}
 
 		// Check for threat at new position
 		if threat, ok := w.GetThreat(ent.X, ent.Z); ok {
 			if int(ent.Tier) >= threat.Difficulty {
-				// Auto-clear: tier is high enough
 				w.RemoveThreat(ent.X, ent.Z)
 			} else {
-				// Can't handle it — ALERT
 				ent.Task = nil
 				return &Alert{
 					EntityIdx: i,
@@ -177,11 +230,37 @@ func (g *GameState) TickEntities(w *World) *Alert {
 			}
 		}
 
-		if ent.Task != nil && ent.Task.PathIdx >= len(ent.Task.Path) {
+		// MoveTo: clear task when path is done. Explore: will re-plan next tick.
+		if ent.Task != nil && ent.Task.Type == TaskMoveTo && ent.Task.PathIdx >= len(ent.Task.Path) {
 			ent.Task = nil
 		}
 	}
 	return nil
+}
+
+func withinRange(ax, az, bx, bz, r int) bool {
+	dx, dz := ax-bx, az-bz
+	return dx*dx+dz*dz <= r*r
+}
+
+// nearestWalkable spirals out from (tx,tz) to find the closest walkable tile.
+func nearestWalkable(w *World, tx, tz int) (int, int, bool) {
+	if w.IsWalkable(tx, tz) {
+		return tx, tz, true
+	}
+	for r := 1; r <= 8; r++ {
+		for dx := -r; dx <= r; dx++ {
+			for dz := -r; dz <= r; dz++ {
+				if abs(dx) != r && abs(dz) != r {
+					continue // only check the ring edge
+				}
+				if w.IsWalkable(tx+dx, tz+dz) {
+					return tx + dx, tz + dz, true
+				}
+			}
+		}
+	}
+	return 0, 0, false
 }
 
 func FindPath(w *World, sx, sz, gx, gz int) [][2]int {

@@ -193,9 +193,9 @@ func main() {
 
 	// Spawn entities near player
 	game.Entities = []*Entity{
-		{Name: "Brynn", X: spawnX - 2, Z: 1, Tier: TierVeteran},
-		{Name: "Kael", X: spawnX - 1, Z: -1, Tier: TierSoldier},
-		{Name: "Pip", X: spawnX - 2, Z: -1, Tier: TierRecruit},
+		{Name: "Brynn", X: spawnX - 2, Z: 1, Tier: TierVeteran, RevealDist: 8, Scouted: map[[2]int]bool{}},
+		{Name: "Kael", X: spawnX - 1, Z: -1, Tier: TierSoldier, RevealDist: 3, Scouted: map[[2]int]bool{}},
+		{Name: "Pip", X: spawnX - 2, Z: -1, Tier: TierRecruit, RevealDist: 3, Scouted: map[[2]int]bool{}},
 	}
 	for _, ent := range game.Entities {
 		world.RevealAround(ent.X, ent.Z)
@@ -477,6 +477,13 @@ func main() {
 			}
 		}
 
+		// X to assign explore task to selected entity
+		if game.SelectedEnt >= 0 && rl.IsKeyPressed(rl.KeyX) {
+			ent := game.Entities[game.SelectedEnt]
+			ent.Task = &Task{Type: TaskExplore}
+			game.SetMessage(fmt.Sprintf("%s is now exploring.", ent.Name))
+		}
+
 		// Dismiss alert with Space
 		if game.Alert != nil && rl.IsKeyPressed(rl.KeySpace) {
 			game.Alert = nil
@@ -539,7 +546,7 @@ func main() {
 		if game.Camera == CameraLocal {
 			rl.DrawText("WASD move | E break wall | Tab map | Right-drag orbit | Scroll zoom", 10, 35, 16, rl.Gray)
 		} else {
-			rl.DrawText("Click entity to select | Click ground to send | Right-drag pan | Scroll zoom | Tab 3D", 10, 35, 16, rl.Gray)
+			rl.DrawText("Click entity to select | Click ground to send | X explore | Right-drag pan | Tab 3D", 10, 35, 16, rl.Gray)
 		}
 		if game.MessageTimer > 0 {
 			rl.DrawText(game.Message, 10, 60, 20, rl.Color{R: 255, G: 220, B: 100, A: 255})
@@ -666,9 +673,17 @@ func drawLocal(
 		}
 	}
 
-	// Pickaxe on ground
+	// Pickaxe on ground with glow
 	if !game.HasPickaxe {
 		pickPos := gridToWorld(world.PickaxeX, world.PickaxeZ)
+		// Pulsing glow disc on the floor
+		pulse := float32(math.Sin(float64(rl.GetTime())*3.0))*0.3 + 0.7
+		glowPos := pickPos
+		glowPos.Y = floorSurfaceY + 0.02
+		glowSize := tileUnit * 1.2 * pulse
+		rl.DrawCubeV(glowPos, rl.Vector3{X: glowSize, Y: 0.05, Z: glowSize},
+			rl.Color{R: 255, G: 180, B: 40, A: uint8(60 * pulse)})
+		// The pickaxe itself
 		pickPos.Y = floorSurfaceY
 		pickScale := rl.Vector3{X: wallScale * 3, Y: wallScale * 3, Z: wallScale * 3}
 		rl.DrawModelEx(pickaxeModel, pickPos, rl.Vector3{Y: 1}, 45, pickScale, rl.Color{R: 255, G: 200, B: 80, A: 255})

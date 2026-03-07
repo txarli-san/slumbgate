@@ -194,20 +194,27 @@ func (w *World) carveCorridor(x1, z1, x2, z2 int) {
 }
 
 func (w *World) PlacePickaxe(spawnX, spawnZ int) {
-	// Place near player spawn
+	// Place along the dungeon wall, away from spawn — requires exploration to find
 	rng := rand.New(rand.NewSource(w.Seed + 999))
-	for range 200 {
-		tx := spawnX + rng.Intn(7) - 3
-		tz := spawnZ + rng.Intn(7) - 3
-		if w.BaseTileType(tx, tz) == TileGround && (tx != spawnX || tz != spawnZ) {
-			w.PickaxeX = tx
-			w.PickaxeZ = tz
-			return
+	bestX, bestZ := spawnX+1, spawnZ
+	// Place 15-25 tiles from spawn, on ground near the dungeon wall
+	for range 500 {
+		tx := spawnX + rng.Intn(31) - 15
+		tz := spawnZ + rng.Intn(31) - 15
+		if w.BaseTileType(tx, tz) != TileGround {
+			continue
 		}
+		dx, dz := tx-spawnX, tz-spawnZ
+		dist := dx*dx + dz*dz
+		if dist < 15*15 || dist > 25*25 {
+			continue
+		}
+		bestX, bestZ = tx, tz
+		break
 	}
-	// Fallback: right next to spawn
-	w.PickaxeX = spawnX + 1
-	w.PickaxeZ = spawnZ
+
+	w.PickaxeX = bestX
+	w.PickaxeZ = bestZ
 }
 
 func (w *World) isRoom(tx, tz int) bool {
@@ -276,6 +283,28 @@ func (w *World) MarkExplored(tx, tz int) {
 	cx, cz := TileToChunk(tx, tz)
 	if c, ok := w.Chunks[ChunkCoord{cx, cz}]; ok {
 		c.Explored = true
+	}
+}
+
+// RevealAroundDist reveals tiles within a given radius
+func (w *World) RevealAroundDist(tx, tz, radius int) {
+	for dz := -radius; dz <= radius; dz++ {
+		for dx := -radius; dx <= radius; dx++ {
+			if dx*dx+dz*dz > radius*radius {
+				continue
+			}
+			nx, nz := tx+dx, tz+dz
+			cx, cz := TileToChunk(nx, nz)
+			c, ok := w.Chunks[ChunkCoord{cx, cz}]
+			if !ok {
+				continue
+			}
+			ox, oz := ChunkOrigin(cx, cz)
+			lx, lz := nx-ox, nz-oz
+			if lx >= 0 && lx < ChunkSize && lz >= 0 && lz < ChunkSize {
+				c.Revealed[lz][lx] = true
+			}
+		}
 	}
 }
 
