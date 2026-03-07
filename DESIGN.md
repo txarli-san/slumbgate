@@ -226,50 +226,60 @@ PLAN → DEPLOY → EXECUTE → RECOVER → MANAGE → PLAN
 5. **Manage**: Handle camp events. Assign idle members to tasks. Process resources. Deal with threats to your perimeter.
 6. **Plan**: The situation has changed. New information from the expedition. New threats. New opportunities. What next?
 
-## Decided: Camera System
+## Decided: Two Game Modes
 
-Two camera modes, matching the two gameplay layers:
+**Continuous mode** (default) — 3D isometric view. Point-and-click company management. Click to select entities, click ground to move-to, Tab to cycle, hotkeys for orders (1=Scout, 2=Stop). No direct character control. Camera follows selected entity. This is where exploration, scouting, and resource gathering happen.
 
-**Strategic view** — 2D map overlay. Shows explored areas, squad positions, settlements, supply lines, threat zones. This is where company management happens. No 3D rendering needed — stylized abstract map.
+**Combat mode** (triggered by threat encounter) — D&D initiative turns. WASD direct control of the active character. Screen-relative movement, E to interact. Not yet implemented — continuous mode only for now.
 
-**Tactical view** — 3D isometric (current spike). Only renders the local area around the active squad. Combat, exploration, moment-to-moment gameplay. You never see the whole dungeon in 3D.
+Player never controls a "main character" outside combat. You're the commander, not a hero.
 
-Player flow: strategic map → pick squad/destination → travel (time passes) → tactical 3D for local area → back to strategic.
+## Decided: Action-Driven Clock
 
-This solves the scale problem: the dungeon can be massive without the camera needing to show it all.
+**Time only advances when someone acts. No real-time ticking.**
 
-## Decided: Multiplayer Time Model
+- Each entity action (step, break wall, etc.) costs time
+- Global clock = driven by entity actions. If everyone is idle, time freezes
+- Entities with active tasks (scout, move-to) drive the clock automatically
+- Idle entities still experience elapsed time (future: food, exhaustion, rest drain)
+- Low-tier entities waste time with inefficient pathing — this is intentional design pressure
+- Player intervention (micromanaging a scout's path) is more time-efficient but costs attention
+- Entity leveling (future) unlocks better autonomous behavior, reducing wasted time
 
-**Real-time shared clock. No sync overhead.**
+This creates massive tension: giving a recruit a scout order means watching the clock climb. You can stop them (2) to freeze time and think. Every order has weight.
 
-- All players move freely on the map simultaneously
-- Global clock ticks forward as anyone acts — standing still still costs time (food, torch, exhaustion)
-- No phases, no turn order, no waiting on other players during exploration
-- Combat is the only sync point: enters turn-based mode with initiative when a squad engages
-
-This means a player who wanders inefficiently burns real resources. Time pressure is felt per-step, not per-turn. The spike proved this — watching the tick counter go up with every step creates genuine pressure even without survival mechanics wired up yet.
+Combat is the only mode change: threat encounter → initiative turns → back to continuous.
 
 ## Decided: Dungeon Generation (Raylib spike)
 
 **Concentric ring structure, chunked world, sector-based rooms.**
 
 - World centered at origin, dungeon defined by concentric radii with noise-warped irregular boundaries
-- 16x16 tile chunks, loaded/unloaded by proximity to player. Deterministic from seed — same chunk always generates the same content
+- 16x16 tile chunks, loaded/unloaded by proximity to entities. Deterministic from seed — same chunk always generates the same content
 - Outer ring is a band between outer and inner radius. Filled with `TileSolid` (breakable wall mass), carved into rooms and corridors by sector-based generation
 - 16 angular sectors per ring, each with room clusters connected by corridors. No guaranteed connections between sectors — wall-breaking is the primary way to create paths
 - Inner area (`TileCore`) is impenetrable until the player finds the right material to break through — natural progression gating
-- Fog of war: dungeon interior hidden until player explores nearby. Ground (outside) always visible
+- Fog of war: dungeon interior hidden until entities explore nearby. Ground (outside) always visible
+- Line-of-sight visibility: entities can't see through solid walls (Bresenham raycast). Seeing through walls is a potential mid/end-game scout upgrade, not baseline behavior
 
 **Material progression:** Each ring's walls require a specific tool/material found in the current ring. Stone pickaxe (found outside) breaks into the outer ring. Better material found inside the outer ring breaks into the next ring. This repeats inward.
 
 **Wall breaking is a core mechanic, not a shortcut.** Players punch through wherever they want. The dungeon provides content, the player provides topology. Breaking walls may lead to rooms, corridors, solid rock, or the wrong side of a threat.
 
-## Decided: Movement & Controls
+**Entity wall-breaking:** Any entity can break walls when the company has the right tool (pickaxe for outer ring). Scouting entities with pickaxe pathfind through walls (A* with higher wall cost — prefers existing openings). Breaking a wall costs one tick. Future: inventory system determines who can carry/use tools.
 
+## Decided: Controls
+
+**Continuous mode:**
+- Click entity to select, click ground to move-to
+- Tab to cycle selected entity
+- 1=Scout, 2=Stop (hotkeys for orders)
+- Right-drag to orbit camera, scroll to zoom
+
+**Combat mode (future):**
 - WASD screen-relative movement (transformed by camera orbit angle)
 - Diagonal movement with corner-cutting prevention and wall sliding
 - E to interact/break walls in facing direction
-- Right-drag to orbit camera, scroll to zoom (radius + height scale together)
 
 ## Open Questions
 
