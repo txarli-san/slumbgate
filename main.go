@@ -279,23 +279,50 @@ func main() {
 			c := game.Combat
 			cur := c.Current()
 
-			// Space to end turn
-			if rl.IsKeyPressed(rl.KeySpace) && !cur.IsEnemy {
-				c.NextTurn()
-				// Set move points for new combatant
-				next := c.Current()
-				if !next.IsEnemy {
-					if s := game.Entities[next.EntityIdx].Stats; s != nil {
-						c.MoveLeft = s.MoveSpeed
-					}
-				} else {
-					if t, ok := world.Threats[next.ThreatKey]; ok {
-						c.MoveLeft = t.MoveSpeed
+			// Enemy AI turn
+			if cur.IsEnemy {
+				game.RunEnemyTurn(world)
+			}
+
+			// Space to end turn (ally only)
+			if !cur.IsEnemy && rl.IsKeyPressed(rl.KeySpace) {
+				c.NextTurn(game, world)
+			}
+
+			// Click to move or attack (ally turn only)
+			if !cur.IsEnemy && rl.IsMouseButtonPressed(rl.MouseButtonLeft) {
+				ray := rl.GetScreenToWorldRay(rl.GetMousePosition(), camera)
+				if wx, wz, ok := rayHitGround(ray); ok {
+					gx, gz := worldToGrid(wx, wz)
+					ent := game.Entities[cur.EntityIdx]
+
+					// Check if clicking on an enemy threat
+					if threat, ok := world.GetThreat(gx, gz); ok {
+						// Attack if adjacent
+						if withinRange(ent.X, ent.Z, gx, gz, 1) && !c.ActionTaken {
+							game.ResolveCombatAttack(world, cur, threat, gx, gz)
+						}
+					} else if world.IsWalkable(gx, gz) && c.MoveLeft > 0 {
+						// Move to clicked tile
+						path := FindPath(world, ent.X, ent.Z, gx, gz)
+						if path != nil && len(path) <= c.MoveLeft {
+							c.MoveLeft -= len(path)
+							last := path[len(path)-1]
+							dx, dz := last[0]-ent.X, last[1]-ent.Z
+							if len(path) == 1 {
+								dx, dz = path[0][0]-ent.X, path[0][1]-ent.Z
+							}
+							ent.FacingAngle = FacingAngleFromDir(dx, dz)
+							ent.PrevX, ent.PrevZ = ent.X, ent.Z
+							ent.X, ent.Z = last[0], last[1]
+							ent.StepProgress = 0
+							ent.Moving = true
+						} else if path != nil {
+							game.SetMessage("Too far! Need more movement.")
+						}
 					}
 				}
 			}
-
-			// TODO: click to move, click enemy to attack, enemy AI turns
 		}
 
 		// Orders for selected entity: 1=Scout  2=Stop (continuous mode only)
