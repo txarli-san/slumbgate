@@ -72,6 +72,29 @@ type Alert struct {
 	Message   string
 }
 
+// Event system
+
+type EventTrigger int
+
+const (
+	TriggerRoomEntered EventTrigger = iota
+	TriggerRoomCleared
+)
+
+type EventContext struct {
+	RoomIdx   int
+	EntityIdx int
+}
+
+type Event struct {
+	ID      string
+	Trigger EventTrigger
+	Check   func(g *GameState, w *World, ctx EventContext) bool
+	Fire    func(g *GameState, w *World, ctx EventContext)
+	OneShot bool
+	Fired   bool
+}
+
 type GameState struct {
 	PlayerX, PlayerZ int
 	PrevX, PrevZ     int
@@ -92,11 +115,24 @@ type GameState struct {
 	TickAccum   float32
 	Alert       *Alert
 	Combat      *Combat // nil = continuous mode
+	Events      []*Event
 }
 
 func (g *GameState) SetMessage(msg string) {
 	g.Message = msg
 	g.MessageTimer = 3.0
+}
+
+func (g *GameState) FireEvents(trigger EventTrigger, w *World, ctx EventContext) {
+	for _, ev := range g.Events {
+		if ev.Trigger != trigger || (ev.OneShot && ev.Fired) {
+			continue
+		}
+		if ev.Check(g, w, ctx) {
+			ev.Fire(g, w, ctx)
+			ev.Fired = true
+		}
+	}
 }
 
 // AnyEntityBusy returns true if any entity has an active task

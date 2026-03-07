@@ -135,6 +135,57 @@ func main() {
 		world.RevealAround(ent.X, ent.Z)
 	}
 
+	// Events
+	mageRescueRoom := -1
+	game.Events = []*Event{
+		{
+			ID: "mage_rescue_enter", Trigger: TriggerRoomEntered, OneShot: true,
+			Check: func(g *GameState, w *World, ctx EventContext) bool {
+				return mageRescueRoom < 0 // first room entered
+			},
+			Fire: func(g *GameState, w *World, ctx EventContext) {
+				mageRescueRoom = ctx.RoomIdx
+				// Replace whatever threats with 2 weak minions
+				for key, t := range w.Threats {
+					if t.RoomIdx == ctx.RoomIdx {
+						delete(w.Threats, key)
+					}
+				}
+				room := w.Rooms[ctx.RoomIdx]
+				for i := range 2 {
+					tx := room.X + i
+					tz := room.Z
+					key := [2]int{tx, tz}
+					w.Threats[key] = Threat{
+						X: tx, Z: tz, Type: SkeletonMinion, RoomIdx: ctx.RoomIdx,
+						HP: 8, MaxHP: 8, AC: 11, STR: 10, DEX: 12,
+						MoveSpeed: 4, AttackDice: 4, MaxRange: 1,
+					}
+				}
+			},
+		},
+		{
+			ID: "mage_rescue_clear", Trigger: TriggerRoomCleared, OneShot: true,
+			Check: func(g *GameState, w *World, ctx EventContext) bool {
+				return ctx.RoomIdx == mageRescueRoom
+			},
+			Fire: func(g *GameState, w *World, ctx EventContext) {
+				room := w.Rooms[ctx.RoomIdx]
+				mx, mz := room.X+room.W/2, room.Z+room.H/2
+				g.Entities = append(g.Entities, &Entity{
+					Name: "Elara", X: mx, Z: mz, Tier: TierSoldier, RevealDist: 5,
+					Scouted: map[[2]int]bool{},
+					Stats: &CombatStats{
+						HP: 18, MaxHP: 18, AC: 12,
+						STR: 8, DEX: 14, CON: 12, INT: 16, WIS: 14, CHA: 10,
+						Level: 3, ProfBonus: 2, MoveSpeed: 5, Class: "Mage", ClassCharges: 3,
+					},
+				})
+				g.SetMessage("Elara the Mage freed! She joins your company!")
+			},
+		},
+	}
+
 	// Camera state — local
 	orbitAngle := float32(math.Pi / 4)
 	orbitRadius := tileUnit * 12

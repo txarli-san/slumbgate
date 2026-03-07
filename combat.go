@@ -84,6 +84,8 @@ func (c *Combat) NextTurn(g *GameState, w *World) {
 
 // StartCombat initiates combat with an entity entering a room with threats.
 func (g *GameState) StartCombat(w *World, entityIdx int, roomIdx int) {
+	g.FireEvents(TriggerRoomEntered, w, EventContext{RoomIdx: roomIdx, EntityIdx: entityIdx})
+
 	ent := g.Entities[entityIdx]
 	ent.Task = nil
 
@@ -299,11 +301,13 @@ func executeMeleeAttack(g *GameState, w *World, ent *Entity, tx, tz int) {
 
 	if threat.HP <= 0 {
 		w.RemoveThreat(tx, tz)
-		g.removeCombatant(tx, tz)
+		g.removeCombatant(w, tx, tz)
 		g.SetMessage(fmt.Sprintf("%s slays the skeleton! (%d damage)", ent.Name, damage))
 	}
 
-	g.Combat.ActionUsed = true
+	if g.Combat != nil {
+		g.Combat.ActionUsed = true
+	}
 }
 
 func executeSecondWind(g *GameState, w *World, ent *Entity, _, _ int) {
@@ -370,7 +374,7 @@ func executeActionSurge(g *GameState, w *World, ent *Entity, _, _ int) {
 }
 
 // removeCombatant removes a dead enemy from the initiative order.
-func (g *GameState) removeCombatant(tx, tz int) {
+func (g *GameState) removeCombatant(w *World, tx, tz int) {
 	c := g.Combat
 	key := [2]int{tx, tz}
 	for i := len(c.Combatants) - 1; i >= 0; i-- {
@@ -391,8 +395,10 @@ func (g *GameState) removeCombatant(tx, tz int) {
 		}
 	}
 	if !anyEnemy {
+		roomIdx := c.RoomIdx
 		g.Combat = nil
 		g.SetMessage("Combat ended — victory!")
+		g.FireEvents(TriggerRoomCleared, w, EventContext{RoomIdx: roomIdx})
 	}
 }
 
