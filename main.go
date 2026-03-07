@@ -237,14 +237,26 @@ func main() {
 				if clicked >= 0 {
 					game.SelectedEnt = clicked
 					game.SetMessage(fmt.Sprintf("Selected %s (%s)", game.Entities[clicked].Name, tierName(game.Entities[clicked].Tier)))
-				} else if game.SelectedEnt >= 0 && world.IsWalkable(gx, gz) {
+				} else if game.SelectedEnt >= 0 {
 					ent := game.Entities[game.SelectedEnt]
-					path := FindPath(world, ent.X, ent.Z, gx, gz)
-					if path != nil {
-						ent.Task = &Task{Type: TaskMoveTo, TargetX: gx, TargetZ: gz, Path: path}
-						game.SetMessage(fmt.Sprintf("%s moving to (%d, %d)", ent.Name, gx, gz))
-					} else {
-						game.SetMessage("No path found!")
+					if world.IsWalkable(gx, gz) {
+						path := FindPath(world, ent.X, ent.Z, gx, gz)
+						if path != nil {
+							ent.Task = &Task{Type: TaskMoveTo, TargetX: gx, TargetZ: gz, Path: path}
+							game.SetMessage(fmt.Sprintf("%s moving to (%d, %d)", ent.Name, gx, gz))
+						} else {
+							game.SetMessage("No path found!")
+						}
+					} else if game.HasPickaxe {
+						if t, ok := world.GetTile(gx, gz); ok && t == TileSolid {
+							path := FindPathBreakable(world, ent.X, ent.Z, gx, gz)
+							if path != nil {
+								ent.Task = &Task{Type: TaskMoveTo, TargetX: gx, TargetZ: gz, Path: path}
+								game.SetMessage(fmt.Sprintf("%s breaching to (%d, %d)", ent.Name, gx, gz))
+							} else {
+								game.SetMessage("No path found!")
+							}
+						}
 					}
 				}
 			}
