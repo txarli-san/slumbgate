@@ -206,6 +206,8 @@ func (g *GameState) TickEntities(w *World) *Alert {
 		ent.Moving = true
 		ent.Task.PathIdx++
 
+		cx, cz := TileToChunk(ent.X, ent.Z)
+		w.EnsureChunksAround(cx, cz)
 		w.RevealAroundDist(ent.X, ent.Z, ent.RevealDist)
 
 		// Track scouted area
