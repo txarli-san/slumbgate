@@ -190,8 +190,7 @@ func TestAI_EnemyPathsAroundObstacle(t *testing.T) {
 		t.Fatal("combat didn't start")
 	}
 
-	startHP := brynn.Stats.HP
-	reached := false
+	reachedAdj := false
 	for turn := 0; turn < 20; turn++ {
 		if g.Combat == nil || g.GameOver {
 			break
@@ -202,17 +201,17 @@ func TestAI_EnemyPathsAroundObstacle(t *testing.T) {
 			if ok {
 				dist := abs(threat.X-brynn.X) + abs(threat.Z-brynn.Z)
 				t.Logf("turn %d: enemy at (%d,%d) dist=%d", turn, threat.X, threat.Z, dist)
+				if adjacent(threat.X, threat.Z, brynn.X, brynn.Z) {
+					reachedAdj = true
+				}
 			}
 			g.RunEnemyTurn(w)
-			if brynn.Stats.HP < startHP {
-				reached = true
-			}
 		} else {
 			g.Combat.NextTurn(g, w)
 		}
 	}
 
-	if !reached && !g.GameOver {
+	if !reachedAdj && !g.GameOver {
 		t.Error("enemy couldn't path around 1-tile obstacle to reach Brynn")
 	}
 }

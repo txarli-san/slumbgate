@@ -540,6 +540,7 @@ func TestScenario_MageRescue(t *testing.T) {
 						HP: 18, MaxHP: 18, AC: 12,
 						STR: 8, DEX: 14, CON: 12, INT: 16, WIS: 14, CHA: 10,
 						Level: 3, ProfBonus: 2, MoveSpeed: 5, Class: "Mage", ClassCharges: 3, MaxClassCharges: 3,
+					HitDice: 3, MaxHitDice: 3, HitDieSize: 6,
 					},
 				})
 			},

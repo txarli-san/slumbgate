@@ -29,6 +29,7 @@ func newSeededGame(seed int64) (*GameState, *World) {
 				STR: 16, DEX: 12, CON: 14, INT: 10, WIS: 12, CHA: 10,
 				Level: 3, ProfBonus: 2, MoveSpeed: 5,
 				Class: "Fighter", ClassCharges: 2, MaxClassCharges: 2,
+				HitDice: 3, MaxHitDice: 3, HitDieSize: 10,
 			}},
 	}
 	for _, ent := range g.Entities {
@@ -330,6 +331,7 @@ func TestMultiSeed_MageRescue(t *testing.T) {
 								STR: 8, DEX: 14, CON: 12, INT: 16, WIS: 14, CHA: 10,
 								Level: 3, ProfBonus: 2, MoveSpeed: 5, Class: "Mage",
 								ClassCharges: 3, MaxClassCharges: 3,
+								HitDice: 3, MaxHitDice: 3, HitDieSize: 6,
 							},
 						})
 					},

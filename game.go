@@ -53,6 +53,9 @@ type CombatStats struct {
 	Class           string // "Fighter", "Mage", etc.
 	ClassCharges    int    // Second Wind / Action Surge uses
 	MaxClassCharges int    // starting value, restored on rest
+	HitDice         int    // remaining hit dice for short rest healing
+	MaxHitDice      int    // = Level; recovered half on long rest
+	HitDieSize      int    // die size: Fighter=10, Mage=6, Cleric/Rogue/Druid=8
 }
 
 func (s CombatStats) Mod(stat int) int { return (stat - 10) / 2 }
@@ -406,15 +409,14 @@ func (g *GameState) TickEntities(w *World) *Alert {
 }
 
 // TryRest initiates a rest for an entity. Inside the dungeon, there's a chance of ambush.
-func (g *GameState) TryRest(w *World, entIdx int) {
+func (g *GameState) tryRestAmbush(w *World, entIdx int) bool {
 	ent := g.Entities[entIdx]
 	tile := w.TileTypeAt(ent.X, ent.Z)
 	insideDungeon := tile == TileFloor || tile == TileDoorway
 
 	if insideDungeon && rand.Intn(100) < 30 {
-		// Ambush — spawn 1-3 skeletons on nearby walkable tiles
 		count := 1 + rand.Intn(3)
-		roomIdx := -1 // ambush, not a real room
+		roomIdx := -1
 		spawned := false
 		for i := 0; i < count; i++ {
 			for _, off := range [][2]int{{2, 0}, {-2, 0}, {0, 2}, {0, -2}, {1, 1}, {-1, -1}, {1, -1}, {-1, 1}} {
@@ -434,13 +436,29 @@ func (g *GameState) TryRest(w *World, entIdx int) {
 		if spawned {
 			g.SetMessage("Ambush! Skeletons attack during rest!")
 			g.StartCombat(w, entIdx, roomIdx)
-			return
+			return true
 		}
 	}
+	return false
+}
 
-	// Safe rest — heal 1d10 + CON mod (short rest, spending a hit die)
-	if ent.Stats != nil && ent.Stats.HP < ent.Stats.MaxHP {
-		heal := rollDice(10) + ent.Stats.Mod(ent.Stats.CON)
+// TryRest is the legacy short rest entry point (used by keybind and existing tests).
+func (g *GameState) TryRest(w *World, entIdx int) {
+	g.TryShortRest(w, entIdx)
+}
+
+// TryShortRest: 1 hour. Spend a hit die to heal (roll + CON mod).
+// Fighter recovers class charges. 30% ambush chance inside dungeon.
+func (g *GameState) TryShortRest(w *World, entIdx int) {
+	if g.tryRestAmbush(w, entIdx) {
+		return
+	}
+	ent := g.Entities[entIdx]
+
+	// Spend a hit die to heal
+	if ent.Stats != nil && ent.Stats.HP < ent.Stats.MaxHP && ent.Stats.HitDice > 0 {
+		ent.Stats.HitDice--
+		heal := rollDice(ent.Stats.HitDieSize) + ent.Stats.Mod(ent.Stats.CON)
 		if heal < 1 {
 			heal = 1
 		}
@@ -448,19 +466,52 @@ func (g *GameState) TryRest(w *World, entIdx int) {
 		if ent.Stats.HP > ent.Stats.MaxHP {
 			ent.Stats.HP = ent.Stats.MaxHP
 		}
-		g.SetMessage(fmt.Sprintf("%s rests — heals %d HP (%d/%d)", ent.Name, heal, ent.Stats.HP, ent.Stats.MaxHP))
+		g.SetMessage(fmt.Sprintf("%s rests — heals %d HP (%d/%d) [%d hit dice left]",
+			ent.Name, heal, ent.Stats.HP, ent.Stats.MaxHP, ent.Stats.HitDice))
+	} else if ent.Stats != nil && ent.Stats.HP < ent.Stats.MaxHP {
+		g.SetMessage(fmt.Sprintf("%s rests — no hit dice left, no healing.", ent.Name))
 	} else {
 		g.SetMessage(fmt.Sprintf("%s rests — already at full health.", ent.Name))
 	}
 
-	// Short rest: Fighter recovers class charges (Second Wind, Action Surge)
+	// Short rest: Fighter recovers class charges
 	if ent.Stats != nil && ent.Stats.Class == "Fighter" && ent.Stats.ClassCharges < ent.Stats.MaxClassCharges {
 		ent.Stats.ClassCharges = ent.Stats.MaxClassCharges
-		g.SetMessage(fmt.Sprintf("%s rests — abilities restored! HP (%d/%d)", ent.Name, ent.Stats.HP, ent.Stats.MaxHP))
 	}
 
-	// Advance clock for rest
-	g.TimeTicks += 10
+	g.TimeTicks += 60
+}
+
+// TryLongRest: 8 hours. Full HP, recover half hit dice (min 1),
+// restore class charges. Higher ambush chance inside dungeon (future).
+func (g *GameState) TryLongRest(w *World, entIdx int) {
+	if g.tryRestAmbush(w, entIdx) {
+		return
+	}
+	ent := g.Entities[entIdx]
+
+	// Full HP recovery
+	if ent.Stats != nil {
+		ent.Stats.HP = ent.Stats.MaxHP
+
+		// Recover half hit dice (min 1)
+		recover := ent.Stats.MaxHitDice / 2
+		if recover < 1 {
+			recover = 1
+		}
+		ent.Stats.HitDice += recover
+		if ent.Stats.HitDice > ent.Stats.MaxHitDice {
+			ent.Stats.HitDice = ent.Stats.MaxHitDice
+		}
+
+		// Restore class charges
+		ent.Stats.ClassCharges = ent.Stats.MaxClassCharges
+
+		g.SetMessage(fmt.Sprintf("%s finishes long rest — fully healed! (%d/%d) [%d hit dice]",
+			ent.Name, ent.Stats.HP, ent.Stats.MaxHP, ent.Stats.HitDice))
+	}
+
+	g.TimeTicks += 480
 }
 
 // KillEntity removes a dead entity from the roster and fixes all references.

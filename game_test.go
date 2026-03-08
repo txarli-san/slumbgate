@@ -25,6 +25,7 @@ func newTestGame() (*GameState, *World) {
 				STR: 16, DEX: 12, CON: 14, INT: 10, WIS: 12, CHA: 10,
 				Level: 3, ProfBonus: 2, MoveSpeed: 5,
 				Class: "Fighter", ClassCharges: 2, MaxClassCharges: 2,
+			HitDice: 3, MaxHitDice: 3, HitDieSize: 10,
 			}},
 	}
 
@@ -47,6 +48,7 @@ func addElara(g *GameState, w *World) *Entity {
 			STR: 8, DEX: 14, CON: 12, INT: 16, WIS: 14, CHA: 10,
 			Level: 3, ProfBonus: 2, MoveSpeed: 5,
 			Class: "Mage", ClassCharges: 3, MaxClassCharges: 3,
+		HitDice: 3, MaxHitDice: 3, HitDieSize: 6,
 		},
 	}
 	g.Entities = append(g.Entities, elara)
@@ -289,8 +291,8 @@ func TestTryRest_HealsAndAdvancesClock(t *testing.T) {
 	if brynn.Stats.HP > brynn.Stats.MaxHP {
 		t.Fatalf("HP %d exceeds max %d", brynn.Stats.HP, brynn.Stats.MaxHP)
 	}
-	if g.TimeTicks != before+10 {
-		t.Fatalf("expected clock +10, got %d", g.TimeTicks)
+	if g.TimeTicks != before+60 {
+		t.Fatalf("expected clock +60 (short rest), got %d", g.TimeTicks-before)
 	}
 }
 
@@ -331,8 +333,8 @@ func TestTryRest_FullHPStillAdvancesClock(t *testing.T) {
 	before := g.TimeTicks
 	g.TryRest(w, 0)
 
-	if g.TimeTicks != before+10 {
-		t.Fatalf("expected clock +10 even at full HP, got %d", g.TimeTicks)
+	if g.TimeTicks != before+60 {
+		t.Fatalf("expected clock +60 (short rest) even at full HP, got %d", g.TimeTicks-before)
 	}
 }
 
