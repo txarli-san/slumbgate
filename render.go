@@ -81,7 +81,7 @@ func tierName(t AutoTier) string {
 func tierColor(t AutoTier) rl.Color {
 	switch t {
 	case TierRecruit:
-		return rl.Color{R: 255, G: 100, B: 100, A: 255}
+		return rl.Color{R: 180, G: 200, B: 255, A: 255}
 	case TierSoldier:
 		return rl.Color{R: 255, G: 220, B: 80, A: 255}
 	case TierVeteran:

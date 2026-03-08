@@ -168,12 +168,13 @@ func main() {
 		world.PlacePickaxe(spawnX, 0)
 		game = &GameState{SelectedEnt: 0, Debug: *debugMode}
 		game.Entities = []*Entity{
-			{Name: "Brynn", X: spawnX, Z: 0, Tier: TierVeteran, RevealDist: 8, Scouted: map[[2]int]bool{},
+			{Name: "Brynn", X: spawnX, Z: 0, Tier: TierRecruit, RevealDist: 6, Scouted: map[[2]int]bool{},
 				Stats: &CombatStats{
-					HP: 28, MaxHP: 28, AC: 16,
+					HP: 12, MaxHP: 12, AC: 13,
 					STR: 16, DEX: 12, CON: 14, INT: 10, WIS: 12, CHA: 10,
-					Level: 3, ProfBonus: 2, MoveSpeed: 5, Class: "Fighter", ClassCharges: 2, MaxClassCharges: 2,
-					HitDice: 3, MaxHitDice: 3, HitDieSize: 10,
+					Level: 1, ProfBonus: 2, MoveSpeed: 5, Class: "Fighter",
+					ClassCharges: 1, MaxClassCharges: 1,
+					HitDice: 1, MaxHitDice: 1, HitDieSize: 10,
 				}},
 		}
 		for _, ent := range game.Entities {

@@ -347,6 +347,7 @@ func executeMeleeAttack(g *GameState, w *World, ent *Entity, tx, tz int) {
 	}
 
 	if threat.HP <= 0 {
+		g.awardXP(w, threatXP(threat.Type))
 		w.RemoveThreat(tx, tz)
 		g.removeCombatant(w, tx, tz)
 		g.SetMessage(fmt.Sprintf("%s slays the skeleton! (%d damage)", ent.Name, damage))
@@ -466,6 +467,7 @@ func executeFireBolt(g *GameState, w *World, ent *Entity, tx, tz int) {
 	}
 
 	if threat.HP <= 0 {
+		g.awardXP(w, threatXP(threat.Type))
 		w.RemoveThreat(tx, tz)
 		g.removeCombatant(w, tx, tz)
 		g.SetMessage(fmt.Sprintf("%s incinerates the skeleton! (%d damage)", ent.Name, damage))
@@ -503,6 +505,7 @@ func executeMagicMissile(g *GameState, w *World, ent *Entity, tx, tz int) {
 	g.AddFloat(fmt.Sprintf("-%d", damage), tx, tz, 150, 120, 255, 22)
 
 	if threat.HP <= 0 {
+		g.awardXP(w, threatXP(threat.Type))
 		w.RemoveThreat(tx, tz)
 		g.removeCombatant(w, tx, tz)
 		g.SetMessage(fmt.Sprintf("%s obliterates the skeleton! (%d damage)", ent.Name, damage))

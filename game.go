@@ -56,6 +56,115 @@ type CombatStats struct {
 	HitDice         int    // remaining hit dice for short rest healing
 	MaxHitDice      int    // = Level; recovered half on long rest
 	HitDieSize      int    // die size: Fighter=10, Mage=6, Cleric/Rogue/Druid=8
+	XP              int    // accumulated experience points
+}
+
+// 5e SRD XP thresholds per level
+func xpForLevel(level int) int {
+	thresholds := map[int]int{
+		2: 300, 3: 900, 4: 2700, 5: 6500,
+		6: 14000, 7: 23000, 8: 34000, 9: 48000, 10: 64000,
+		11: 85000, 12: 100000, 13: 120000, 14: 140000, 15: 165000,
+		16: 195000, 17: 225000, 18: 265000, 19: 305000, 20: 355000,
+	}
+	return thresholds[level]
+}
+
+// 5e SRD XP by skeleton CR
+func threatXP(stype SkeletonType) int {
+	switch stype {
+	case SkeletonMinion:
+		return 50 // CR 1/4
+	case SkeletonWarrior:
+		return 100 // CR 1/2
+	case SkeletonRogue:
+		return 100 // CR 1/2
+	case SkeletonMage:
+		return 200 // CR 1
+	}
+	return 0
+}
+
+// awardXP splits XP among all allies in combat
+func (g *GameState) awardXP(w *World, xp int) {
+	if g.Combat == nil {
+		return
+	}
+	allyCount := 0
+	for _, cb := range g.Combat.Combatants {
+		if !cb.IsEnemy && cb.EntityIdx < len(g.Entities) {
+			allyCount++
+		}
+	}
+	if allyCount == 0 {
+		return
+	}
+	share := xp / allyCount
+	if share < 1 {
+		share = 1
+	}
+	for _, cb := range g.Combat.Combatants {
+		if !cb.IsEnemy && cb.EntityIdx < len(g.Entities) {
+			ent := g.Entities[cb.EntityIdx]
+			if ent.Stats != nil {
+				prevLevel := ent.Stats.Level
+				ent.Stats.XP += share
+				checkLevelUp(ent.Stats)
+				g.AddFloat(fmt.Sprintf("+%d XP", share), ent.X, ent.Z, 255, 215, 0, 18)
+				if ent.Stats.Level > prevLevel {
+					g.SetMessage(fmt.Sprintf("%s reached Level %d!", ent.Name, ent.Stats.Level))
+					g.AddFloat("LEVEL UP!", ent.X, ent.Z, 255, 255, 100, 24)
+				}
+			}
+		}
+	}
+}
+
+func checkLevelUp(s *CombatStats) {
+	for s.Level < 20 {
+		needed := xpForLevel(s.Level + 1)
+		if needed == 0 || s.XP < needed {
+			break
+		}
+		levelUp(s)
+	}
+}
+
+func levelUp(s *CombatStats) {
+	s.Level++
+	// HP: roll hit die + CON mod (minimum 1)
+	roll := rollDice(s.HitDieSize)
+	gain := roll + s.Mod(s.CON)
+	if gain < 1 {
+		gain = 1
+	}
+	s.MaxHP += gain
+	s.HP += gain
+	// Hit dice
+	s.MaxHitDice = s.Level
+	s.HitDice++
+	// Proficiency bonus: 5e SRD
+	switch {
+	case s.Level >= 17:
+		s.ProfBonus = 6
+	case s.Level >= 13:
+		s.ProfBonus = 5
+	case s.Level >= 9:
+		s.ProfBonus = 4
+	case s.Level >= 5:
+		s.ProfBonus = 3
+	default:
+		s.ProfBonus = 2
+	}
+	// Class features
+	switch s.Class {
+	case "Fighter":
+		if s.Level == 2 {
+			// Action Surge unlocked — Second Wind (1) + Action Surge (1) = 2
+			s.MaxClassCharges = 2
+			s.ClassCharges = s.MaxClassCharges
+		}
+	}
 }
 
 func (s CombatStats) Mod(stat int) int { return (stat - 10) / 2 }
