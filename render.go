@@ -306,11 +306,15 @@ func drawLocal(
 				taskStr = fmt.Sprintf("Moving to (%d,%d)", ent.Task.TargetX, ent.Task.TargetZ)
 			case TaskExplore:
 				taskStr = "Scouting"
+			case TaskFollow:
+				if ent.Task.FollowIdx >= 0 && ent.Task.FollowIdx < len(entities) {
+					taskStr = fmt.Sprintf("Following %s", entities[ent.Task.FollowIdx].Name)
+				}
 			}
 		}
 		rl.DrawText("Task: "+taskStr, panelX+10, panelY+54, 14, rl.White)
 
-		rl.DrawText("[1] Scout  [2] Stop  [Click] Move to", panelX+10, panelY+80, 14, rl.Gray)
+		rl.DrawText("[1] Scout [2] Stop [3] Rest [4] Follow", panelX+10, panelY+80, 14, rl.Gray)
 		rl.DrawText(fmt.Sprintf("< Tab (%d/%d) >", game.SelectedEnt+1, len(game.Entities)), panelX+10, panelY+98, 12, rl.DarkGray)
 	}
 

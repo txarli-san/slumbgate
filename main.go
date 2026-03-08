@@ -310,6 +310,12 @@ func main() {
 							} else {
 								game.SetMessage("No path found!")
 							}
+						} else if t, ok := world.GetTile(gx, gz); ok && t == TileCore {
+							game.SetMessage("That rock is impenetrable. We need something stronger.")
+						}
+					} else {
+						if t, ok := world.GetTile(gx, gz); ok && t == TileCore {
+							game.SetMessage("That rock is impenetrable. We need something stronger.")
 						}
 					}
 				}
@@ -435,6 +441,35 @@ func main() {
 			if rl.IsKeyPressed(rl.KeyThree) {
 				ent.Task = nil
 				game.TryRest(world, game.SelectedEnt)
+			}
+			if rl.IsKeyPressed(rl.KeyFour) {
+				// Toggle: if anyone is already following selected, stop all followers
+				anyFollowing := false
+				for j, other := range game.Entities {
+					if j != game.SelectedEnt && other.Task != nil &&
+						other.Task.Type == TaskFollow && other.Task.FollowIdx == game.SelectedEnt {
+						anyFollowing = true
+						break
+					}
+				}
+				if anyFollowing {
+					for j, other := range game.Entities {
+						if j != game.SelectedEnt && other.Task != nil &&
+							other.Task.Type == TaskFollow && other.Task.FollowIdx == game.SelectedEnt {
+							other.Task = nil
+						}
+					}
+					game.SetMessage("Companions holding position.")
+				} else {
+					count := 0
+					for j, other := range game.Entities {
+						if j != game.SelectedEnt {
+							other.Task = &Task{Type: TaskFollow, FollowIdx: game.SelectedEnt}
+							count++
+						}
+					}
+					game.SetMessage(fmt.Sprintf("%d companions following %s.", count, ent.Name))
+				}
 			}
 		}
 

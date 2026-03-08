@@ -30,6 +30,7 @@ const (
 	TaskMoveTo
 	TaskExplore
 	TaskRest
+	TaskFollow
 )
 
 type Task struct {
@@ -39,6 +40,7 @@ type Task struct {
 	Path         [][2]int
 	PathIdx      int
 	ExploreAngle float64 // current angle for perimeter patrol
+	FollowIdx    int     // entity index to follow (TaskFollow)
 }
 
 type CombatStats struct {
@@ -298,7 +300,22 @@ func (g *GameState) TickEntities(w *World) *Alert {
 			}
 		}
 
-		if ent.Task.Type != TaskMoveTo && ent.Task.Type != TaskExplore {
+		// Follow: repath toward leader when not adjacent
+		if ent.Task.Type == TaskFollow && (ent.Task.Path == nil || ent.Task.PathIdx >= len(ent.Task.Path)) {
+			if ent.Task.FollowIdx >= 0 && ent.Task.FollowIdx < len(g.Entities) {
+				leader := g.Entities[ent.Task.FollowIdx]
+				if !adjacent(ent.X, ent.Z, leader.X, leader.Z) {
+					path := FindPath(w, ent.X, ent.Z, leader.X, leader.Z)
+					if path != nil && len(path) > 1 {
+						// Stop one tile short — don't stand on leader
+						ent.Task.Path = path[:len(path)-1]
+						ent.Task.PathIdx = 0
+					}
+				}
+			}
+		}
+
+		if ent.Task.Type != TaskMoveTo && ent.Task.Type != TaskExplore && ent.Task.Type != TaskFollow {
 			continue
 		}
 		if ent.Task.Path == nil || ent.Task.PathIdx >= len(ent.Task.Path) {
