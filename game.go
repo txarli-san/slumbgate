@@ -57,6 +57,11 @@ type CombatStats struct {
 	MaxHitDice      int    // = Level; recovered half on long rest
 	HitDieSize      int    // die size: Fighter=10, Mage=6, Cleric/Rogue/Druid=8
 	XP              int    // accumulated experience points
+	CombatStyle     string   // Fighter L3: "Gladiator", "Ranger", "Juggernaut"
+	CombatTechnique string   // Fighter L4: "Power Attack", "Defensive Stance", "Quick Strike"
+	KnownSpells     []string // Mage: learned level 1 spells
+	KnownCantrips   []string // Mage: learned cantrips
+	PendingChoices  []string // level-up choices waiting to be resolved
 }
 
 // 5e SRD XP thresholds per level
@@ -156,13 +161,28 @@ func levelUp(s *CombatStats) {
 	default:
 		s.ProfBonus = 2
 	}
-	// Class features
+	// Class features and pending choices
 	switch s.Class {
 	case "Fighter":
 		if s.Level == 2 {
-			// Action Surge unlocked — Second Wind (1) + Action Surge (1) = 2
 			s.MaxClassCharges = 2
 			s.ClassCharges = s.MaxClassCharges
+		}
+		if s.Level == 3 {
+			s.PendingChoices = append(s.PendingChoices, "combat_style")
+		}
+		if s.Level == 4 {
+			s.PendingChoices = append(s.PendingChoices, "combat_technique")
+		}
+	case "Mage":
+		if s.Level == 2 {
+			s.PendingChoices = append(s.PendingChoices, "spell_l1")
+		}
+		if s.Level == 3 {
+			s.PendingChoices = append(s.PendingChoices, "cantrip")
+		}
+		if s.Level == 4 {
+			s.PendingChoices = append(s.PendingChoices, "spell_l1")
 		}
 	}
 }
