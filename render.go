@@ -170,10 +170,10 @@ func drawLocal(
 					fm := floorVariant(tx, tz)
 					rl.DrawModelEx(fm, pos, rl.Vector3{Y: 1}, 0, ones, rl.White)
 
-					// Walls on edges facing ground (not doorways)
+					// Walls on edges facing non-dungeon tiles
 					needsWall := func(nx, nz int) bool {
 						n := world.TileTypeAt(nx, nz)
-						return n == TileGround
+						return n == TileGround || n == TileCore
 					}
 					if needsWall(tx, tz-1) {
 						drawWall(rl.Vector3{X: pos.X, Z: pos.Z - halfTile}, 180)
@@ -194,6 +194,24 @@ func drawLocal(
 					// }
 					fm := floorVariant(tx, tz)
 					rl.DrawModelEx(fm, pos, rl.Vector3{Y: 1}, 0, ones, rl.White)
+
+					// Walls on edges facing non-dungeon tiles
+					needsDoorWall := func(nx, nz int) bool {
+						n := world.TileTypeAt(nx, nz)
+						return n == TileGround || n == TileCore
+					}
+					if needsDoorWall(tx, tz-1) {
+						drawWall(rl.Vector3{X: pos.X, Z: pos.Z - halfTile}, 180)
+					}
+					if needsDoorWall(tx, tz+1) {
+						drawWall(rl.Vector3{X: pos.X, Z: pos.Z + halfTile}, 0)
+					}
+					if needsDoorWall(tx-1, tz) {
+						drawWall(rl.Vector3{X: pos.X - halfTile, Z: pos.Z}, -90)
+					}
+					if needsDoorWall(tx+1, tz) {
+						drawWall(rl.Vector3{X: pos.X + halfTile, Z: pos.Z}, 90)
+					}
 
 				case TileCore:
 					// Nothing rendered — void
