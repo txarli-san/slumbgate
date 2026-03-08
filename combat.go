@@ -331,6 +331,9 @@ func executeMeleeAttack(g *GameState, w *World, ent *Entity, tx, tz int) {
 	damage := damageDice + atkMod
 
 	threat.HP -= damage
+	if threat.HP < 0 {
+		threat.HP = 0
+	}
 	w.Threats[[2]int{tx, tz}] = threat
 
 	if roll == 20 {
@@ -448,6 +451,9 @@ func executeFireBolt(g *GameState, w *World, ent *Entity, tx, tz int) {
 	damage := damageDice + atkMod
 
 	threat.HP -= damage
+	if threat.HP < 0 {
+		threat.HP = 0
+	}
 	w.Threats[[2]int{tx, tz}] = threat
 
 	if roll == 20 {
@@ -488,6 +494,9 @@ func executeMagicMissile(g *GameState, w *World, ent *Entity, tx, tz int) {
 	}
 
 	threat.HP -= damage
+	if threat.HP < 0 {
+		threat.HP = 0
+	}
 	w.Threats[[2]int{tx, tz}] = threat
 
 	g.SetMessage(fmt.Sprintf("%s casts Magic Missile! 3 bolts for %d damage!", ent.Name, damage))
@@ -740,6 +749,9 @@ func (g *GameState) ResolveEnemyAttack(w *World, threat Threat, target *Entity) 
 	damage := damageDice + atkMod
 
 	target.Stats.HP -= damage
+	if target.Stats.HP < 0 {
+		target.Stats.HP = 0
+	}
 
 	if roll == 20 {
 		g.SetMessage(fmt.Sprintf("Skeleton CRITS %s! %d damage! (HP: %d/%d)",
