@@ -172,7 +172,7 @@ func main() {
 				Stats: &CombatStats{
 					HP: 28, MaxHP: 28, AC: 16,
 					STR: 16, DEX: 12, CON: 14, INT: 10, WIS: 12, CHA: 10,
-					Level: 3, ProfBonus: 2, MoveSpeed: 5, Class: "Fighter", ClassCharges: 2,
+					Level: 3, ProfBonus: 2, MoveSpeed: 5, Class: "Fighter", ClassCharges: 2, MaxClassCharges: 2,
 				}},
 		}
 		for _, ent := range game.Entities {
@@ -225,7 +225,7 @@ func main() {
 						Stats: &CombatStats{
 							HP: 18, MaxHP: 18, AC: 12,
 							STR: 8, DEX: 14, CON: 12, INT: 16, WIS: 14, CHA: 10,
-							Level: 3, ProfBonus: 2, MoveSpeed: 5, Class: "Mage", ClassCharges: 3,
+							Level: 3, ProfBonus: 2, MoveSpeed: 5, Class: "Mage", ClassCharges: 3, MaxClassCharges: 3,
 						},
 					})
 					g.SetMessage("Elara the Mage freed! She joins your company!")

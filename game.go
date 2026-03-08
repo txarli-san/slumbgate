@@ -50,8 +50,9 @@ type CombatStats struct {
 	Level        int
 	ProfBonus    int
 	MoveSpeed    int // tiles per combat turn
-	Class        string // "Fighter", "Mage", etc.
-	ClassCharges int // Second Wind / Action Surge uses
+	Class           string // "Fighter", "Mage", etc.
+	ClassCharges    int    // Second Wind / Action Surge uses
+	MaxClassCharges int    // starting value, restored on rest
 }
 
 func (s CombatStats) Mod(stat int) int { return (stat - 10) / 2 }
@@ -450,6 +451,12 @@ func (g *GameState) TryRest(w *World, entIdx int) {
 		g.SetMessage(fmt.Sprintf("%s rests — heals %d HP (%d/%d)", ent.Name, heal, ent.Stats.HP, ent.Stats.MaxHP))
 	} else {
 		g.SetMessage(fmt.Sprintf("%s rests — already at full health.", ent.Name))
+	}
+
+	// Short rest: Fighter recovers class charges (Second Wind, Action Surge)
+	if ent.Stats != nil && ent.Stats.Class == "Fighter" && ent.Stats.ClassCharges < ent.Stats.MaxClassCharges {
+		ent.Stats.ClassCharges = ent.Stats.MaxClassCharges
+		g.SetMessage(fmt.Sprintf("%s rests — abilities restored! HP (%d/%d)", ent.Name, ent.Stats.HP, ent.Stats.MaxHP))
 	}
 
 	// Advance clock for rest
