@@ -277,6 +277,7 @@ func executeMeleeAttack(g *GameState, w *World, ent *Entity, tx, tz int) {
 
 	if roll == 1 {
 		g.SetMessage(fmt.Sprintf("%s attacks — nat 1! Miss!", ent.Name))
+		g.AddFloat("NAT 1!", tx, tz, 180, 180, 180, 20)
 		g.Combat.ActionUsed = true
 		return
 	}
@@ -284,6 +285,7 @@ func executeMeleeAttack(g *GameState, w *World, ent *Entity, tx, tz int) {
 	if roll < 20 && total < threat.AC {
 		g.SetMessage(fmt.Sprintf("%s attacks (%d+%d=%d vs AC %d) — miss!",
 			ent.Name, roll, atkMod+stats.ProfBonus, total, threat.AC))
+		g.AddFloat(fmt.Sprintf("MISS (%d)", total), tx, tz, 180, 180, 180, 18)
 		g.Combat.ActionUsed = true
 		return
 	}
@@ -301,15 +303,18 @@ func executeMeleeAttack(g *GameState, w *World, ent *Entity, tx, tz int) {
 	if roll == 20 {
 		g.SetMessage(fmt.Sprintf("%s CRITS! (%d+%d=%d) %d damage!",
 			ent.Name, roll, atkMod+stats.ProfBonus, total, damage))
+		g.AddFloat(fmt.Sprintf("CRIT! -%d", damage), tx, tz, 255, 220, 40, 24)
 	} else {
 		g.SetMessage(fmt.Sprintf("%s hits (%d+%d=%d vs AC %d) %d damage",
 			ent.Name, roll, atkMod+stats.ProfBonus, total, threat.AC, damage))
+		g.AddFloat(fmt.Sprintf("-%d", damage), tx, tz, 255, 255, 255, 20)
 	}
 
 	if threat.HP <= 0 {
 		w.RemoveThreat(tx, tz)
 		g.removeCombatant(w, tx, tz)
 		g.SetMessage(fmt.Sprintf("%s slays the skeleton! (%d damage)", ent.Name, damage))
+		g.AddFloat("SLAIN", tx, tz, 255, 60, 60, 22)
 	}
 
 	if g.Combat != nil {
@@ -331,6 +336,7 @@ func executeSecondWind(g *GameState, w *World, ent *Entity, _, _ int) {
 	g.Combat.ActionUsed = true
 	g.SetMessage(fmt.Sprintf("%s uses Second Wind! Heals %d (HP: %d/%d)",
 		ent.Name, heal, stats.HP, stats.MaxHP))
+	g.AddFloat(fmt.Sprintf("+%d", heal), ent.X, ent.Z, 80, 255, 80, 22)
 }
 
 func executeDash(g *GameState, w *World, ent *Entity, _, _ int) {
@@ -572,12 +578,14 @@ func (g *GameState) ResolveEnemyAttack(w *World, threat Threat, target *Entity) 
 
 	if roll == 1 {
 		g.SetMessage(fmt.Sprintf("Skeleton attacks %s — nat 1! Miss!", target.Name))
+		g.AddFloat("NAT 1!", target.X, target.Z, 180, 180, 180, 20)
 		return
 	}
 
 	if roll < 20 && total < target.Stats.AC {
 		g.SetMessage(fmt.Sprintf("Skeleton attacks %s (%d+%d=%d vs AC %d) — miss!",
 			target.Name, roll, atkMod, total, target.Stats.AC))
+		g.AddFloat(fmt.Sprintf("MISS (%d)", total), target.X, target.Z, 180, 180, 180, 18)
 		return
 	}
 
@@ -592,9 +600,11 @@ func (g *GameState) ResolveEnemyAttack(w *World, threat Threat, target *Entity) 
 	if roll == 20 {
 		g.SetMessage(fmt.Sprintf("Skeleton CRITS %s! %d damage! (HP: %d/%d)",
 			target.Name, damage, target.Stats.HP, target.Stats.MaxHP))
+		g.AddFloat(fmt.Sprintf("CRIT! -%d", damage), target.X, target.Z, 255, 40, 40, 24)
 	} else {
 		g.SetMessage(fmt.Sprintf("Skeleton hits %s for %d damage (HP: %d/%d)",
 			target.Name, damage, target.Stats.HP, target.Stats.MaxHP))
+		g.AddFloat(fmt.Sprintf("-%d", damage), target.X, target.Z, 255, 80, 80, 20)
 	}
 }
 

@@ -98,6 +98,16 @@ type Event struct {
 	Fired   bool
 }
 
+type FloatingText struct {
+	Text     string
+	WorldX   int
+	WorldZ   int
+	Timer    float32 // counts down from max
+	MaxTime  float32
+	Color    [4]uint8 // RGBA
+	FontSize int32
+}
+
 type GameState struct {
 	PlayerX, PlayerZ int
 	PrevX, PrevZ     int
@@ -119,6 +129,26 @@ type GameState struct {
 	Alert       *Alert
 	Combat      *Combat // nil = continuous mode
 	Events      []*Event
+	Floats      []FloatingText
+}
+
+func (g *GameState) AddFloat(text string, wx, wz int, r, gr, b uint8, size int32) {
+	g.Floats = append(g.Floats, FloatingText{
+		Text: text, WorldX: wx, WorldZ: wz,
+		Timer: 1.5, MaxTime: 1.5,
+		Color: [4]uint8{r, gr, b, 255}, FontSize: size,
+	})
+}
+
+func (g *GameState) TickFloats(dt float32) {
+	alive := g.Floats[:0]
+	for i := range g.Floats {
+		g.Floats[i].Timer -= dt
+		if g.Floats[i].Timer > 0 {
+			alive = append(alive, g.Floats[i])
+		}
+	}
+	g.Floats = alive
 }
 
 func (g *GameState) SetMessage(msg string) {

@@ -395,6 +395,21 @@ func drawLocal(
 		}
 	}
 
+	// Floating combat text
+	for _, ft := range game.Floats {
+		worldPos := gridToWorld(ft.WorldX, ft.WorldZ)
+		progress := 1.0 - ft.Timer/ft.MaxTime
+		worldPos.Y = floorSurfaceY + 2.0 + float32(progress)*3.0
+		screenPos := rl.GetWorldToScreen(worldPos, camera)
+		alpha := ft.Timer / ft.MaxTime
+		if alpha > 1 {
+			alpha = 1
+		}
+		col := rl.Color{R: ft.Color[0], G: ft.Color[1], B: ft.Color[2], A: uint8(alpha * 255)}
+		tw := rl.MeasureText(ft.Text, ft.FontSize)
+		rl.DrawText(ft.Text, int32(screenPos.X)-tw/2, int32(screenPos.Y), ft.FontSize, col)
+	}
+
 	// Alert overlay
 	if game.Alert != nil {
 		boxW, boxH := int32(500), int32(120)

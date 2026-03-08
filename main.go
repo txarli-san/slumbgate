@@ -444,6 +444,7 @@ func main() {
 		if game.MessageTimer > 0 {
 			game.MessageTimer -= dt
 		}
+		game.TickFloats(dt)
 
 		// Camera follow selected entity (or first entity as fallback)
 		focusIdx := game.SelectedEnt
