@@ -2,7 +2,9 @@ package main
 
 import (
 	"container/heap"
+	"fmt"
 	"math"
+	"math/rand"
 )
 
 type CameraMode int
@@ -27,6 +29,7 @@ const (
 	TaskIdle    TaskType = iota
 	TaskMoveTo
 	TaskExplore
+	TaskRest
 )
 
 type Task struct {
@@ -305,6 +308,58 @@ func (g *GameState) TickEntities(w *World) *Alert {
 		}
 	}
 	return nil
+}
+
+// TryRest initiates a rest for an entity. Inside the dungeon, there's a chance of ambush.
+func (g *GameState) TryRest(w *World, entIdx int) {
+	ent := g.Entities[entIdx]
+	tile := w.TileTypeAt(ent.X, ent.Z)
+	insideDungeon := tile == TileFloor || tile == TileDoorway
+
+	if insideDungeon && rand.Intn(100) < 30 {
+		// Ambush — spawn 1-3 skeletons on nearby walkable tiles
+		count := 1 + rand.Intn(3)
+		roomIdx := -1 // ambush, not a real room
+		spawned := false
+		for i := 0; i < count; i++ {
+			for _, off := range [][2]int{{2, 0}, {-2, 0}, {0, 2}, {0, -2}, {1, 1}, {-1, -1}, {1, -1}, {-1, 1}} {
+				tx, tz := ent.X+off[0], ent.Z+off[1]
+				if w.IsWalkable(tx, tz) && !w.IsThreatAt(tx, tz) {
+					key := [2]int{tx, tz}
+					w.Threats[key] = Threat{
+						X: tx, Z: tz, Type: SkeletonMinion, RoomIdx: roomIdx,
+						HP: 8, MaxHP: 8, AC: 11, STR: 10, DEX: 12,
+						MoveSpeed: 4, AttackDice: 4, MaxRange: 1,
+					}
+					spawned = true
+					break
+				}
+			}
+		}
+		if spawned {
+			g.SetMessage("Ambush! Skeletons attack during rest!")
+			g.StartCombat(w, entIdx, roomIdx)
+			return
+		}
+	}
+
+	// Safe rest — heal 1d10 + CON mod (short rest, spending a hit die)
+	if ent.Stats != nil && ent.Stats.HP < ent.Stats.MaxHP {
+		heal := rollDice(10) + ent.Stats.Mod(ent.Stats.CON)
+		if heal < 1 {
+			heal = 1
+		}
+		ent.Stats.HP += heal
+		if ent.Stats.HP > ent.Stats.MaxHP {
+			ent.Stats.HP = ent.Stats.MaxHP
+		}
+		g.SetMessage(fmt.Sprintf("%s rests — heals %d HP (%d/%d)", ent.Name, heal, ent.Stats.HP, ent.Stats.MaxHP))
+	} else {
+		g.SetMessage(fmt.Sprintf("%s rests — already at full health.", ent.Name))
+	}
+
+	// Advance clock for rest
+	g.TimeTicks += 10
 }
 
 func withinRange(ax, az, bx, bz, r int) bool {

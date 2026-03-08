@@ -170,7 +170,7 @@ func main() {
 		{
 			ID: "mage_rescue_clear", Trigger: TriggerRoomCleared, OneShot: true,
 			Check: func(g *GameState, w *World, ctx EventContext) bool {
-				return ctx.RoomIdx == mageRescueRoom
+				return mageRescueRoom >= 0 && ctx.RoomIdx == mageRescueRoom
 			},
 			Fire: func(g *GameState, w *World, ctx EventContext) {
 				room := w.Rooms[ctx.RoomIdx]
@@ -423,6 +423,10 @@ func main() {
 			if rl.IsKeyPressed(rl.KeyTwo) {
 				ent.Task = nil
 				game.SetMessage(fmt.Sprintf("%s holding position.", ent.Name))
+			}
+			if rl.IsKeyPressed(rl.KeyThree) {
+				ent.Task = nil
+				game.TryRest(world, game.SelectedEnt)
 			}
 		}
 

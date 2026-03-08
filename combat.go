@@ -91,15 +91,22 @@ func (g *GameState) StartCombat(w *World, entityIdx int, roomIdx int) {
 
 	var combatants []Combatant
 
-	dexMod := 0
-	if ent.Stats != nil {
-		dexMod = ent.Stats.Mod(ent.Stats.DEX)
+	// Add all nearby combat-capable allies, not just the triggering entity
+	for i, e := range g.Entities {
+		if e.Stats == nil || e.Stats.HP <= 0 {
+			continue
+		}
+		if i != entityIdx && !withinRange(ent.X, ent.Z, e.X, e.Z, 6) {
+			continue
+		}
+		e.Task = nil
+		dexMod := e.Stats.Mod(e.Stats.DEX)
+		combatants = append(combatants, Combatant{
+			IsEnemy:    false,
+			EntityIdx:  i,
+			Initiative: rollD20() + dexMod,
+		})
 	}
-	combatants = append(combatants, Combatant{
-		IsEnemy:    false,
-		EntityIdx:  entityIdx,
-		Initiative: rollD20() + dexMod,
-	})
 
 	for key, threat := range w.Threats {
 		if threat.RoomIdx == roomIdx {
