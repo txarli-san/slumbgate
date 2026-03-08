@@ -18,9 +18,9 @@ const (
 
 	// Sectors
 	NumSectors     = 16
-	RoomsPerSector = 3
-	MinRoomSize    = 4
-	MaxRoomSize    = 8
+	RoomsPerSector = 6
+	MinRoomSize    = 3
+	MaxRoomSize    = 7
 
 	// Fog of war
 	RevealRadius = 3
@@ -147,54 +147,136 @@ func (w *World) generateRooms() {
 	rng := rand.New(rand.NewSource(w.Seed))
 	sectorAngle := 2 * math.Pi / float64(NumSectors)
 
+	// Phase 1: Place rooms in sectors
 	for s := range NumSectors {
 		angleMin := float64(s) * sectorAngle
-		angleMid := angleMin + sectorAngle*0.5
-
 		for range RoomsPerSector {
-			// Random point within the ring band in this sector
-			angle := angleMin + rng.Float64()*sectorAngle
-			midRadius := (float64(InnerRadius) + float64(OuterRadius)) / 2
-			radius := midRadius + (rng.Float64()-0.5)*float64(OuterRadius-InnerRadius)*0.6
+			for attempt := 0; attempt < 10; attempt++ {
+				angle := angleMin + rng.Float64()*sectorAngle
+				midRadius := (float64(InnerRadius) + float64(OuterRadius)) / 2
+				radius := midRadius + (rng.Float64()-0.5)*float64(OuterRadius-InnerRadius)*0.5
 
-			cx := int(math.Cos(angle)*radius)
-			cz := int(math.Sin(angle)*radius)
+				cx := int(math.Cos(angle) * radius)
+				cz := int(math.Sin(angle) * radius)
 
-			rw := MinRoomSize + rng.Intn(MaxRoomSize-MinRoomSize+1)
-			rh := MinRoomSize + rng.Intn(MaxRoomSize-MinRoomSize+1)
+				rw := MinRoomSize + rng.Intn(MaxRoomSize-MinRoomSize+1)
+				rh := MinRoomSize + rng.Intn(MaxRoomSize-MinRoomSize+1)
 
-			room := Room{X: cx - rw/2, Z: cz - rh/2, W: rw, H: rh}
+				room := Room{X: cx - rw/2, Z: cz - rh/2, W: rw, H: rh}
 
-			// Verify room fits within the ring
-			if w.roomFitsInRing(room) {
-				w.Rooms = append(w.Rooms, room)
+				if w.roomFitsInRing(room) {
+					w.Rooms = append(w.Rooms, room)
+					break
+				}
 			}
 		}
+	}
 
-		// Connect rooms in this sector with corridors
-		sectorStart := s * RoomsPerSector
-		// Find rooms that belong to this sector (might be fewer if some didn't fit)
-		var sectorRooms []int
-		for i := range w.Rooms {
-			rx := float64(w.Rooms[i].X+w.Rooms[i].W/2) + 0.5
-			rz := float64(w.Rooms[i].Z+w.Rooms[i].H/2) + 0.5
-			ra := math.Atan2(rz, rx)
-			if ra < 0 {
-				ra += 2 * math.Pi
+	realRoomCount := len(w.Rooms)
+	if realRoomCount < 2 {
+		return
+	}
+
+	// Phase 2: MST — connect all rooms with shortest corridors
+	roomCenter := func(i int) (int, int) {
+		r := w.Rooms[i]
+		return r.X + r.W/2, r.Z + r.H/2
+	}
+	roomDist2 := func(i, j int) int {
+		ax, az := roomCenter(i)
+		bx, bz := roomCenter(j)
+		dx, dz := ax-bx, az-bz
+		return dx*dx + dz*dz
+	}
+
+	connected := make([]bool, realRoomCount)
+	connected[0] = true
+	for numConnected := 1; numConnected < realRoomCount; numConnected++ {
+		bestDist := math.MaxInt64
+		bestFrom, bestTo := 0, 0
+		for i := 0; i < realRoomCount; i++ {
+			if !connected[i] {
+				continue
 			}
-			if ra >= angleMin && ra < angleMin+sectorAngle {
-				sectorRooms = append(sectorRooms, i)
+			for j := 0; j < realRoomCount; j++ {
+				if connected[j] {
+					continue
+				}
+				if d := roomDist2(i, j); d < bestDist {
+					bestDist = d
+					bestFrom, bestTo = i, j
+				}
 			}
 		}
-		_ = sectorStart
-		_ = angleMid
+		connected[bestTo] = true
+		ax, az := roomCenter(bestFrom)
+		bx, bz := roomCenter(bestTo)
+		w.carveCorridor(ax, az, bx, bz)
+	}
 
-		// Connect sequential rooms in this sector
-		for j := 1; j < len(sectorRooms); j++ {
-			a := w.Rooms[sectorRooms[j-1]]
-			b := w.Rooms[sectorRooms[j]]
-			w.carveCorridor(a.X+a.W/2, a.Z+a.H/2, b.X+b.W/2, b.Z+b.H/2)
+	// Phase 3: Extra connections for loops (~30% of rooms)
+	extras := realRoomCount * 3 / 10
+	for range extras {
+		i := rng.Intn(realRoomCount)
+		j := rng.Intn(realRoomCount)
+		if i == j {
+			continue
 		}
+		// Only connect if reasonably close
+		if roomDist2(i, j) < 25*25 {
+			ax, az := roomCenter(i)
+			bx, bz := roomCenter(j)
+			w.carveCorridor(ax, az, bx, bz)
+		}
+	}
+
+	// Phase 4: Fill empty solid areas with small rooms
+	// Sample points around the ring and place tiny rooms where there's nothing nearby
+	fillRoomCount := len(w.Rooms) // snapshot before adding fill rooms
+	for range 200 {
+		angle := rng.Float64() * 2 * math.Pi
+		midRadius := (float64(InnerRadius) + float64(OuterRadius)) / 2
+		radius := midRadius + (rng.Float64()-0.5)*float64(OuterRadius-InnerRadius)*0.4
+		tx := int(math.Cos(angle) * radius)
+		tz := int(math.Sin(angle) * radius)
+
+		// Skip if near an existing room
+		tooClose := false
+		for i := 0; i < fillRoomCount; i++ {
+			rx, rz := roomCenter(i)
+			dx, dz := tx-rx, tz-rz
+			if dx*dx+dz*dz < 8*8 {
+				tooClose = true
+				break
+			}
+		}
+		if tooClose {
+			continue
+		}
+
+		rw := 2 + rng.Intn(2) // 2-3
+		rh := 2 + rng.Intn(2)
+		room := Room{X: tx - rw/2, Z: tz - rh/2, W: rw, H: rh}
+		if !w.roomFitsInRing(room) {
+			continue
+		}
+
+		w.Rooms = append(w.Rooms, room)
+
+		// Connect to nearest existing room
+		bestDist := math.MaxInt64
+		bestIdx := 0
+		for i := 0; i < fillRoomCount; i++ {
+			rx, rz := roomCenter(i)
+			dx, dz := tx-rx, tz-rz
+			d := dx*dx + dz*dz
+			if d < bestDist {
+				bestDist = d
+				bestIdx = i
+			}
+		}
+		bx, bz := roomCenter(bestIdx)
+		w.carveCorridor(tx, tz, bx, bz)
 	}
 }
 
@@ -210,7 +292,7 @@ func (w *World) roomFitsInRing(r Room) bool {
 	return true
 }
 
-// carveCorridor records corridor tiles as rooms of width 1
+// carveCorridor records corridor tiles as rooms of width 1, only within solid ring
 func (w *World) carveCorridor(x1, z1, x2, z2 int) {
 	// L-shaped: horizontal then vertical
 	if x1 > x2 {
@@ -218,13 +300,17 @@ func (w *World) carveCorridor(x1, z1, x2, z2 int) {
 		z1, z2 = z2, z1
 	}
 	for x := x1; x <= x2; x++ {
-		w.Rooms = append(w.Rooms, Room{X: x, Z: z1, W: 1, H: 1})
+		if w.BaseTileType(x, z1) == TileSolid {
+			w.Rooms = append(w.Rooms, Room{X: x, Z: z1, W: 1, H: 1})
+		}
 	}
 	if z1 > z2 {
 		z1, z2 = z2, z1
 	}
 	for z := z1; z <= z2; z++ {
-		w.Rooms = append(w.Rooms, Room{X: x2, Z: z, W: 1, H: 1})
+		if w.BaseTileType(x2, z) == TileSolid {
+			w.Rooms = append(w.Rooms, Room{X: x2, Z: z, W: 1, H: 1})
+		}
 	}
 }
 
