@@ -125,7 +125,7 @@ func drawLocal(
 				pos := gridToWorld(tx, tz)
 
 				halfTile := tileUnit * 0.5
-				revealed := chunk.Revealed[lz][lx]
+				_ = chunk.Revealed[lz][lx]
 
 				drawWall := func(wallPos rl.Vector3, rotation float32) {
 					wallPos.Y = floorSurfaceY
@@ -164,9 +164,9 @@ func drawLocal(
 					}
 
 			case TileFloor:
-					if !revealed {
-						continue
-					}
+					// if !revealed {
+					// 	continue
+					// }
 					fm := floorVariant(tx, tz)
 					rl.DrawModelEx(fm, pos, rl.Vector3{Y: 1}, 0, ones, rl.White)
 
@@ -189,9 +189,9 @@ func drawLocal(
 					}
 
 				case TileDoorway:
-					if !revealed {
-						continue
-					}
+					// if !revealed {
+					// 	continue
+					// }
 					fm := floorVariant(tx, tz)
 					rl.DrawModelEx(fm, pos, rl.Vector3{Y: 1}, 0, ones, rl.White)
 
@@ -317,9 +317,9 @@ func drawLocal(
 	// Combat UI
 	if game.Combat != nil {
 		c := game.Combat
-		// Initiative order — right side
+		// Initiative order — right side, below minimap
 		panelX := int32(screenWidth - 220)
-		panelY := int32(10)
+		panelY := int32(220)
 		panelW := int32(210)
 		panelH := int32(30 + int32(len(c.Combatants))*22)
 		rl.DrawRectangle(panelX, panelY, panelW, panelH, rl.Color{R: 20, G: 20, B: 30, A: 210})
@@ -436,5 +436,78 @@ func drawLocal(
 		rl.DrawText("[Space] Dismiss and focus", boxX+20, boxY+80, 16, rl.Gray)
 	}
 
-	rl.DrawFPS(screenWidth-90, 10)
+	// Minimap — top right, tile-level
+	{
+		mmSize := int32(200)
+		mmX := int32(screenWidth) - mmSize - 10
+		mmY := int32(10)
+		mmScale := int32(2) // pixels per tile
+		tilesVisible := int(mmSize / mmScale)
+		half := tilesVisible / 2
+
+		// Center on selected entity
+		cx, cz := 0, 0
+		if game.SelectedEnt >= 0 && game.SelectedEnt < len(entities) {
+			cx = entities[game.SelectedEnt].X
+			cz = entities[game.SelectedEnt].Z
+		}
+
+		// Background
+		rl.DrawRectangle(mmX-1, mmY-1, mmSize+2, mmSize+2, rl.Color{R: 10, G: 10, B: 15, A: 230})
+
+		for dz := 0; dz < tilesVisible; dz++ {
+			for dx := 0; dx < tilesVisible; dx++ {
+				tx := cx - half + dx
+				tz := cz - half + dz
+				t := world.TileTypeAt(tx, tz)
+
+				var col rl.Color
+				switch t {
+				case TileGround:
+					col = rl.Color{R: 50, G: 50, B: 40, A: 255}
+				case TileSolid:
+					col = rl.Color{R: 80, G: 80, B: 90, A: 255}
+				case TileFloor:
+					col = rl.Color{R: 140, G: 130, B: 110, A: 255}
+				case TileDoorway:
+					col = rl.Color{R: 120, G: 110, B: 90, A: 255}
+				case TileCore:
+					col = rl.Color{R: 20, G: 15, B: 30, A: 255}
+				default:
+					continue
+				}
+
+				px := mmX + int32(dx)*mmScale
+				py := mmY + int32(dz)*mmScale
+				rl.DrawRectangle(px, py, mmScale, mmScale, col)
+			}
+		}
+
+		// Threats
+		for _, threat := range world.Threats {
+			dx := threat.X - cx + half
+			dz := threat.Z - cz + half
+			if dx >= 0 && dx < tilesVisible && dz >= 0 && dz < tilesVisible {
+				px := mmX + int32(dx)*mmScale
+				py := mmY + int32(dz)*mmScale
+				rl.DrawRectangle(px, py, mmScale, mmScale, rl.Color{R: 255, G: 60, B: 60, A: 255})
+			}
+		}
+
+		// Entities
+		for _, ent := range entities {
+			dx := ent.X - cx + half
+			dz := ent.Z - cz + half
+			if dx >= 0 && dx < tilesVisible && dz >= 0 && dz < tilesVisible {
+				px := mmX + int32(dx)*mmScale
+				py := mmY + int32(dz)*mmScale
+				rl.DrawRectangle(px, py, mmScale, mmScale, rl.Color{R: 80, G: 255, B: 80, A: 255})
+			}
+		}
+
+		// Border
+		rl.DrawRectangleLines(mmX-1, mmY-1, mmSize+2, mmSize+2, rl.Color{R: 80, G: 80, B: 100, A: 255})
+	}
+
+	rl.DrawFPS(screenWidth-90, screenHeight-25)
 }
