@@ -273,14 +273,18 @@ Combat is the only mode change: threat encounter → initiative turns → back t
 **Continuous mode:**
 - Click entity to select, click ground to move-to
 - Tab to cycle selected entity
-- 1=Scout, 2=Stop (hotkeys for orders)
+- 1=Scout, 2=Stop, 3=Rest, 4=Follow (toggles all companions following selected)
 - Right-drag to orbit camera, scroll to zoom
+- Clicking TileCore gives feedback ("impenetrable")
 
 **Combat mode:**
 - Point-and-click movement (spending movement points per tile)
 - Click enemy to target attack (d20 + mod + prof vs AC)
 - Space to end turn
-- Initiative panel on screen (right side), active turn info (bottom center)
+- Range highlights: blue for reachable tiles (BFS flood fill), red for attack range when primed
+- Initiative panel on screen (below minimap), active turn info (bottom center)
+- Floating combat text: damage numbers, miss/crit/heal indicators float up and fade
+- All nearby allies (within 6 tiles) join combat automatically
 
 ## Decided: Threat Spawning
 
