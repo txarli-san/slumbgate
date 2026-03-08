@@ -311,14 +311,28 @@ func drawLocal(
 	if game.SelectedEnt >= 0 && game.SelectedEnt < len(game.Entities) {
 		ent := game.Entities[game.SelectedEnt]
 		panelX := int32(10)
-		panelY := int32(screenHeight - 130)
+		panelY := int32(screenHeight - 140)
 		panelW := int32(260)
-		panelH := int32(120)
+		panelH := int32(130)
 		rl.DrawRectangle(panelX, panelY, panelW, panelH, rl.Color{R: 20, G: 20, B: 30, A: 210})
 		rl.DrawRectangleLines(panelX, panelY, panelW, panelH, tierColor(ent.Tier))
 
 		rl.DrawText(fmt.Sprintf("%s  [%s]", ent.Name, tierName(ent.Tier)), panelX+10, panelY+8, 20, tierColor(ent.Tier))
-		rl.DrawText(fmt.Sprintf("Pos: (%d, %d)  Sight: %d", ent.X, ent.Z, ent.RevealDist), panelX+10, panelY+34, 14, rl.LightGray)
+		if ent.Stats != nil {
+			s := ent.Stats
+			rl.DrawText(fmt.Sprintf("Lv %d %s  HP %d/%d", s.Level, s.Class, s.HP, s.MaxHP),
+				panelX+10, panelY+34, 14, rl.LightGray)
+			nextXP := xpForLevel(s.Level + 1)
+			if nextXP > 0 {
+				rl.DrawText(fmt.Sprintf("XP: %d / %d", s.XP, nextXP),
+					panelX+10, panelY+52, 14, rl.Color{R: 255, G: 215, B: 0, A: 255})
+			} else {
+				rl.DrawText(fmt.Sprintf("XP: %d (MAX)", s.XP),
+					panelX+10, panelY+52, 14, rl.Color{R: 255, G: 215, B: 0, A: 255})
+			}
+		} else {
+			rl.DrawText(fmt.Sprintf("Pos: (%d, %d)  Sight: %d", ent.X, ent.Z, ent.RevealDist), panelX+10, panelY+34, 14, rl.LightGray)
+		}
 
 		taskStr := "Idle"
 		if ent.Task != nil {
@@ -333,10 +347,10 @@ func drawLocal(
 				}
 			}
 		}
-		rl.DrawText("Task: "+taskStr, panelX+10, panelY+54, 14, rl.White)
+		rl.DrawText("Task: "+taskStr, panelX+10, panelY+72, 14, rl.White)
 
-		rl.DrawText("[1] Scout [2] Stop [3] Rest [4] Follow", panelX+10, panelY+80, 14, rl.Gray)
-		rl.DrawText(fmt.Sprintf("< Tab (%d/%d) >", game.SelectedEnt+1, len(game.Entities)), panelX+10, panelY+98, 12, rl.DarkGray)
+		rl.DrawText("[1] Scout [2] Stop [3] Rest [4] Follow", panelX+10, panelY+92, 14, rl.Gray)
+		rl.DrawText(fmt.Sprintf("< Tab (%d/%d) >", game.SelectedEnt+1, len(game.Entities)), panelX+10, panelY+110, 12, rl.DarkGray)
 	}
 
 	// Combat UI

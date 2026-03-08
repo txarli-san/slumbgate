@@ -223,13 +223,14 @@ func main() {
 					mx, mz := room.X+room.W/2, room.Z+room.H/2
 					mx, mz, _ = nearestClearTile(g, w, mx, mz)
 					g.Entities = append(g.Entities, &Entity{
-						Name: "Elara", X: mx, Z: mz, Tier: TierSoldier, RevealDist: 5,
+						Name: "Elara", X: mx, Z: mz, Tier: TierRecruit, RevealDist: 5,
 						Scouted: map[[2]int]bool{},
 						Stats: &CombatStats{
-							HP: 18, MaxHP: 18, AC: 12,
+							HP: 7, MaxHP: 7, AC: 12,
 							STR: 8, DEX: 14, CON: 12, INT: 16, WIS: 14, CHA: 10,
-							Level: 3, ProfBonus: 2, MoveSpeed: 5, Class: "Mage", ClassCharges: 3, MaxClassCharges: 3,
-							HitDice: 3, MaxHitDice: 3, HitDieSize: 6,
+							Level: 1, ProfBonus: 2, MoveSpeed: 5, Class: "Mage",
+							ClassCharges: 2, MaxClassCharges: 2,
+							HitDice: 1, MaxHitDice: 1, HitDieSize: 6,
 						},
 					})
 					g.SetMessage("Elara the Mage freed! She joins your company!")
