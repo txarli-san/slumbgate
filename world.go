@@ -281,8 +281,10 @@ func (w *World) generateRooms() {
 }
 
 func (w *World) roomFitsInRing(r Room) bool {
-	for z := r.Z; z < r.Z+r.H; z++ {
-		for x := r.X; x < r.X+r.W; x++ {
+	// Check room tiles + 1-tile border are all solid.
+	// This guarantees a wall between carved rooms and the outside.
+	for z := r.Z - 1; z < r.Z+r.H+1; z++ {
+		for x := r.X - 1; x < r.X+r.W+1; x++ {
 			t := w.BaseTileType(x, z)
 			if t != TileSolid {
 				return false
@@ -292,7 +294,18 @@ func (w *World) roomFitsInRing(r Room) bool {
 	return true
 }
 
-// carveCorridor records corridor tiles as rooms of width 1, only within solid ring
+// solidWithBuffer returns true if the tile and all 4 cardinal neighbors are TileSolid.
+func (w *World) solidWithBuffer(x, z int) bool {
+	for _, d := range [5][2]int{{0, 0}, {1, 0}, {-1, 0}, {0, 1}, {0, -1}} {
+		if w.BaseTileType(x+d[0], z+d[1]) != TileSolid {
+			return false
+		}
+	}
+	return true
+}
+
+// carveCorridor records corridor tiles as rooms of width 1, only within solid ring.
+// Each tile must have a solid buffer to prevent breaching the outer boundary.
 func (w *World) carveCorridor(x1, z1, x2, z2 int) {
 	// L-shaped: horizontal then vertical
 	if x1 > x2 {
@@ -300,7 +313,7 @@ func (w *World) carveCorridor(x1, z1, x2, z2 int) {
 		z1, z2 = z2, z1
 	}
 	for x := x1; x <= x2; x++ {
-		if w.BaseTileType(x, z1) == TileSolid {
+		if w.solidWithBuffer(x, z1) {
 			w.Rooms = append(w.Rooms, Room{X: x, Z: z1, W: 1, H: 1})
 		}
 	}
@@ -308,7 +321,7 @@ func (w *World) carveCorridor(x1, z1, x2, z2 int) {
 		z1, z2 = z2, z1
 	}
 	for z := z1; z <= z2; z++ {
-		if w.BaseTileType(x2, z) == TileSolid {
+		if w.solidWithBuffer(x2, z) {
 			w.Rooms = append(w.Rooms, Room{X: x2, Z: z, W: 1, H: 1})
 		}
 	}
