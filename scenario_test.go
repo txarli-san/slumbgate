@@ -133,10 +133,17 @@ func runCombatToEnd(g *GameState, w *World, maxTurns int) bool {
 					}
 					path := FindPath(w, ent.X, ent.Z, threat.X, threat.Z)
 					if path != nil && len(path) > 1 {
-						// Move as close as possible without stepping on enemy
+						// Move as close as possible without stepping on enemy or other threats
 						steps := c.MoveLeft
 						if steps > len(path)-1 {
 							steps = len(path) - 1
+						}
+						for steps > 0 {
+							dest := path[steps-1]
+							if !w.IsThreatAt(dest[0], dest[1]) {
+								break
+							}
+							steps--
 						}
 						if steps > 0 {
 							dest := path[steps-1]
@@ -525,6 +532,7 @@ func TestScenario_MageRescue(t *testing.T) {
 			Fire: func(g *GameState, w *World, ctx EventContext) {
 				room := w.Rooms[ctx.RoomIdx]
 				mx, mz := room.X+room.W/2, room.Z+room.H/2
+				mx, mz, _ = nearestClearTile(g, w, mx, mz)
 				g.Entities = append(g.Entities, &Entity{
 					Name: "Elara", X: mx, Z: mz, Tier: TierSoldier, RevealDist: 5,
 					Scouted: map[[2]int]bool{},

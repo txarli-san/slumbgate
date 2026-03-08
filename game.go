@@ -550,6 +550,41 @@ func adjacent(ax, az, bx, bz int) bool {
 	return dx <= 1 && dz <= 1 && (dx+dz) > 0
 }
 
+// nearestClearTile spirals out from (tx,tz) to find the closest walkable tile
+// with no threat and no entity.
+func nearestClearTile(g *GameState, w *World, tx, tz int) (int, int, bool) {
+	check := func(x, z int) bool {
+		if !w.IsWalkable(x, z) {
+			return false
+		}
+		if w.IsThreatAt(x, z) {
+			return false
+		}
+		for _, ent := range g.Entities {
+			if ent.X == x && ent.Z == z {
+				return false
+			}
+		}
+		return true
+	}
+	if check(tx, tz) {
+		return tx, tz, true
+	}
+	for r := 1; r <= 8; r++ {
+		for dx := -r; dx <= r; dx++ {
+			for dz := -r; dz <= r; dz++ {
+				if abs(dx) != r && abs(dz) != r {
+					continue
+				}
+				if check(tx+dx, tz+dz) {
+					return tx + dx, tz + dz, true
+				}
+			}
+		}
+	}
+	return 0, 0, false
+}
+
 // nearestWalkable spirals out from (tx,tz) to find the closest walkable tile.
 func nearestWalkable(w *World, tx, tz int) (int, int, bool) {
 	if w.IsWalkable(tx, tz) {

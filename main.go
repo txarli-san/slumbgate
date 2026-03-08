@@ -219,6 +219,7 @@ func main() {
 				Fire: func(g *GameState, w *World, ctx EventContext) {
 					room := w.Rooms[ctx.RoomIdx]
 					mx, mz := room.X+room.W/2, room.Z+room.H/2
+					mx, mz, _ = nearestClearTile(g, w, mx, mz)
 					g.Entities = append(g.Entities, &Entity{
 						Name: "Elara", X: mx, Z: mz, Tier: TierSoldier, RevealDist: 5,
 						Scouted: map[[2]int]bool{},
