@@ -125,7 +125,7 @@ func drawLocal(
 				pos := gridToWorld(tx, tz)
 
 				halfTile := tileUnit * 0.5
-				_ = chunk.Revealed[lz][lx]
+				revealed := chunk.Revealed[lz][lx] || game.Debug
 
 				drawWall := func(wallPos rl.Vector3, rotation float32) {
 					wallPos.Y = floorSurfaceY
@@ -145,7 +145,7 @@ func drawLocal(
 							return true
 						}
 						// Show wall toward revealed floor
-						if n == TileFloor && world.IsRevealed(nx, nz) {
+						if n == TileFloor && (world.IsRevealed(nx, nz) || game.Debug) {
 							return true
 						}
 						return false
@@ -164,9 +164,9 @@ func drawLocal(
 					}
 
 			case TileFloor:
-					// if !revealed {
-					// 	continue
-					// }
+					if !revealed {
+						continue
+					}
 					fm := floorVariant(tx, tz)
 					rl.DrawModelEx(fm, pos, rl.Vector3{Y: 1}, 0, ones, rl.White)
 
@@ -189,9 +189,9 @@ func drawLocal(
 					}
 
 				case TileDoorway:
-					// if !revealed {
-					// 	continue
-					// }
+					if !revealed {
+						continue
+					}
 					fm := floorVariant(tx, tz)
 					rl.DrawModelEx(fm, pos, rl.Vector3{Y: 1}, 0, ones, rl.White)
 
@@ -280,7 +280,7 @@ func drawLocal(
 
 	// Threats (skeleton models)
 	for _, threat := range world.Threats {
-		if world.IsRevealed(threat.X, threat.Z) {
+		if world.IsRevealed(threat.X, threat.Z) || game.Debug {
 			tPos := gridToWorld(threat.X, threat.Z)
 			tPos.Y = knightYOffset
 			if model, ok := skeletonModels[threat.Type]; ok {
@@ -302,6 +302,9 @@ func drawLocal(
 	}
 	if game.MessageTimer > 0 {
 		rl.DrawText(game.Message, 10, 60, 20, rl.Color{R: 255, G: 220, B: 100, A: 255})
+	}
+	if game.Debug {
+		rl.DrawText("DEBUG", 10, 85, 20, rl.Color{R: 255, G: 100, B: 255, A: 255})
 	}
 
 	// Entity panel — bottom left
@@ -482,16 +485,27 @@ func drawLocal(
 				tx := cx - half + dx
 				tz := cz - half + dz
 				t := world.TileTypeAt(tx, tz)
+				vis := world.IsRevealed(tx, tz) || game.Debug
 
 				var col rl.Color
 				switch t {
 				case TileGround:
 					col = rl.Color{R: 50, G: 50, B: 40, A: 255}
 				case TileSolid:
-					col = rl.Color{R: 80, G: 80, B: 90, A: 255}
+					if !vis {
+						col = rl.Color{R: 30, G: 30, B: 35, A: 255}
+					} else {
+						col = rl.Color{R: 80, G: 80, B: 90, A: 255}
+					}
 				case TileFloor:
+					if !vis {
+						continue
+					}
 					col = rl.Color{R: 140, G: 130, B: 110, A: 255}
 				case TileDoorway:
+					if !vis {
+						continue
+					}
 					col = rl.Color{R: 120, G: 110, B: 90, A: 255}
 				case TileCore:
 					col = rl.Color{R: 20, G: 15, B: 30, A: 255}
@@ -507,6 +521,9 @@ func drawLocal(
 
 		// Threats
 		for _, threat := range world.Threats {
+			if !world.IsRevealed(threat.X, threat.Z) && !game.Debug {
+				continue
+			}
 			dx := threat.X - cx + half
 			dz := threat.Z - cz + half
 			if dx >= 0 && dx < tilesVisible && dz >= 0 && dz < tilesVisible {

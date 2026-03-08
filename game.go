@@ -134,6 +134,7 @@ type GameState struct {
 	Floats      []FloatingText
 	MoveRange   map[[2]int]bool
 	AttackRange map[[2]int]bool
+	Debug       bool
 }
 
 func (g *GameState) AddFloat(text string, wx, wz int, r, gr, b uint8, size int32) {

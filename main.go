@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"math"
 	"time"
@@ -14,6 +15,9 @@ const (
 )
 
 func main() {
+	debugMode := flag.Bool("debug", false, "enable debug mode (no fog of war)")
+	flag.Parse()
+
 	rl.InitWindow(screenWidth, screenHeight, "Slumbgate - Infinite Dungeon")
 	defer rl.CloseWindow()
 	rl.SetTargetFPS(60)
@@ -116,7 +120,7 @@ func main() {
 	world := NewWorld(seed)
 	spawnX := OuterRadius + DungeonWarpAmp + 5
 	world.PlacePickaxe(spawnX, 0)
-	game := &GameState{SelectedEnt: 0}
+	game := &GameState{SelectedEnt: 0, Debug: *debugMode}
 
 	// Spawn company
 	game.Entities = []*Entity{
