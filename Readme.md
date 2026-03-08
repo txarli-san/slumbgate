@@ -56,3 +56,24 @@ go run .
 
 - Environment: [KayKit Dungeon Pack](https://kaylousberg.itch.io/kaykit-dungeon)
 - Enemies: [KayKit Skeletons](https://kaylousberg.itch.io/kaykit-skeletons)
+
+## Legal — Third-Party Content
+
+### Dungeons & Dragons SRD 5.1
+
+This work includes material taken from the System Reference Document 5.1
+("SRD 5.1") by Wizards of the Coast LLC and available at
+https://dnd.wizards.com/resources/systems-reference-document. The SRD 5.1 is
+licensed under the Creative Commons Attribution 4.0 International License
+available at https://creativecommons.org/licenses/by/4.0/legalcode.
+
+A copy of the SRD 5.1 is included in [`docs/SRD_CC_v5.1.pdf`](docs/SRD_CC_v5.1.pdf)
+for reference.
+
+Slumbgate uses game mechanics from the SRD including but not limited to:
+ability scores, combat rules, hit dice, spell slots, rest mechanics, and
+creature stat blocks. All such content is used under the CC-BY-4.0 license.
+
+Dungeons & Dragons, D&D, and the dragon ampersand are registered trademarks
+of Wizards of the Coast LLC. This project is not affiliated with, endorsed,
+sponsored, or specifically approved by Wizards of the Coast LLC.
