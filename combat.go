@@ -200,6 +200,30 @@ func BuildActions(g *GameState, ent *Entity) []*CombatAction {
 				Execute: executeActionSurge,
 			},
 		)
+
+	case "Mage":
+		actions = append(actions,
+			&CombatAction{
+				ID: "fire_bolt", Name: "Fire Bolt", Cost: CostStandard,
+				Target: TargetEnemyRange, Range: 7, Hotkey: "1",
+				CanUse: func(g *GameState, e *Entity) bool { return !g.Combat.ActionUsed },
+				Execute: executeFireBolt,
+			},
+			&CombatAction{
+				ID: "magic_missile", Name: "Magic Missile", Cost: CostStandard,
+				Target: TargetEnemyRange, Range: 7, Hotkey: "2",
+				CanUse: func(g *GameState, e *Entity) bool {
+					return !g.Combat.ActionUsed && e.Stats.ClassCharges > 0
+				},
+				Execute: executeMagicMissile,
+			},
+			&CombatAction{
+				ID: "dash", Name: "Dash", Cost: CostStandard,
+				Target: TargetSelf, Hotkey: "3",
+				CanUse: func(g *GameState, e *Entity) bool { return !g.Combat.ActionUsed },
+				Execute: executeDash,
+			},
+		)
 	}
 
 	// End turn is always available
@@ -378,6 +402,98 @@ func executeShove(g *GameState, w *World, ent *Entity, tx, tz int) {
 
 	ent.FacingAngle = FacingAngleFromDir(tx-ent.X, tz-ent.Z)
 	g.Combat.ActionUsed = true
+}
+
+func executeFireBolt(g *GameState, w *World, ent *Entity, tx, tz int) {
+	stats := ent.Stats
+	threat, ok := w.GetThreat(tx, tz)
+	if !ok || stats == nil {
+		return
+	}
+
+	ent.FacingAngle = FacingAngleFromDir(tx-ent.X, tz-ent.Z)
+
+	roll := rollD20()
+	atkMod := stats.Mod(stats.INT)
+	total := roll + atkMod + stats.ProfBonus
+
+	if roll == 1 {
+		g.SetMessage(fmt.Sprintf("%s casts Fire Bolt — nat 1! Miss!", ent.Name))
+		g.AddFloat("NAT 1!", tx, tz, 180, 180, 180, 20)
+		g.Combat.ActionUsed = true
+		return
+	}
+
+	if roll < 20 && total < threat.AC {
+		g.SetMessage(fmt.Sprintf("%s casts Fire Bolt (%d+%d=%d vs AC %d) — miss!",
+			ent.Name, roll, atkMod+stats.ProfBonus, total, threat.AC))
+		g.AddFloat(fmt.Sprintf("MISS (%d)", total), tx, tz, 180, 180, 180, 18)
+		g.Combat.ActionUsed = true
+		return
+	}
+
+	damageDice := rollDice(10)
+	if roll == 20 {
+		damageDice += rollDice(10)
+	}
+	damage := damageDice + atkMod
+
+	threat.HP -= damage
+	w.Threats[[2]int{tx, tz}] = threat
+
+	if roll == 20 {
+		g.SetMessage(fmt.Sprintf("%s Fire Bolt CRITS! %d damage!", ent.Name, damage))
+		g.AddFloat(fmt.Sprintf("CRIT! -%d", damage), tx, tz, 255, 140, 20, 24)
+	} else {
+		g.SetMessage(fmt.Sprintf("%s Fire Bolt hits (%d+%d=%d vs AC %d) %d damage",
+			ent.Name, roll, atkMod+stats.ProfBonus, total, threat.AC, damage))
+		g.AddFloat(fmt.Sprintf("-%d", damage), tx, tz, 255, 140, 20, 20)
+	}
+
+	if threat.HP <= 0 {
+		w.RemoveThreat(tx, tz)
+		g.removeCombatant(w, tx, tz)
+		g.SetMessage(fmt.Sprintf("%s incinerates the skeleton! (%d damage)", ent.Name, damage))
+		g.AddFloat("SLAIN", tx, tz, 255, 60, 60, 22)
+	}
+
+	if g.Combat != nil {
+		g.Combat.ActionUsed = true
+	}
+}
+
+func executeMagicMissile(g *GameState, w *World, ent *Entity, tx, tz int) {
+	stats := ent.Stats
+	threat, ok := w.GetThreat(tx, tz)
+	if !ok || stats == nil {
+		return
+	}
+
+	ent.FacingAngle = FacingAngleFromDir(tx-ent.X, tz-ent.Z)
+	stats.ClassCharges--
+
+	// 3 bolts, each 1d4+1, auto-hit
+	damage := 0
+	for range 3 {
+		damage += rollDice(4) + 1
+	}
+
+	threat.HP -= damage
+	w.Threats[[2]int{tx, tz}] = threat
+
+	g.SetMessage(fmt.Sprintf("%s casts Magic Missile! 3 bolts for %d damage!", ent.Name, damage))
+	g.AddFloat(fmt.Sprintf("-%d", damage), tx, tz, 150, 120, 255, 22)
+
+	if threat.HP <= 0 {
+		w.RemoveThreat(tx, tz)
+		g.removeCombatant(w, tx, tz)
+		g.SetMessage(fmt.Sprintf("%s obliterates the skeleton! (%d damage)", ent.Name, damage))
+		g.AddFloat("SLAIN", tx, tz, 255, 60, 60, 22)
+	}
+
+	if g.Combat != nil {
+		g.Combat.ActionUsed = true
+	}
 }
 
 func executeActionSurge(g *GameState, w *World, ent *Entity, _, _ int) {
