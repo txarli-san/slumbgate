@@ -493,10 +493,9 @@ func drawLocal(
 					col = rl.Color{R: 50, G: 50, B: 40, A: 255}
 				case TileSolid:
 					if !vis {
-						col = rl.Color{R: 30, G: 30, B: 35, A: 255}
-					} else {
-						col = rl.Color{R: 80, G: 80, B: 90, A: 255}
+						continue
 					}
+					col = rl.Color{R: 80, G: 80, B: 90, A: 255}
 				case TileFloor:
 					if !vis {
 						continue
