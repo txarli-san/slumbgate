@@ -202,6 +202,20 @@ func drawLocal(
 		}
 	}
 
+	// Range highlights
+	for tile := range game.MoveRange {
+		pos := gridToWorld(tile[0], tile[1])
+		pos.Y = floorSurfaceY + 0.03
+		rl.DrawCubeV(pos, rl.Vector3{X: tileUnit * 0.9, Y: 0.04, Z: tileUnit * 0.9},
+			rl.Color{R: 40, G: 180, B: 255, A: 50})
+	}
+	for tile := range game.AttackRange {
+		pos := gridToWorld(tile[0], tile[1])
+		pos.Y = floorSurfaceY + 0.03
+		rl.DrawCubeV(pos, rl.Vector3{X: tileUnit * 0.9, Y: 0.04, Z: tileUnit * 0.9},
+			rl.Color{R: 255, G: 60, B: 60, A: 50})
+	}
+
 	// Pickaxe on ground with glow
 	if !game.HasPickaxe {
 		pickPos := gridToWorld(world.PickaxeX, world.PickaxeZ)

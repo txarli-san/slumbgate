@@ -130,6 +130,8 @@ type GameState struct {
 	Combat      *Combat // nil = continuous mode
 	Events      []*Event
 	Floats      []FloatingText
+	MoveRange   map[[2]int]bool
+	AttackRange map[[2]int]bool
 }
 
 func (g *GameState) AddFloat(text string, wx, wz int, r, gr, b uint8, size int32) {
@@ -149,6 +151,49 @@ func (g *GameState) TickFloats(dt float32) {
 		}
 	}
 	g.Floats = alive
+}
+
+func (g *GameState) ComputeMoveRange(w *World, ox, oz, maxSteps int) {
+	g.MoveRange = map[[2]int]bool{}
+	type node struct{ x, z, steps int }
+	queue := []node{{ox, oz, 0}}
+	visited := map[[2]int]bool{{ox, oz}: true}
+	dirs := [4][2]int{{0, -1}, {0, 1}, {-1, 0}, {1, 0}}
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		if cur.steps > 0 {
+			g.MoveRange[[2]int{cur.x, cur.z}] = true
+		}
+		if cur.steps >= maxSteps {
+			continue
+		}
+		for _, d := range dirs {
+			nx, nz := cur.x+d[0], cur.z+d[1]
+			key := [2]int{nx, nz}
+			if visited[key] || !w.IsWalkable(nx, nz) || w.IsThreatAt(nx, nz) {
+				continue
+			}
+			visited[key] = true
+			queue = append(queue, node{nx, nz, cur.steps + 1})
+		}
+	}
+}
+
+func (g *GameState) ComputeAttackRange(ox, oz, r int) {
+	g.AttackRange = map[[2]int]bool{}
+	for dz := -r; dz <= r; dz++ {
+		for dx := -r; dx <= r; dx++ {
+			if dx*dx+dz*dz <= r*r && (dx != 0 || dz != 0) {
+				g.AttackRange[[2]int{ox + dx, oz + dz}] = true
+			}
+		}
+	}
+}
+
+func (g *GameState) ClearHighlights() {
+	g.MoveRange = nil
+	g.AttackRange = nil
 }
 
 func (g *GameState) SetMessage(msg string) {

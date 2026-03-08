@@ -70,15 +70,18 @@ func (c *Combat) NextTurn(g *GameState, w *World) {
 	// Set move points for new combatant
 	next := c.Current()
 	if !next.IsEnemy {
-		if s := g.Entities[next.EntityIdx].Stats; s != nil {
+		ent := g.Entities[next.EntityIdx]
+		if s := ent.Stats; s != nil {
 			c.MoveLeft = s.MoveSpeed
 		}
-		c.Actions = BuildActions(g, g.Entities[next.EntityIdx])
+		c.Actions = BuildActions(g, ent)
+		g.ComputeMoveRange(w, ent.X, ent.Z, c.MoveLeft)
 	} else {
 		if t, ok := w.Threats[next.ThreatKey]; ok {
 			c.MoveLeft = t.MoveSpeed
 		}
 		c.Actions = nil
+		g.ClearHighlights()
 	}
 }
 
@@ -152,6 +155,11 @@ func (g *GameState) StartCombat(w *World, entityIdx int, roomIdx int) {
 	}
 	g.SelectedEnt = entityIdx
 	g.SetMessage("Combat started! Roll initiative!")
+
+	if !first.IsEnemy {
+		e := g.Entities[first.EntityIdx]
+		g.ComputeMoveRange(w, e.X, e.Z, moveLeft)
+	}
 }
 
 // BuildActions returns the available combat actions for an entity based on class.
@@ -257,6 +265,7 @@ func (g *GameState) TryExecuteAction(w *World, action *CombatAction) {
 	case TargetEnemyAdjacent, TargetEnemyRange:
 		c.PrimedAction = action
 		g.SetMessage("Select target for " + action.Name)
+		g.ComputeAttackRange(ent.X, ent.Z, action.Range)
 	}
 }
 
@@ -526,6 +535,7 @@ func (g *GameState) removeCombatant(w *World, tx, tz int) {
 	if !anyEnemy {
 		roomIdx := c.RoomIdx
 		g.Combat = nil
+		g.ClearHighlights()
 		g.SetMessage("Combat ended — victory!")
 		g.FireEvents(TriggerRoomCleared, w, EventContext{RoomIdx: roomIdx})
 	}
@@ -645,6 +655,7 @@ func (g *GameState) leashCombatant(w *World) {
 	c.Combatants = append(c.Combatants[:idx], c.Combatants[idx+1:]...)
 	if len(c.Combatants) == 0 {
 		g.Combat = nil
+		g.ClearHighlights()
 		g.SetMessage("Enemies lost interest.")
 		return
 	}
@@ -661,6 +672,7 @@ func (g *GameState) leashCombatant(w *World) {
 	}
 	if !anyEnemy {
 		g.Combat = nil
+		g.ClearHighlights()
 		g.SetMessage("Enemies lost interest.")
 	} else {
 		// Set up the next combatant's turn

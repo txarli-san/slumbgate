@@ -380,8 +380,13 @@ func main() {
 						// Execute primed action on target
 						if world.IsThreatAt(gx, gz) {
 							game.ExecutePrimedOnTarget(world, gx, gz)
+							if game.Combat != nil {
+								ent2 := game.Entities[game.Combat.Current().EntityIdx]
+								game.ComputeMoveRange(world, ent2.X, ent2.Z, game.Combat.MoveLeft)
+							}
 						} else {
 							c.PrimedAction = nil
+							game.ComputeMoveRange(world, ent.X, ent.Z, c.MoveLeft)
 							game.SetMessage("No valid target there.")
 						}
 					} else if world.IsWalkable(gx, gz) && !world.IsThreatAt(gx, gz) && c.MoveLeft > 0 {
@@ -399,6 +404,7 @@ func main() {
 							ent.X, ent.Z = last[0], last[1]
 							ent.StepProgress = 0
 							ent.Moving = true
+							game.ComputeMoveRange(world, ent.X, ent.Z, c.MoveLeft)
 						} else if path != nil {
 							game.SetMessage("Too far! Need more movement.")
 						}
@@ -410,6 +416,8 @@ func main() {
 			if !cur.IsEnemy && rl.IsMouseButtonPressed(rl.MouseButtonRight) && c.PrimedAction != nil {
 				c.PrimedAction = nil
 				game.SetMessage("Action cancelled.")
+				ent := game.Entities[cur.EntityIdx]
+				game.ComputeMoveRange(world, ent.X, ent.Z, c.MoveLeft)
 			}
 		}
 
