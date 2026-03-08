@@ -640,6 +640,8 @@ func (g *GameState) RunEnemyTurn(w *World) {
 
 	if attacked {
 		cur.PursuitLeft = 3
+	} else if !w.HasLineOfSight(threat.X, threat.Z, target.X, target.Z) {
+		cur.PursuitLeft -= 2 // lose interest fast without LOS
 	} else {
 		cur.PursuitLeft--
 	}
