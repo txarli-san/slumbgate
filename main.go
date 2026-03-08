@@ -115,83 +115,12 @@ func main() {
 		return floorModel
 	}
 
-	// World
-	seed := time.Now().UnixNano()
-	world := NewWorld(seed)
-	spawnX := OuterRadius + DungeonWarpAmp + 5
-	world.PlacePickaxe(spawnX, 0)
-	game := &GameState{SelectedEnt: 0, Debug: *debugMode}
-
-	// Spawn company
-	game.Entities = []*Entity{
-		{Name: "Brynn", X: spawnX, Z: 0, Tier: TierVeteran, RevealDist: 8, Scouted: map[[2]int]bool{},
-			Stats: &CombatStats{
-				HP: 28, MaxHP: 28, AC: 16,
-				STR: 16, DEX: 12, CON: 14, INT: 10, WIS: 12, CHA: 10,
-				Level: 3, ProfBonus: 2, MoveSpeed: 5, Class: "Fighter", ClassCharges: 2,
-			}},
-	}
-	for _, ent := range game.Entities {
-		cx, cz := TileToChunk(ent.X, ent.Z)
-		world.EnsureChunksAround(cx, cz)
-		world.RevealAround(ent.X, ent.Z)
-	}
-
-	// Events
-	mageRescueRoom := -1
-	game.Events = []*Event{
-		{
-			ID: "mage_rescue_enter", Trigger: TriggerRoomEntered, OneShot: true,
-			Check: func(g *GameState, w *World, ctx EventContext) bool {
-				return mageRescueRoom < 0 // first room entered
-			},
-			Fire: func(g *GameState, w *World, ctx EventContext) {
-				mageRescueRoom = ctx.RoomIdx
-				// Replace whatever threats with 2 weak minions near the entity
-				for key, t := range w.Threats {
-					if t.RoomIdx == ctx.RoomIdx {
-						delete(w.Threats, key)
-					}
-				}
-				ent := g.Entities[ctx.EntityIdx]
-				offsets := [2][2]int{{1, 0}, {0, 1}}
-				for _, off := range offsets {
-					tx, tz := ent.X+off[0], ent.Z+off[1]
-					// Find nearest walkable spot if this one isn't
-					fx, fz, ok := nearestWalkable(w, tx, tz)
-					if !ok {
-						continue
-					}
-					key := [2]int{fx, fz}
-					w.Threats[key] = Threat{
-						X: fx, Z: fz, Type: SkeletonMinion, RoomIdx: ctx.RoomIdx,
-						HP: 8, MaxHP: 8, AC: 11, STR: 10, DEX: 12,
-						MoveSpeed: 4, AttackDice: 4, MaxRange: 1,
-					}
-				}
-			},
-		},
-		{
-			ID: "mage_rescue_clear", Trigger: TriggerRoomCleared, OneShot: true,
-			Check: func(g *GameState, w *World, ctx EventContext) bool {
-				return mageRescueRoom >= 0 && ctx.RoomIdx == mageRescueRoom
-			},
-			Fire: func(g *GameState, w *World, ctx EventContext) {
-				room := w.Rooms[ctx.RoomIdx]
-				mx, mz := room.X+room.W/2, room.Z+room.H/2
-				g.Entities = append(g.Entities, &Entity{
-					Name: "Elara", X: mx, Z: mz, Tier: TierSoldier, RevealDist: 5,
-					Scouted: map[[2]int]bool{},
-					Stats: &CombatStats{
-						HP: 18, MaxHP: 18, AC: 12,
-						STR: 8, DEX: 14, CON: 12, INT: 16, WIS: 14, CHA: 10,
-						Level: 3, ProfBonus: 2, MoveSpeed: 5, Class: "Mage", ClassCharges: 3,
-					},
-				})
-				g.SetMessage("Elara the Mage freed! She joins your company!")
-			},
-		},
-	}
+	// World + game state (initialized by initGame, can be reset on game over)
+	var seed int64
+	var world *World
+	var spawnX int
+	var game *GameState
+	var mageRescueRoom int
 
 	// Camera state — local
 	orbitAngle := float32(math.Pi / 4)
@@ -232,10 +161,107 @@ func main() {
 		return ray.Position.X + ray.Direction.X*t, ray.Position.Z + ray.Direction.Z*t, true
 	}
 
-	fmt.Printf("World seed: %d | Chunk size: %d\n", seed, ChunkSize)
+	initGame := func() {
+		seed = time.Now().UnixNano()
+		world = NewWorld(seed)
+		spawnX = OuterRadius + DungeonWarpAmp + 5
+		world.PlacePickaxe(spawnX, 0)
+		game = &GameState{SelectedEnt: 0, Debug: *debugMode}
+		game.Entities = []*Entity{
+			{Name: "Brynn", X: spawnX, Z: 0, Tier: TierVeteran, RevealDist: 8, Scouted: map[[2]int]bool{},
+				Stats: &CombatStats{
+					HP: 28, MaxHP: 28, AC: 16,
+					STR: 16, DEX: 12, CON: 14, INT: 10, WIS: 12, CHA: 10,
+					Level: 3, ProfBonus: 2, MoveSpeed: 5, Class: "Fighter", ClassCharges: 2,
+				}},
+		}
+		for _, ent := range game.Entities {
+			cx, cz := TileToChunk(ent.X, ent.Z)
+			world.EnsureChunksAround(cx, cz)
+			world.RevealAround(ent.X, ent.Z)
+		}
+		mageRescueRoom = -1
+		game.Events = []*Event{
+			{
+				ID: "mage_rescue_enter", Trigger: TriggerRoomEntered, OneShot: true,
+				Check: func(g *GameState, w *World, ctx EventContext) bool {
+					return mageRescueRoom < 0
+				},
+				Fire: func(g *GameState, w *World, ctx EventContext) {
+					mageRescueRoom = ctx.RoomIdx
+					for key, t := range w.Threats {
+						if t.RoomIdx == ctx.RoomIdx {
+							delete(w.Threats, key)
+						}
+					}
+					ent := g.Entities[ctx.EntityIdx]
+					offsets := [2][2]int{{1, 0}, {0, 1}}
+					for _, off := range offsets {
+						tx, tz := ent.X+off[0], ent.Z+off[1]
+						fx, fz, ok := nearestWalkable(w, tx, tz)
+						if !ok {
+							continue
+						}
+						key := [2]int{fx, fz}
+						w.Threats[key] = Threat{
+							X: fx, Z: fz, Type: SkeletonMinion, RoomIdx: ctx.RoomIdx,
+							HP: 8, MaxHP: 8, AC: 11, STR: 10, DEX: 12,
+							MoveSpeed: 4, AttackDice: 4, MaxRange: 1,
+						}
+					}
+				},
+			},
+			{
+				ID: "mage_rescue_clear", Trigger: TriggerRoomCleared, OneShot: true,
+				Check: func(g *GameState, w *World, ctx EventContext) bool {
+					return mageRescueRoom >= 0 && ctx.RoomIdx == mageRescueRoom
+				},
+				Fire: func(g *GameState, w *World, ctx EventContext) {
+					room := w.Rooms[ctx.RoomIdx]
+					mx, mz := room.X+room.W/2, room.Z+room.H/2
+					g.Entities = append(g.Entities, &Entity{
+						Name: "Elara", X: mx, Z: mz, Tier: TierSoldier, RevealDist: 5,
+						Scouted: map[[2]int]bool{},
+						Stats: &CombatStats{
+							HP: 18, MaxHP: 18, AC: 12,
+							STR: 8, DEX: 14, CON: 12, INT: 16, WIS: 14, CHA: 10,
+							Level: 3, ProfBonus: 2, MoveSpeed: 5, Class: "Mage", ClassCharges: 3,
+						},
+					})
+					g.SetMessage("Elara the Mage freed! She joins your company!")
+				},
+			},
+		}
+		fmt.Printf("World seed: %d | New expedition\n", seed)
+	}
+	initGame()
 
 	for !rl.WindowShouldClose() {
 		dt := rl.GetFrameTime()
+
+		// Game over — Space to restart
+		if game.GameOver {
+			if rl.IsKeyPressed(rl.KeySpace) {
+				initGame()
+			}
+			// Still render the scene + overlay
+			game.TickFloats(dt)
+			camera.Target = rl.Vector3{X: camTargetX, Z: camTargetZ}
+			camera.Position = rl.Vector3{
+				X: camTargetX + orbitRadius*float32(math.Cos(float64(orbitAngle))),
+				Y: localHeight,
+				Z: camTargetZ + orbitRadius*float32(math.Sin(float64(orbitAngle))),
+			}
+			viewPos := []float32{camera.Position.X, camera.Position.Y, camera.Position.Z}
+			rl.SetShaderValue(shader, locViewPos, viewPos, rl.ShaderUniformVec3)
+			rl.BeginDrawing()
+			rl.ClearBackground(rl.Color{R: 10, G: 10, B: 15, A: 255})
+			drawLocal(camera, world, game, tileUnit, floorSurfaceY, knightYOffset, charScale, wallScale,
+				floorVariant, gridToWorld,
+				knightModel, wallModel, pickaxeModel, skeletonModels, game.Entities, game.SelectedEnt)
+			rl.EndDrawing()
+			continue
+		}
 
 		// Tab to cycle selected entity
 		if game.Alert == nil && rl.IsKeyPressed(rl.KeyTab) {

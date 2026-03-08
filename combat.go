@@ -569,17 +569,24 @@ func (g *GameState) RunEnemyTurn(w *World) {
 		return
 	}
 
-	// Find nearest ally
+	// Find nearest alive ally in combat
 	bestDist := 9999
 	bestIdx := -1
-	for i, ent := range g.Entities {
+	for _, cb := range c.Combatants {
+		if cb.IsEnemy {
+			continue
+		}
+		if cb.EntityIdx >= len(g.Entities) {
+			continue
+		}
+		ent := g.Entities[cb.EntityIdx]
 		if ent.Stats == nil || ent.Stats.HP <= 0 {
 			continue
 		}
 		d := abs(threat.X-ent.X) + abs(threat.Z-ent.Z)
 		if d < bestDist {
 			bestDist = d
-			bestIdx = i
+			bestIdx = cb.EntityIdx
 		}
 	}
 	if bestIdx < 0 {
@@ -594,6 +601,9 @@ func (g *GameState) RunEnemyTurn(w *World) {
 		threat.MaxRange > 1 && withinRange(threat.X, threat.Z, target.X, target.Z, threat.MaxRange)
 	if inRange {
 		g.ResolveEnemyAttack(w, threat, target)
+		if g.GameOver || g.Combat == nil {
+			return
+		}
 		cur.PursuitLeft = 3
 		c.NextTurn(g, w)
 		return
@@ -636,6 +646,10 @@ func (g *GameState) RunEnemyTurn(w *World) {
 			g.ResolveEnemyAttack(w, threat, target)
 			attacked = true
 		}
+	}
+
+	if g.GameOver || g.Combat == nil {
+		return
 	}
 
 	if attacked {
@@ -735,6 +749,17 @@ func (g *GameState) ResolveEnemyAttack(w *World, threat Threat, target *Entity) 
 		g.SetMessage(fmt.Sprintf("Skeleton hits %s for %d damage (HP: %d/%d)",
 			target.Name, damage, target.Stats.HP, target.Stats.MaxHP))
 		g.AddFloat(fmt.Sprintf("-%d", damage), target.X, target.Z, 255, 80, 80, 20)
+	}
+
+	// Entity death
+	if target.Stats.HP <= 0 {
+		// Find entity index
+		for i, ent := range g.Entities {
+			if ent == target {
+				g.KillEntity(w, i)
+				break
+			}
+		}
 	}
 }
 

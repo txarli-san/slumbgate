@@ -135,6 +135,7 @@ type GameState struct {
 	MoveRange   map[[2]int]bool
 	AttackRange map[[2]int]bool
 	Debug       bool
+	GameOver    bool // true when all entities are dead
 }
 
 func (g *GameState) AddFloat(text string, wx, wz int, r, gr, b uint8, size int32) {
@@ -453,6 +454,82 @@ func (g *GameState) TryRest(w *World, entIdx int) {
 
 	// Advance clock for rest
 	g.TimeTicks += 10
+}
+
+// KillEntity removes a dead entity from the roster and fixes all references.
+// Returns true if the company is wiped (game over).
+func (g *GameState) KillEntity(w *World, deadIdx int) bool {
+	ent := g.Entities[deadIdx]
+	g.AddFloat("FALLEN", ent.X, ent.Z, 255, 40, 40, 24)
+	g.SetMessage(fmt.Sprintf("%s has fallen!", ent.Name))
+
+	// Remove from combat initiative if active
+	if g.Combat != nil {
+		for i := len(g.Combat.Combatants) - 1; i >= 0; i-- {
+			cb := &g.Combat.Combatants[i]
+			if !cb.IsEnemy && cb.EntityIdx == deadIdx {
+				g.Combat.Combatants = append(g.Combat.Combatants[:i], g.Combat.Combatants[i+1:]...)
+				if g.Combat.TurnIndex >= len(g.Combat.Combatants) {
+					g.Combat.TurnIndex = 0
+				}
+				break
+			}
+		}
+		// Fix EntityIdx references in remaining combatants (indices shifted)
+		for i := range g.Combat.Combatants {
+			cb := &g.Combat.Combatants[i]
+			if !cb.IsEnemy && cb.EntityIdx > deadIdx {
+				cb.EntityIdx--
+			}
+		}
+	}
+
+	// Stop anyone following the dead entity
+	for _, other := range g.Entities {
+		if other.Task != nil && other.Task.Type == TaskFollow {
+			if other.Task.FollowIdx == deadIdx {
+				other.Task = nil
+			} else if other.Task.FollowIdx > deadIdx {
+				other.Task.FollowIdx--
+			}
+		}
+	}
+
+	// Remove from roster
+	g.Entities = append(g.Entities[:deadIdx], g.Entities[deadIdx+1:]...)
+
+	// Fix selected entity
+	if g.SelectedEnt >= len(g.Entities) {
+		g.SelectedEnt = len(g.Entities) - 1
+	}
+	if g.SelectedEnt < 0 {
+		g.SelectedEnt = -1
+	}
+
+	// Check game over
+	if len(g.Entities) == 0 {
+		g.GameOver = true
+		g.Combat = nil
+		g.ClearHighlights()
+		return true
+	}
+
+	// If combat has no allies left, end combat (enemies win but game continues if entities remain outside)
+	if g.Combat != nil {
+		anyAlly := false
+		for _, cb := range g.Combat.Combatants {
+			if !cb.IsEnemy {
+				anyAlly = true
+				break
+			}
+		}
+		if !anyAlly {
+			g.Combat = nil
+			g.ClearHighlights()
+		}
+	}
+
+	return false
 }
 
 func withinRange(ax, az, bx, bz, r int) bool {

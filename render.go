@@ -547,5 +547,19 @@ func drawLocal(
 		rl.DrawRectangleLines(mmX-1, mmY-1, mmSize+2, mmSize+2, rl.Color{R: 80, G: 80, B: 100, A: 255})
 	}
 
+	// Game over overlay
+	if game.GameOver {
+		rl.DrawRectangle(0, 0, screenWidth, screenHeight, rl.Color{R: 0, G: 0, B: 0, A: 180})
+		title := "YOUR COMPANY HAS FALLEN"
+		tw := rl.MeasureText(title, 36)
+		rl.DrawText(title, (screenWidth-tw)/2, screenHeight/2-40, 36, rl.Color{R: 255, G: 60, B: 60, A: 255})
+		sub := "The dungeon claims another expedition."
+		sw := rl.MeasureText(sub, 20)
+		rl.DrawText(sub, (screenWidth-sw)/2, screenHeight/2+10, 20, rl.Color{R: 200, G: 200, B: 200, A: 255})
+		restart := "[Space] New Expedition"
+		rw := rl.MeasureText(restart, 20)
+		rl.DrawText(restart, (screenWidth-rw)/2, screenHeight/2+50, 20, rl.Gray)
+	}
+
 	rl.DrawFPS(screenWidth-90, screenHeight-25)
 }
