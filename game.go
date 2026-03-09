@@ -187,6 +187,103 @@ func levelUp(s *CombatStats) {
 	}
 }
 
+// removePending removes the first occurrence of choiceType from PendingChoices.
+func (s *CombatStats) removePending(choiceType string) bool {
+	for i, c := range s.PendingChoices {
+		if c == choiceType {
+			s.PendingChoices = append(s.PendingChoices[:i], s.PendingChoices[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
+// Valid combat style choices for Fighter L3
+var validCombatStyles = map[string]bool{
+	"Gladiator": true, "Ranger": true, "Juggernaut": true,
+}
+
+// ApplyFighterStyle resolves the Fighter L3 combat style choice.
+func ApplyFighterStyle(s *CombatStats, style string) bool {
+	if !validCombatStyles[style] {
+		return false
+	}
+	if !s.removePending("combat_style") {
+		return false
+	}
+	s.CombatStyle = style
+	if style == "Juggernaut" {
+		s.AC += 2
+	}
+	return true
+}
+
+// Valid combat technique choices for Fighter L4
+var validCombatTechniques = map[string]bool{
+	"Power Attack": true, "Defensive Stance": true, "Quick Strike": true,
+}
+
+// ApplyFighterTechnique resolves the Fighter L4 combat technique choice.
+func ApplyFighterTechnique(s *CombatStats, technique string) bool {
+	if !validCombatTechniques[technique] {
+		return false
+	}
+	if !s.removePending("combat_technique") {
+		return false
+	}
+	s.CombatTechnique = technique
+	if technique == "Defensive Stance" {
+		s.AC += 2
+		s.MoveSpeed--
+	}
+	return true
+}
+
+// Valid L1 spells for Mage
+var validSpellsL1 = map[string]bool{
+	"arcane_blink": true, "burning_hands": true, "frost_nova": true, "mind_spike": true,
+	"magic_armor": true, "elemental_strike": true, "feather_fall": true, "expeditious_retreat": true,
+}
+
+// ApplyMageSpell resolves a Mage spell choice (L2 or L4 level-up).
+func ApplyMageSpell(s *CombatStats, spellID string) bool {
+	if !validSpellsL1[spellID] {
+		return false
+	}
+	for _, known := range s.KnownSpells {
+		if known == spellID {
+			return false // already known
+		}
+	}
+	if !s.removePending("spell_l1") {
+		return false
+	}
+	s.KnownSpells = append(s.KnownSpells, spellID)
+	return true
+}
+
+// Valid cantrips for Mage
+var validCantrips = map[string]bool{
+	"ray_of_frost": true, "shocking_grasp": true,
+}
+
+// ApplyMageCantrip resolves the Mage L3 cantrip choice.
+func ApplyMageCantrip(s *CombatStats, cantripID string) bool {
+	if !validCantrips[cantripID] {
+		return false
+	}
+	for _, known := range s.KnownCantrips {
+		if known == cantripID {
+			return false // already known
+		}
+	}
+	if !s.removePending("cantrip") {
+		return false
+	}
+	s.KnownCantrips = append(s.KnownCantrips, cantripID)
+	return true
+}
+
 func (s CombatStats) Mod(stat int) int { return (stat - 10) / 2 }
 
 type Entity struct {
