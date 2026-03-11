@@ -1,5 +1,10 @@
 package main
 
+/*
+#include <stdlib.h>
+*/
+import "C"
+
 import (
 	"fmt"
 	"math"
@@ -99,15 +104,87 @@ func applyShaderToModel(model rl.Model, shader rl.Shader) {
 	}
 }
 
+// AnimatedModel holds a model with its animation set and name→index lookup.
+// The Model pointer is heap-allocated to prevent C pointer invalidation.
+type AnimatedModel struct {
+	Model  *rl.Model
+	Anims  []rl.ModelAnimation
+	Index  map[string]int // animation name → index
+}
+
+func loadAnimatedModel(path string) *AnimatedModel {
+	model := rl.LoadModel(path)
+	// Fix raylib bug: UpdateModelAnimation crashes if any mesh lacks boneWeights/boneIds.
+	// Allocate zeroed arrays via C so raylib can free them normally.
+	meshes := unsafe.Slice(model.Meshes, model.MeshCount)
+	for i := range meshes {
+		n := meshes[i].VertexCount
+		if meshes[i].BoneWeights == nil {
+			meshes[i].BoneWeights = (*float32)(C.calloc(C.size_t(n*4), C.size_t(unsafe.Sizeof(float32(0)))))
+		}
+		if meshes[i].BoneIds == nil {
+			meshes[i].BoneIds = (*int32)(C.calloc(C.size_t(n*4), C.size_t(unsafe.Sizeof(int32(0)))))
+		}
+	}
+	m := &AnimatedModel{
+		Model: &model,
+		Anims: rl.LoadModelAnimations(path),
+		Index: map[string]int{},
+	}
+	for i, a := range m.Anims {
+		name := ""
+		for _, b := range a.Name {
+			if b == 0 {
+				break
+			}
+			name += string(rune(b))
+		}
+		m.Index[name] = i
+	}
+	return m
+}
+
+func (m *AnimatedModel) Unload() {
+	rl.UnloadModel(*m.Model)
+	rl.UnloadModelAnimations(m.Anims)
+}
+
+// UpdateAnim advances the animation by dt seconds and updates the model mesh.
+// Must be called per-entity before drawing (update-then-draw pattern).
+func (m *AnimatedModel) UpdateAnim(anim *AnimState, dt float32) {
+	idx, ok := m.Index[anim.Clip]
+	if !ok || len(m.Anims) == 0 {
+		return
+	}
+	a := m.Anims[idx]
+	duration := float32(a.FrameCount) / 60.0 // authored at ~60fps
+	anim.Time += dt
+	if anim.Loop {
+		for anim.Time >= duration {
+			anim.Time -= duration
+		}
+	} else if anim.Time >= duration {
+		anim.Time = duration
+		anim.Done = true
+	}
+	anim.Frame = int32(anim.Time / duration * float32(a.FrameCount))
+	if anim.Frame >= a.FrameCount {
+		anim.Frame = a.FrameCount - 1
+	}
+	rl.UpdateModelAnimation(*m.Model, a, anim.Frame)
+}
+
 func drawLocal(
 	camera rl.Camera3D,
 	world *World,
 	game *GameState,
+	dt float32,
 	tileUnit, floorSurfaceY, knightYOffset, charScale, wallScale float32,
 	floorVariant func(int, int) rl.Model,
 	gridToWorld func(int, int) rl.Vector3,
-	knightModel, wallModel, pickaxeModel rl.Model,
-	skeletonModels map[SkeletonType]rl.Model,
+	wallModel, pickaxeModel rl.Model,
+	heroModels map[string]*AnimatedModel, // "Fighter" → Knight, "Mage" → Mage
+	skeletonModels map[SkeletonType]*AnimatedModel,
 	entities []*Entity,
 	selectedEnt int,
 ) {
@@ -250,7 +327,7 @@ func drawLocal(
 		rl.DrawModelEx(pickaxeModel, pickPos, rl.Vector3{Y: 1}, 45, pickScale, rl.Color{R: 255, G: 200, B: 80, A: 255})
 	}
 
-	// Entities
+	// Entities (update-then-draw: animate shared model, draw, repeat per entity)
 	scaleVec := rl.Vector3{X: charScale, Y: charScale, Z: charScale}
 	for i, ent := range entities {
 		var entPos rl.Vector3
@@ -258,10 +335,9 @@ func drawLocal(
 			from := gridToWorld(ent.PrevX, ent.PrevZ)
 			to := gridToWorld(ent.X, ent.Z)
 			t := ent.StepProgress
-			bounce := float32(math.Sin(float64(t)*math.Pi)) * 0.3
 			entPos = rl.Vector3{
 				X: from.X + (to.X-from.X)*t,
-				Y: knightYOffset + bounce,
+				Y: knightYOffset,
 				Z: from.Z + (to.Z-from.Z)*t,
 			}
 		} else {
@@ -275,16 +351,38 @@ func drawLocal(
 			rl.DrawCubeV(ringPos, rl.Vector3{X: tileUnit * 0.9, Y: 0.1, Z: tileUnit * 0.9},
 				rl.Color{R: 255, G: 255, B: 255, A: 80})
 		}
-		rl.DrawModelEx(knightModel, entPos, rl.Vector3{Y: 1}, ent.FacingAngle, scaleVec, tierColor(ent.Tier))
+		// Derive animation from state
+		wantClip := "Idle"
+		wantLoop := true
+		if ent.Moving {
+			wantClip = "Walking_A"
+		}
+		if ent.Anim.Clip != wantClip {
+			ent.Anim = AnimState{Clip: wantClip, Loop: wantLoop}
+		}
+		// Pick model by class
+		class := "Fighter"
+		if ent.Stats != nil && ent.Stats.Class != "" {
+			class = ent.Stats.Class
+		}
+		if am, ok := heroModels[class]; ok {
+			am.UpdateAnim(&ent.Anim, dt)
+			rl.DrawModelEx(*am.Model, entPos, rl.Vector3{Y: 1}, ent.FacingAngle, scaleVec, tierColor(ent.Tier))
+		}
 	}
 
-	// Threats (skeleton models)
-	for _, threat := range world.Threats {
+	// Threats (skeleton models — same update-then-draw pattern)
+	for key, threat := range world.Threats {
 		if world.IsRevealed(threat.X, threat.Z) || game.Debug {
 			tPos := gridToWorld(threat.X, threat.Z)
 			tPos.Y = knightYOffset
-			if model, ok := skeletonModels[threat.Type]; ok {
-				rl.DrawModelEx(model, tPos, rl.Vector3{Y: 1}, 0, scaleVec, rl.White)
+			if am, ok := skeletonModels[threat.Type]; ok {
+				if threat.Anim.Clip == "" {
+					threat.Anim = AnimState{Clip: "Idle_Combat", Loop: true}
+				}
+				am.UpdateAnim(&threat.Anim, dt)
+				world.Threats[key] = threat
+				rl.DrawModelEx(*am.Model, tPos, rl.Vector3{Y: 1}, 0, scaleVec, rl.White)
 			}
 		}
 	}

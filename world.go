@@ -70,6 +70,7 @@ type Threat struct {
 	MoveSpeed  int
 	AttackDice int // e.g. 6 = 1d6
 	MaxRange   int // 1 = melee
+	Anim       AnimState
 }
 
 func (t Threat) ThreatLevel() int {

@@ -286,6 +286,15 @@ func ApplyMageCantrip(s *CombatStats, cantripID string) bool {
 
 func (s CombatStats) Mod(stat int) int { return (stat - 10) / 2 }
 
+// AnimState tracks which animation is playing on an entity or threat.
+type AnimState struct {
+	Clip  string // animation name (e.g. "Idle", "Walking_A")
+	Frame int32
+	Time  float32 // elapsed time in seconds
+	Loop  bool
+	Done  bool // true when a non-looping clip finished
+}
+
 type Entity struct {
 	Name         string
 	X, Z         int
@@ -298,6 +307,7 @@ type Entity struct {
 	Task         *Task
 	Scouted      map[[2]int]bool
 	Stats        *CombatStats // nil = non-combatant
+	Anim         AnimState
 }
 
 type Alert struct {
@@ -484,7 +494,7 @@ func (g *GameState) AnyEntityBusy() bool {
 	return false
 }
 
-const stepInterval = 0.08
+const stepInterval = 0.25
 
 func FacingAngleFromDir(dx, dz int) float32 {
 	switch {

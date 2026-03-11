@@ -59,32 +59,30 @@ func main() {
 	defer rl.UnloadModel(pickaxeModel)
 	applyShaderToModel(pickaxeModel, shader)
 
-	knightModel := rl.LoadModel("assets/models/characters/character_knight.gltf")
-	defer rl.UnloadModel(knightModel)
-	applyShaderToModel(knightModel, shader)
+	// Animated character models
+	knightAnim := loadAnimatedModel("assets/models/characters/animated/Knight.glb")
+	defer knightAnim.Unload()
+	mageAnim := loadAnimatedModel("assets/models/characters/animated/Mage.glb")
+	defer mageAnim.Unload()
 
-	// Skeleton models
-	skelMinion := rl.LoadModel("assets/models/enemies/Skeleton_Minion.glb")
-	defer rl.UnloadModel(skelMinion)
-	applyShaderToModel(skelMinion, shader)
+	heroModels := map[string]*AnimatedModel{
+		"Fighter": knightAnim,
+		"Mage":    mageAnim,
+	}
 
-	skelWarrior := rl.LoadModel("assets/models/enemies/Skeleton_Warrior.glb")
-	defer rl.UnloadModel(skelWarrior)
-	applyShaderToModel(skelWarrior, shader)
+	// Animated skeleton models
+	skelMinionAnim := loadAnimatedModel("assets/models/characters/animated/Skeleton_Minion.glb")
+	defer skelMinionAnim.Unload()
+	skelWarriorAnim := loadAnimatedModel("assets/models/characters/animated/Skeleton_Warrior.glb")
+	defer skelWarriorAnim.Unload()
+	skelMageAnim := loadAnimatedModel("assets/models/characters/animated/Skeleton_Mage.glb")
+	defer skelMageAnim.Unload()
 
-	skelRogue := rl.LoadModel("assets/models/enemies/Skeleton_Rogue.glb")
-	defer rl.UnloadModel(skelRogue)
-	applyShaderToModel(skelRogue, shader)
-
-	skelMage := rl.LoadModel("assets/models/enemies/Skeleton_Mage.glb")
-	defer rl.UnloadModel(skelMage)
-	applyShaderToModel(skelMage, shader)
-
-	skeletonModels := map[SkeletonType]rl.Model{
-		SkeletonMinion:  skelMinion,
-		SkeletonWarrior: skelWarrior,
-		SkeletonRogue:   skelRogue,
-		SkeletonMage:    skelMage,
+	skeletonModels := map[SkeletonType]*AnimatedModel{
+		SkeletonMinion:  skelMinionAnim,
+		SkeletonWarrior: skelWarriorAnim,
+		SkeletonRogue:   skelWarriorAnim, // reuse warrior model for rogue
+		SkeletonMage:    skelMageAnim,
 	}
 
 	// Measurements
@@ -96,7 +94,7 @@ func main() {
 	wallWidth := wallBBox.Max.X - wallBBox.Min.X
 	wallScale := tileUnit / wallWidth
 
-	charBBox := rl.GetModelBoundingBox(knightModel)
+	charBBox := rl.GetModelBoundingBox(*knightAnim.Model)
 	charScale := (tileUnit * 0.6) / (charBBox.Max.X - charBBox.Min.X)
 	knightYOffset := floorSurfaceY - charBBox.Min.Y*charScale
 
@@ -261,9 +259,9 @@ func main() {
 			rl.SetShaderValue(shader, locViewPos, viewPos, rl.ShaderUniformVec3)
 			rl.BeginDrawing()
 			rl.ClearBackground(rl.Color{R: 10, G: 10, B: 15, A: 255})
-			drawLocal(camera, world, game, tileUnit, floorSurfaceY, knightYOffset, charScale, wallScale,
+			drawLocal(camera, world, game, dt, tileUnit, floorSurfaceY, knightYOffset, charScale, wallScale,
 				floorVariant, gridToWorld,
-				knightModel, wallModel, pickaxeModel, skeletonModels, game.Entities, game.SelectedEnt)
+				wallModel, pickaxeModel, heroModels, skeletonModels, game.Entities, game.SelectedEnt)
 			rl.EndDrawing()
 			continue
 		}
@@ -642,9 +640,9 @@ func main() {
 		rl.BeginDrawing()
 		rl.ClearBackground(rl.Color{R: 10, G: 10, B: 15, A: 255})
 
-		drawLocal(camera, world, game, tileUnit, floorSurfaceY, knightYOffset, charScale, wallScale,
+		drawLocal(camera, world, game, dt, tileUnit, floorSurfaceY, knightYOffset, charScale, wallScale,
 			floorVariant, gridToWorld,
-			knightModel, wallModel, pickaxeModel, skeletonModels, game.Entities, game.SelectedEnt)
+			wallModel, pickaxeModel, heroModels, skeletonModels, game.Entities, game.SelectedEnt)
 
 		rl.EndDrawing()
 	}
