@@ -475,6 +475,79 @@ func drawLocal(
 		rl.DrawText("[Space] Dismiss and focus", boxX+20, boxY+80, 16, rl.Gray)
 	}
 
+	// Level-up choice overlay (only outside combat)
+	if game.Combat == nil && game.PendingLevelUpEntity() >= 0 {
+		pendIdx := game.PendingLevelUpEntity()
+		ent := game.Entities[pendIdx]
+		s := ent.Stats
+		if len(s.PendingChoices) > 0 {
+			boxW, boxH := int32(420), int32(200)
+			boxX := int32(screenWidth/2) - boxW/2
+			boxY := int32(screenHeight/2) - boxH/2
+			rl.DrawRectangle(boxX, boxY, boxW, boxH, rl.Color{R: 15, G: 20, B: 35, A: 235})
+			rl.DrawRectangleLines(boxX, boxY, boxW, boxH, rl.Color{R: 255, G: 215, B: 0, A: 255})
+
+			title := fmt.Sprintf("%s reached Level %d!", ent.Name, s.Level)
+			tw := rl.MeasureText(title, 22)
+			rl.DrawText(title, boxX+boxW/2-tw/2, boxY+12, 22, rl.Color{R: 255, G: 215, B: 0, A: 255})
+
+			choice := s.PendingChoices[0]
+			lineY := boxY + 48
+
+			switch choice {
+			case "combat_style":
+				rl.DrawText("Choose Combat Style:", boxX+20, lineY, 16, rl.White)
+				lineY += 28
+				rl.DrawText("[1] Gladiator (+2 melee damage)", boxX+30, lineY, 16, rl.LightGray)
+				lineY += 22
+				rl.DrawText("[2] Ranger (+2 ranged hit)", boxX+30, lineY, 16, rl.LightGray)
+				lineY += 22
+				rl.DrawText("[3] Juggernaut (+2 AC)", boxX+30, lineY, 16, rl.LightGray)
+
+			case "combat_technique":
+				rl.DrawText("Choose Combat Technique:", boxX+20, lineY, 16, rl.White)
+				lineY += 28
+				rl.DrawText("[1] Power Attack (-2 hit, +50% dmg)", boxX+30, lineY, 16, rl.LightGray)
+				lineY += 22
+				rl.DrawText("[2] Defensive Stance (+2 AC, -1 move)", boxX+30, lineY, 16, rl.LightGray)
+				lineY += 22
+				rl.DrawText("[3] Quick Strike (bonus atk, half dmg)", boxX+30, lineY, 16, rl.LightGray)
+
+			case "spell_l1":
+				rl.DrawText("Choose a Level 1 Spell:", boxX+20, lineY, 16, rl.White)
+				lineY += 28
+				var spells [][2]string
+				if s.Level <= 2 {
+					spells = [][2]string{
+						{"Arcane Blink", "teleport within move range"},
+						{"Burning Hands", "AoE adjacent, fire"},
+						{"Frost Nova", "AoE adjacent, cold"},
+						{"Mind Spike", "ranged, psychic"},
+					}
+				} else {
+					spells = [][2]string{
+						{"Magic Armor", "+2 AC for duration"},
+						{"Elemental Strike", "ranged, elemental"},
+						{"Feather Fall", "fall protection"},
+						{"Expeditious Retreat", "+3 move for duration"},
+					}
+				}
+				for i, sp := range spells {
+					rl.DrawText(fmt.Sprintf("[%d] %s (%s)", i+1, sp[0], sp[1]),
+						boxX+30, lineY, 16, rl.LightGray)
+					lineY += 22
+				}
+
+			case "cantrip":
+				rl.DrawText("Choose a Cantrip:", boxX+20, lineY, 16, rl.White)
+				lineY += 28
+				rl.DrawText("[1] Ray of Frost (ranged, cold + slow)", boxX+30, lineY, 16, rl.LightGray)
+				lineY += 22
+				rl.DrawText("[2] Shocking Grasp (melee, lightning)", boxX+30, lineY, 16, rl.LightGray)
+			}
+		}
+	}
+
 	// Minimap — top right, tile-level
 	{
 		mmSize := int32(200)

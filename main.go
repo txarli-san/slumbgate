@@ -308,8 +308,94 @@ func main() {
 			}
 		}
 
+		// Debug: L grants XP to selected entity, K toggles god mode (invincible)
+		if game.Debug && game.SelectedEnt >= 0 {
+			ent := game.Entities[game.SelectedEnt]
+			if rl.IsKeyPressed(rl.KeyL) && ent.Stats != nil {
+				prevLevel := ent.Stats.Level
+				ent.Stats.XP += 500
+				checkLevelUp(ent.Stats)
+				game.SetMessage(fmt.Sprintf("[DEBUG] +500 XP → %d XP (Level %d)", ent.Stats.XP, ent.Stats.Level))
+				if ent.Stats.Level > prevLevel {
+					game.AddFloat("LEVEL UP!", ent.X, ent.Z, 255, 255, 100, 24)
+				}
+			}
+			if rl.IsKeyPressed(rl.KeyK) && ent.Stats != nil {
+				if ent.Stats.HP < ent.Stats.MaxHP {
+					ent.Stats.HP = ent.Stats.MaxHP
+					game.SetMessage(fmt.Sprintf("[DEBUG] %s fully healed", ent.Name))
+				}
+			}
+		}
+
+		// Level-up choice input — blocks ALL other input this frame (only outside combat)
+		levelUpPending := game.Combat == nil && game.PendingLevelUpEntity() >= 0
+		if levelUpPending {
+			pendIdx := game.PendingLevelUpEntity()
+			ent := game.Entities[pendIdx]
+			s := ent.Stats
+			if len(s.PendingChoices) > 0 {
+				choice := s.PendingChoices[0]
+				switch choice {
+				case "combat_style":
+					if rl.IsKeyPressed(rl.KeyOne) {
+						ApplyFighterStyle(s, "Gladiator")
+						game.SetMessage(fmt.Sprintf("%s chose Gladiator style!", ent.Name))
+					} else if rl.IsKeyPressed(rl.KeyTwo) {
+						ApplyFighterStyle(s, "Ranger")
+						game.SetMessage(fmt.Sprintf("%s chose Ranger style!", ent.Name))
+					} else if rl.IsKeyPressed(rl.KeyThree) {
+						ApplyFighterStyle(s, "Juggernaut")
+						game.SetMessage(fmt.Sprintf("%s chose Juggernaut style!", ent.Name))
+					}
+				case "combat_technique":
+					if rl.IsKeyPressed(rl.KeyOne) {
+						ApplyFighterTechnique(s, "Power Attack")
+						game.SetMessage(fmt.Sprintf("%s chose Power Attack!", ent.Name))
+					} else if rl.IsKeyPressed(rl.KeyTwo) {
+						ApplyFighterTechnique(s, "Defensive Stance")
+						game.SetMessage(fmt.Sprintf("%s chose Defensive Stance!", ent.Name))
+					} else if rl.IsKeyPressed(rl.KeyThree) {
+						ApplyFighterTechnique(s, "Quick Strike")
+						game.SetMessage(fmt.Sprintf("%s chose Quick Strike!", ent.Name))
+					}
+				case "spell_l1":
+					var spells []string
+					if s.Level <= 2 {
+						spells = []string{"arcane_blink", "burning_hands", "frost_nova", "mind_spike"}
+					} else {
+						spells = []string{"magic_armor", "elemental_strike", "feather_fall", "expeditious_retreat"}
+					}
+					keys := []int32{rl.KeyOne, rl.KeyTwo, rl.KeyThree, rl.KeyFour}
+					for i, key := range keys {
+						if i < len(spells) && rl.IsKeyPressed(key) {
+							if ApplyMageSpell(s, spells[i]) {
+								name := spells[i]
+								if def, ok := mageActionDefs[name]; ok {
+									name = def.Name
+								}
+								game.SetMessage(fmt.Sprintf("%s learned %s!", ent.Name, name))
+							}
+						}
+					}
+				case "cantrip":
+					cantrips := []string{"ray_of_frost", "shocking_grasp"}
+					if rl.IsKeyPressed(rl.KeyOne) {
+						if ApplyMageCantrip(s, cantrips[0]) {
+							game.SetMessage(fmt.Sprintf("%s learned Ray of Frost!", ent.Name))
+						}
+					} else if rl.IsKeyPressed(rl.KeyTwo) {
+						if ApplyMageCantrip(s, cantrips[1]) {
+							game.SetMessage(fmt.Sprintf("%s learned Shocking Grasp!", ent.Name))
+						}
+					}
+				}
+			}
+		}
+
 		// Click in 3D view: select entity or assign move task (continuous mode only)
-		if game.Combat == nil && game.Alert == nil && rl.IsMouseButtonPressed(rl.MouseButtonLeft) {
+		if !levelUpPending {
+		if game.Combat == nil && game.Alert == nil && game.PendingLevelUpEntity() < 0 && rl.IsMouseButtonPressed(rl.MouseButtonLeft) {
 			ray := rl.GetScreenToWorldRay(rl.GetMousePosition(), camera)
 			if wx, wz, ok := rayHitGround(ray); ok {
 				gx, gz := worldToGrid(wx, wz)
@@ -463,7 +549,7 @@ func main() {
 		}
 
 		// Orders for selected entity: 1=Scout  2=Stop (continuous mode only)
-		if game.Combat == nil && game.SelectedEnt >= 0 {
+		if game.Combat == nil && game.SelectedEnt >= 0 && game.PendingLevelUpEntity() < 0 {
 			ent := game.Entities[game.SelectedEnt]
 			if rl.IsKeyPressed(rl.KeyOne) {
 				ent.Task = &Task{Type: TaskExplore}
@@ -517,6 +603,7 @@ func main() {
 			camTargetZ = pos.Z
 			game.Alert = nil
 		}
+		} // end if !levelUpPending
 
 		// Message timer
 		if game.MessageTimer > 0 {
