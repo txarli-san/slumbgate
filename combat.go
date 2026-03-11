@@ -524,7 +524,10 @@ func executeShove(g *GameState, w *World, ent *Entity, tx, tz int) {
 	if w.IsWalkable(pushX, pushZ) && !w.IsThreatAt(pushX, pushZ) {
 		// Move threat to pushed position
 		delete(w.Threats, [2]int{tx, tz})
+		threat.PrevX, threat.PrevZ = tx, tz
 		threat.X, threat.Z = pushX, pushZ
+		threat.StepProgress = 0
+		threat.Moving = true
 		newKey := [2]int{pushX, pushZ}
 		w.Threats[newKey] = threat
 		// Update combatant key
@@ -1136,7 +1139,10 @@ func (g *GameState) RunEnemyTurn(w *World) {
 			}
 			if steps > 0 {
 				dest := path[steps-1]
+				threat.PrevX, threat.PrevZ = threat.X, threat.Z
 				threat.X, threat.Z = dest[0], dest[1]
+				threat.StepProgress = 0
+				threat.Moving = true
 				newKey := [2]int{dest[0], dest[1]}
 				delete(w.Threats, cur.ThreatKey)
 				w.Threats[newKey] = threat

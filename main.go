@@ -464,6 +464,17 @@ func main() {
 				}
 			}
 		}
+		// Threat step animation
+		for key, threat := range world.Threats {
+			if threat.Moving {
+				threat.StepProgress += dt / stepInterval
+				if threat.StepProgress >= 1.0 {
+					threat.StepProgress = 1.0
+					threat.Moving = false
+				}
+				world.Threats[key] = threat
+			}
+		}
 
 		// Combat input
 		if game.Combat != nil {

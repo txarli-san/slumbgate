@@ -61,16 +61,19 @@ const (
 )
 
 type Threat struct {
-	X, Z       int
-	Type       SkeletonType
-	RoomIdx    int
-	HP, MaxHP  int
-	AC         int
-	STR, DEX   int
-	MoveSpeed  int
-	AttackDice int // e.g. 6 = 1d6
-	MaxRange   int // 1 = melee
-	Anim       AnimState
+	X, Z         int
+	PrevX, PrevZ int
+	StepProgress float32
+	Moving       bool
+	Type         SkeletonType
+	RoomIdx      int
+	HP, MaxHP    int
+	AC           int
+	STR, DEX     int
+	MoveSpeed    int
+	AttackDice   int // e.g. 6 = 1d6
+	MaxRange     int // 1 = melee
+	Anim         AnimState
 }
 
 func (t Threat) ThreatLevel() int {
@@ -655,7 +658,10 @@ func (w *World) TickLeashingThreats() {
 		}
 		dest := path[steps-1]
 		newKey := [2]int{dest[0], dest[1]}
+		threat.PrevX, threat.PrevZ = threat.X, threat.Z
 		threat.X, threat.Z = dest[0], dest[1]
+		threat.StepProgress = 0
+		threat.Moving = true
 		delete(w.Threats, lt.ThreatKey)
 		w.Threats[newKey] = threat
 		lt.ThreatKey = newKey

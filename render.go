@@ -374,11 +374,27 @@ func drawLocal(
 	// Threats (skeleton models — same update-then-draw pattern)
 	for key, threat := range world.Threats {
 		if world.IsRevealed(threat.X, threat.Z) || game.Debug {
-			tPos := gridToWorld(threat.X, threat.Z)
-			tPos.Y = knightYOffset
+			var tPos rl.Vector3
+			if threat.Moving {
+				from := gridToWorld(threat.PrevX, threat.PrevZ)
+				to := gridToWorld(threat.X, threat.Z)
+				t := threat.StepProgress
+				tPos = rl.Vector3{
+					X: from.X + (to.X-from.X)*t,
+					Y: knightYOffset,
+					Z: from.Z + (to.Z-from.Z)*t,
+				}
+			} else {
+				tPos = gridToWorld(threat.X, threat.Z)
+				tPos.Y = knightYOffset
+			}
 			if am, ok := skeletonModels[threat.Type]; ok {
-				if threat.Anim.Clip == "" {
-					threat.Anim = AnimState{Clip: "Idle_Combat", Loop: true}
+				wantClip := "Idle_Combat"
+				if threat.Moving {
+					wantClip = "Walking_A"
+				}
+				if threat.Anim.Clip != wantClip {
+					threat.Anim = AnimState{Clip: wantClip, Loop: true}
 				}
 				am.UpdateAnim(&threat.Anim, dt)
 				world.Threats[key] = threat
