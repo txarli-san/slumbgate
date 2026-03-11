@@ -208,6 +208,14 @@ func BuildActions(g *GameState, ent *Entity) []*CombatAction {
 				Execute: executeActionSurge,
 			},
 		)
+		if ent.Stats.CombatTechnique == "Quick Strike" {
+			actions = append(actions, &CombatAction{
+				ID: "quick_strike", Name: "Quick Strike", Cost: CostBonus,
+				Target: TargetEnemyAdjacent, Range: 1, Hotkey: "6",
+				CanUse: func(g *GameState, e *Entity) bool { return !g.Combat.BonusUsed },
+				Execute: executeQuickStrike,
+			})
+		}
 
 	case "Mage":
 		actions = append(actions,
@@ -306,7 +314,11 @@ func executeMeleeAttack(g *GameState, w *World, ent *Entity, tx, tz int) {
 
 	roll := rollD20()
 	atkMod := stats.Mod(stats.STR)
-	total := roll + atkMod + stats.ProfBonus
+	hitBonus := 0
+	if stats.CombatTechnique == "Power Attack" {
+		hitBonus -= 2
+	}
+	total := roll + atkMod + stats.ProfBonus + hitBonus
 
 	if roll == 1 {
 		g.SetMessage(fmt.Sprintf("%s attacks — nat 1! Miss!", ent.Name))
@@ -317,7 +329,7 @@ func executeMeleeAttack(g *GameState, w *World, ent *Entity, tx, tz int) {
 
 	if roll < 20 && total < threat.AC {
 		g.SetMessage(fmt.Sprintf("%s attacks (%d+%d=%d vs AC %d) — miss!",
-			ent.Name, roll, atkMod+stats.ProfBonus, total, threat.AC))
+			ent.Name, roll, atkMod+stats.ProfBonus+hitBonus, total, threat.AC))
 		g.AddFloat(fmt.Sprintf("MISS (%d)", total), tx, tz, 180, 180, 180, 18)
 		g.Combat.ActionUsed = true
 		return
@@ -329,6 +341,12 @@ func executeMeleeAttack(g *GameState, w *World, ent *Entity, tx, tz int) {
 		damageDice += rollDice(8)
 	}
 	damage := damageDice + atkMod
+	if stats.CombatStyle == "Gladiator" {
+		damage += 2
+	}
+	if stats.CombatTechnique == "Power Attack" {
+		damage = damage * 3 / 2
+	}
 
 	threat.HP -= damage
 	if threat.HP < 0 {
@@ -415,6 +433,57 @@ func executeShove(g *GameState, w *World, ent *Entity, tx, tz int) {
 
 	ent.FacingAngle = FacingAngleFromDir(tx-ent.X, tz-ent.Z)
 	g.Combat.ActionUsed = true
+}
+
+func executeQuickStrike(g *GameState, w *World, ent *Entity, tx, tz int) {
+	stats := ent.Stats
+	threat, ok := w.GetThreat(tx, tz)
+	if !ok || stats == nil {
+		return
+	}
+
+	ent.FacingAngle = FacingAngleFromDir(tx-ent.X, tz-ent.Z)
+
+	roll := rollD20()
+	atkMod := stats.Mod(stats.STR)
+	total := roll + atkMod + stats.ProfBonus
+
+	if roll == 1 || (roll < 20 && total < threat.AC) {
+		g.SetMessage(fmt.Sprintf("%s quick strike — miss!", ent.Name))
+		g.AddFloat("MISS", tx, tz, 180, 180, 180, 16)
+		g.Combat.BonusUsed = true
+		return
+	}
+
+	// Half damage: (1d8 + STR) / 2, minimum 1
+	damageDice := rollDice(8)
+	if roll == 20 {
+		damageDice += rollDice(8)
+	}
+	damage := (damageDice + atkMod) / 2
+	if damage < 1 {
+		damage = 1
+	}
+
+	threat.HP -= damage
+	if threat.HP < 0 {
+		threat.HP = 0
+	}
+	w.Threats[[2]int{tx, tz}] = threat
+
+	g.SetMessage(fmt.Sprintf("%s quick strike! %d damage", ent.Name, damage))
+	g.AddFloat(fmt.Sprintf("-%d", damage), tx, tz, 200, 200, 255, 16)
+
+	if threat.HP <= 0 {
+		g.awardXP(w, threatXP(threat.Type))
+		w.RemoveThreat(tx, tz)
+		g.removeCombatant(w, tx, tz)
+		g.AddFloat("SLAIN", tx, tz, 255, 60, 60, 22)
+	}
+
+	if g.Combat != nil {
+		g.Combat.BonusUsed = true
+	}
 }
 
 func executeFireBolt(g *GameState, w *World, ent *Entity, tx, tz int) {
