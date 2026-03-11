@@ -403,7 +403,7 @@ func (g *GameState) ComputeMoveRange(w *World, ox, oz, maxSteps int) {
 	type node struct{ x, z, steps int }
 	queue := []node{{ox, oz, 0}}
 	visited := map[[2]int]bool{{ox, oz}: true}
-	dirs := [4][2]int{{0, -1}, {0, 1}, {-1, 0}, {1, 0}}
+	dirs := [8][2]int{{0, -1}, {0, 1}, {-1, 0}, {1, 0}, {-1, -1}, {1, -1}, {-1, 1}, {1, 1}}
 	for len(queue) > 0 {
 		cur := queue[0]
 		queue = queue[1:]
@@ -419,6 +419,12 @@ func (g *GameState) ComputeMoveRange(w *World, ox, oz, maxSteps int) {
 			if visited[key] || !w.IsWalkable(nx, nz) || w.IsThreatAt(nx, nz) {
 				continue
 			}
+			// Prevent diagonal corner-cutting through walls
+			if d[0] != 0 && d[1] != 0 {
+				if !w.IsWalkable(cur.x+d[0], cur.z) || !w.IsWalkable(cur.x, cur.z+d[1]) {
+					continue
+				}
+			}
 			visited[key] = true
 			queue = append(queue, node{nx, nz, cur.steps + 1})
 		}
@@ -429,7 +435,13 @@ func (g *GameState) ComputeAttackRange(ox, oz, r int) {
 	g.AttackRange = map[[2]int]bool{}
 	for dz := -r; dz <= r; dz++ {
 		for dx := -r; dx <= r; dx++ {
-			if dx*dx+dz*dz <= r*r && (dx != 0 || dz != 0) {
+			adx, adz := abs(dx), abs(dz)
+			// Chebyshev distance for melee-range consistency with diagonal movement
+			dist := adx
+			if adz > dist {
+				dist = adz
+			}
+			if dist <= r && dist > 0 {
 				g.AttackRange[[2]int{ox + dx, oz + dz}] = true
 			}
 		}
@@ -828,8 +840,11 @@ func (g *GameState) KillEntity(w *World, deadIdx int) bool {
 }
 
 func withinRange(ax, az, bx, bz, r int) bool {
-	dx, dz := ax-bx, az-bz
-	return dx*dx+dz*dz <= r*r
+	dx, dz := abs(ax-bx), abs(az-bz)
+	if dx > dz {
+		return dx <= r
+	}
+	return dz <= r
 }
 
 // adjacent returns true if two tiles are within 1 step (cardinal or diagonal)
@@ -941,10 +956,18 @@ func findPath(w *World, sx, sz, gx, gz int, breakWalls bool) [][2]int {
 	open := &astarHeap{}
 	heap.Init(open)
 
-	start := &astarNode{x: sx, z: sz, g: 0, f: abs(gx-sx) + abs(gz-sz)}
+	heuristic := func(ax, az int) int {
+		dx, dz := abs(gx-ax), abs(gz-az)
+		if dx > dz {
+			return dx
+		}
+		return dz
+	}
+
+	start := &astarNode{x: sx, z: sz, g: 0, f: heuristic(sx, sz)}
 	heap.Push(open, start)
 
-	dirs := [4][2]int{{0, -1}, {0, 1}, {-1, 0}, {1, 0}}
+	dirs := [8][2]int{{0, -1}, {0, 1}, {-1, 0}, {1, 0}, {-1, -1}, {1, -1}, {-1, 1}, {1, 1}}
 
 	for open.Len() > 0 {
 		cur := heap.Pop(open).(*astarNode)
@@ -967,6 +990,12 @@ func findPath(w *World, sx, sz, gx, gz int, breakWalls bool) [][2]int {
 			if closed[key{nx, nz}] || !canPass(nx, nz) {
 				continue
 			}
+			// Prevent diagonal corner-cutting through walls
+			if dir[0] != 0 && dir[1] != 0 {
+				if !w.IsWalkable(cur.x+dir[0], cur.z) || !w.IsWalkable(cur.x, cur.z+dir[1]) {
+					continue
+				}
+			}
 			ng := cur.g + 1
 			// Wall tiles cost more so entities prefer existing paths
 			if breakWalls {
@@ -974,7 +1003,7 @@ func findPath(w *World, sx, sz, gx, gz int, breakWalls bool) [][2]int {
 					ng += 5
 				}
 			}
-			nf := ng + abs(gx-nx) + abs(gz-nz)
+			nf := ng + heuristic(nx, nz)
 			heap.Push(open, &astarNode{x: nx, z: nz, g: ng, f: nf, parent: cur})
 		}
 	}
