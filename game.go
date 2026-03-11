@@ -497,25 +497,11 @@ func (g *GameState) AnyEntityBusy() bool {
 const stepInterval = 0.25
 
 func FacingAngleFromDir(dx, dz int) float32 {
-	switch {
-	case dx == 0 && dz == -1:
-		return 180
-	case dx == 0 && dz == 1:
+	if dx == 0 && dz == 0 {
 		return 0
-	case dx == -1 && dz == 0:
-		return 90
-	case dx == 1 && dz == 0:
-		return -90
-	case dx == -1 && dz == -1:
-		return 135
-	case dx == 1 && dz == -1:
-		return -135
-	case dx == -1 && dz == 1:
-		return 45
-	case dx == 1 && dz == 1:
-		return -45
 	}
-	return 0
+	// Model faces +Z at angle 0. Atan2 gives angle from +Z axis, clockwise positive.
+	return float32(math.Atan2(float64(dx), float64(dz))) * 180 / math.Pi
 }
 
 // WorldStep advances the global clock by one tick and lets all entities act.

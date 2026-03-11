@@ -531,9 +531,11 @@ func main() {
 						if path != nil && len(path) <= c.MoveLeft {
 							c.MoveLeft -= len(path)
 							last := path[len(path)-1]
+							// Face direction of last step
 							dx, dz := last[0]-ent.X, last[1]-ent.Z
-							if len(path) == 1 {
-								dx, dz = path[0][0]-ent.X, path[0][1]-ent.Z
+							if len(path) >= 2 {
+								prev := path[len(path)-2]
+								dx, dz = last[0]-prev[0], last[1]-prev[1]
 							}
 							ent.FacingAngle = FacingAngleFromDir(dx, dz)
 							ent.PrevX, ent.PrevZ = ent.X, ent.Z
