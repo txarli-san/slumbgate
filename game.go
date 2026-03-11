@@ -431,7 +431,7 @@ func (g *GameState) ComputeMoveRange(w *World, ox, oz, maxSteps int) {
 	}
 }
 
-func (g *GameState) ComputeAttackRange(ox, oz, r int) {
+func (g *GameState) ComputeAttackRange(w *World, ox, oz, r int) {
 	g.AttackRange = map[[2]int]bool{}
 	for dz := -r; dz <= r; dz++ {
 		for dx := -r; dx <= r; dx++ {
@@ -442,7 +442,11 @@ func (g *GameState) ComputeAttackRange(ox, oz, r int) {
 				dist = adz
 			}
 			if dist <= r && dist > 0 {
-				g.AttackRange[[2]int{ox + dx, oz + dz}] = true
+				tx, tz := ox+dx, oz+dz
+				if r > 1 && !w.HasLineOfSight(ox, oz, tx, tz) {
+					continue
+				}
+				g.AttackRange[[2]int{tx, tz}] = true
 			}
 		}
 	}

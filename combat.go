@@ -377,7 +377,7 @@ func (g *GameState) TryExecuteAction(w *World, action *CombatAction) {
 	case TargetEnemyAdjacent, TargetEnemyRange:
 		c.PrimedAction = action
 		g.SetMessage("Select target for " + action.Name)
-		g.ComputeAttackRange(ent.X, ent.Z, action.Range)
+		g.ComputeAttackRange(w, ent.X, ent.Z, action.Range)
 	}
 }
 
@@ -398,6 +398,10 @@ func (g *GameState) ExecutePrimedOnTarget(w *World, tx, tz int) {
 	}
 	if action.Target == TargetEnemyRange && !withinRange(ent.X, ent.Z, tx, tz, action.Range) {
 		g.SetMessage("Target out of range!")
+		return
+	}
+	if action.Target == TargetEnemyRange && !w.HasLineOfSight(ent.X, ent.Z, tx, tz) {
+		g.SetMessage("No line of sight!")
 		return
 	}
 
@@ -1102,7 +1106,8 @@ func (g *GameState) RunEnemyTurn(w *World) {
 	attacked := false
 
 	inRange := threat.MaxRange <= 1 && adjacent(threat.X, threat.Z, target.X, target.Z) ||
-		threat.MaxRange > 1 && withinRange(threat.X, threat.Z, target.X, target.Z, threat.MaxRange)
+		threat.MaxRange > 1 && withinRange(threat.X, threat.Z, target.X, target.Z, threat.MaxRange) &&
+			w.HasLineOfSight(threat.X, threat.Z, target.X, target.Z)
 	if inRange {
 		g.ResolveEnemyAttack(w, threat, target)
 		if g.GameOver || g.Combat == nil {
@@ -1145,7 +1150,8 @@ func (g *GameState) RunEnemyTurn(w *World) {
 	threat, ok = w.Threats[cur.ThreatKey]
 	if ok {
 		inRange = threat.MaxRange <= 1 && adjacent(threat.X, threat.Z, target.X, target.Z) ||
-			threat.MaxRange > 1 && withinRange(threat.X, threat.Z, target.X, target.Z, threat.MaxRange)
+			threat.MaxRange > 1 && withinRange(threat.X, threat.Z, target.X, target.Z, threat.MaxRange) &&
+				w.HasLineOfSight(threat.X, threat.Z, target.X, target.Z)
 		if inRange {
 			g.ResolveEnemyAttack(w, threat, target)
 			attacked = true
