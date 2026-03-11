@@ -512,6 +512,90 @@ func TestApply_MageMultiJump_ResolveAll(t *testing.T) {
 	}
 }
 
+// --- Game state gate ---
+
+func TestGate_PendingLevelUpEntity_NoneByDefault(t *testing.T) {
+	g, _ := newTestGame()
+	if idx := g.PendingLevelUpEntity(); idx != -1 {
+		t.Errorf("PendingLevelUpEntity() = %d, want -1 with no pending", idx)
+	}
+}
+
+func TestGate_PendingLevelUpEntity_DetectsFighter(t *testing.T) {
+	g, _ := newTestGame()
+	g.Entities[0].Stats.PendingChoices = []string{"combat_style"}
+	idx := g.PendingLevelUpEntity()
+	if idx != 0 {
+		t.Errorf("PendingLevelUpEntity() = %d, want 0", idx)
+	}
+}
+
+func TestGate_PendingLevelUpEntity_DetectsMage(t *testing.T) {
+	g, w := newTestGame()
+	addElara(g, w)
+	g.Entities[1].Stats.PendingChoices = []string{"spell_l1"}
+	idx := g.PendingLevelUpEntity()
+	if idx != 1 {
+		t.Errorf("PendingLevelUpEntity() = %d, want 1", idx)
+	}
+}
+
+func TestGate_PendingLevelUpEntity_FirstEntityWins(t *testing.T) {
+	g, w := newTestGame()
+	addElara(g, w)
+	g.Entities[0].Stats.PendingChoices = []string{"combat_style"}
+	g.Entities[1].Stats.PendingChoices = []string{"spell_l1"}
+	idx := g.PendingLevelUpEntity()
+	if idx != 0 {
+		t.Errorf("PendingLevelUpEntity() = %d, want 0 (first entity)", idx)
+	}
+}
+
+func TestGate_PendingLevelUpEntity_ClearsAfterResolve(t *testing.T) {
+	g, _ := newTestGame()
+	g.Entities[0].Stats.PendingChoices = []string{"combat_style"}
+	ApplyFighterStyle(g.Entities[0].Stats, "Gladiator")
+	if idx := g.PendingLevelUpEntity(); idx != -1 {
+		t.Errorf("PendingLevelUpEntity() = %d, want -1 after resolving", idx)
+	}
+}
+
+func TestGate_PendingLevelUpEntity_FromXPKill(t *testing.T) {
+	g, w := newTestGame()
+	brynn := g.Entities[0]
+	brynn.Stats.Level = 2
+	brynn.Stats.XP = 880 // 20 short of level 3 (900)
+	brynn.Stats.HP = 20
+	brynn.Stats.MaxHP = 20
+	brynn.Stats.HitDice = 2
+	brynn.Stats.MaxHitDice = 2
+
+	// Place a warrior worth 100 XP — pushes past 900
+	tx, tz := brynn.X+1, brynn.Z
+	w.SetTile(tx, tz, TileGround)
+	w.Threats[[2]int{tx, tz}] = Threat{
+		X: tx, Z: tz, Type: SkeletonWarrior, RoomIdx: 0,
+		HP: 1, MaxHP: 13, AC: 13, STR: 10, DEX: 14,
+		MoveSpeed: 4, AttackDice: 6, MaxRange: 1,
+	}
+
+	g.StartCombat(w, 0, 0)
+	for i := 0; i < 20 && w.IsThreatAt(tx, tz); i++ {
+		executeMeleeAttack(g, w, brynn, tx, tz)
+	}
+
+	if brynn.Stats.Level != 3 {
+		t.Fatalf("Level = %d, want 3", brynn.Stats.Level)
+	}
+	idx := g.PendingLevelUpEntity()
+	if idx != 0 {
+		t.Errorf("PendingLevelUpEntity() = %d, want 0 after level 3", idx)
+	}
+	if len(brynn.Stats.PendingChoices) != 1 || brynn.Stats.PendingChoices[0] != "combat_style" {
+		t.Errorf("PendingChoices = %v, want [combat_style]", brynn.Stats.PendingChoices)
+	}
+}
+
 // --- Fields exist and default to zero values ---
 
 func TestLevelUp_NewFieldsDefaultEmpty(t *testing.T) {

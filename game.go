@@ -368,6 +368,17 @@ type GameState struct {
 	GameOver    bool // true when all entities are dead
 }
 
+// PendingLevelUpEntity returns the index of the first entity with pending
+// level-up choices, or -1 if none.
+func (g *GameState) PendingLevelUpEntity() int {
+	for i, ent := range g.Entities {
+		if ent.Stats != nil && len(ent.Stats.PendingChoices) > 0 {
+			return i
+		}
+	}
+	return -1
+}
+
 func (g *GameState) AddFloat(text string, wx, wz int, r, gr, b uint8, size int32) {
 	g.Floats = append(g.Floats, FloatingText{
 		Text: text, WorldX: wx, WorldZ: wz,
