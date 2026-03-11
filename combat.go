@@ -162,6 +162,89 @@ func (g *GameState) StartCombat(w *World, entityIdx int, roomIdx int) {
 	}
 }
 
+// mageActionDefs holds learnable spell/cantrip templates keyed by ID.
+// Spells without an Execute function are not yet implemented and won't appear.
+var mageActionDefs = map[string]CombatAction{
+	// Cantrips (no spell slot cost)
+	"ray_of_frost": {
+		ID: "ray_of_frost", Name: "Ray of Frost", Cost: CostStandard,
+		Target: TargetEnemyRange, Range: 7,
+		CanUse: func(g *GameState, e *Entity) bool { return !g.Combat.ActionUsed },
+		// Execute: TODO
+	},
+	"shocking_grasp": {
+		ID: "shocking_grasp", Name: "Shocking Grasp", Cost: CostStandard,
+		Target: TargetEnemyAdjacent, Range: 1,
+		CanUse: func(g *GameState, e *Entity) bool { return !g.Combat.ActionUsed },
+		// Execute: TODO
+	},
+	// L1 Spells (cost a spell slot)
+	"burning_hands": {
+		ID: "burning_hands", Name: "Burning Hands", Cost: CostStandard,
+		Target: TargetSelf, Range: 1,
+		CanUse: func(g *GameState, e *Entity) bool {
+			return !g.Combat.ActionUsed && e.Stats.ClassCharges > 0
+		},
+		// Execute: TODO
+	},
+	"frost_nova": {
+		ID: "frost_nova", Name: "Frost Nova", Cost: CostStandard,
+		Target: TargetSelf, Range: 1,
+		CanUse: func(g *GameState, e *Entity) bool {
+			return !g.Combat.ActionUsed && e.Stats.ClassCharges > 0
+		},
+		// Execute: TODO
+	},
+	"mind_spike": {
+		ID: "mind_spike", Name: "Mind Spike", Cost: CostStandard,
+		Target: TargetEnemyRange, Range: 6,
+		CanUse: func(g *GameState, e *Entity) bool {
+			return !g.Combat.ActionUsed && e.Stats.ClassCharges > 0
+		},
+		// Execute: TODO
+	},
+	"arcane_blink": {
+		ID: "arcane_blink", Name: "Arcane Blink", Cost: CostStandard,
+		Target: TargetSelf, Range: 5,
+		CanUse: func(g *GameState, e *Entity) bool {
+			return !g.Combat.ActionUsed && e.Stats.ClassCharges > 0
+		},
+		// Execute: TODO
+	},
+	"magic_armor": {
+		ID: "magic_armor", Name: "Magic Armor", Cost: CostStandard,
+		Target: TargetSelf,
+		CanUse: func(g *GameState, e *Entity) bool {
+			return !g.Combat.ActionUsed && e.Stats.ClassCharges > 0
+		},
+		// Execute: TODO
+	},
+	"elemental_strike": {
+		ID: "elemental_strike", Name: "Elemental Strike", Cost: CostStandard,
+		Target: TargetEnemyRange, Range: 6,
+		CanUse: func(g *GameState, e *Entity) bool {
+			return !g.Combat.ActionUsed && e.Stats.ClassCharges > 0
+		},
+		// Execute: TODO
+	},
+	"feather_fall": {
+		ID: "feather_fall", Name: "Feather Fall", Cost: CostStandard,
+		Target: TargetSelf,
+		CanUse: func(g *GameState, e *Entity) bool {
+			return !g.Combat.ActionUsed && e.Stats.ClassCharges > 0
+		},
+		// Execute: TODO
+	},
+	"expeditious_retreat": {
+		ID: "expeditious_retreat", Name: "Expeditious Retreat", Cost: CostStandard,
+		Target: TargetSelf,
+		CanUse: func(g *GameState, e *Entity) bool {
+			return !g.Combat.ActionUsed && e.Stats.ClassCharges > 0
+		},
+		// Execute: TODO
+	},
+}
+
 // BuildActions returns the available combat actions for an entity based on class.
 func BuildActions(g *GameState, ent *Entity) []*CombatAction {
 	if ent.Stats == nil {
@@ -218,6 +301,7 @@ func BuildActions(g *GameState, ent *Entity) []*CombatAction {
 		}
 
 	case "Mage":
+		// Starting kit: Fire Bolt (cantrip) + Magic Missile (spell) always available
 		actions = append(actions,
 			&CombatAction{
 				ID: "fire_bolt", Name: "Fire Bolt", Cost: CostStandard,
@@ -233,13 +317,32 @@ func BuildActions(g *GameState, ent *Entity) []*CombatAction {
 				},
 				Execute: executeMagicMissile,
 			},
-			&CombatAction{
-				ID: "dash", Name: "Dash", Cost: CostStandard,
-				Target: TargetSelf, Hotkey: "3",
-				CanUse: func(g *GameState, e *Entity) bool { return !g.Combat.ActionUsed },
-				Execute: executeDash,
-			},
 		)
+		// Learned cantrips (only if Execute is implemented)
+		hotkey := 3
+		for _, cID := range ent.Stats.KnownCantrips {
+			if def, ok := mageActionDefs[cID]; ok && def.Execute != nil {
+				a := def // copy
+				a.Hotkey = fmt.Sprintf("%d", hotkey)
+				hotkey++
+				actions = append(actions, &a)
+			}
+		}
+		// Learned spells (only if Execute is implemented)
+		for _, sID := range ent.Stats.KnownSpells {
+			if def, ok := mageActionDefs[sID]; ok && def.Execute != nil {
+				a := def // copy
+				a.Hotkey = fmt.Sprintf("%d", hotkey)
+				hotkey++
+				actions = append(actions, &a)
+			}
+		}
+		actions = append(actions, &CombatAction{
+			ID: "dash", Name: "Dash", Cost: CostStandard,
+			Target: TargetSelf, Hotkey: fmt.Sprintf("%d", hotkey),
+			CanUse: func(g *GameState, e *Entity) bool { return !g.Combat.ActionUsed },
+			Execute: executeDash,
+		})
 	}
 
 	// End turn is always available
