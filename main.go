@@ -167,6 +167,7 @@ func main() {
 		game = &GameState{SelectedEnt: 0, Debug: *debugMode}
 		game.Entities = []*Entity{
 			{Name: "Brynn", X: spawnX, Z: 0, Tier: TierRecruit, RevealDist: 6, Scouted: map[[2]int]bool{},
+				VisibleMeshes: gearForLevel("Fighter", 1),
 				Stats: &CombatStats{
 					HP: 12, MaxHP: 12, AC: 13,
 					STR: 16, DEX: 12, CON: 14, INT: 10, WIS: 12, CHA: 10,
@@ -223,6 +224,7 @@ func main() {
 					g.Entities = append(g.Entities, &Entity{
 						Name: "Elara", X: mx, Z: mz, Tier: TierRecruit, RevealDist: 5,
 						Scouted: map[[2]int]bool{},
+						VisibleMeshes: gearForLevel("Mage", 1),
 						Stats: &CombatStats{
 							HP: 7, MaxHP: 7, AC: 12,
 							STR: 8, DEX: 14, CON: 12, INT: 16, WIS: 14, CHA: 10,
@@ -324,6 +326,78 @@ func main() {
 					game.SetMessage(fmt.Sprintf("[DEBUG] %s fully healed", ent.Name))
 				}
 			}
+			// G toggles gear debug panel
+			if rl.IsKeyPressed(rl.KeyG) {
+				game.DebugGearPanel = !game.DebugGearPanel
+				game.GearCursor = 0
+			}
+			// M spawns Elara next to selected entity
+			if rl.IsKeyPressed(rl.KeyM) {
+				hasElara := false
+				for _, e := range game.Entities {
+					if e.Name == "Elara" {
+						hasElara = true
+						break
+					}
+				}
+				if !hasElara {
+					mx, mz, ok := nearestClearTile(game, world, ent.X+1, ent.Z)
+					if ok {
+						game.Entities = append(game.Entities, &Entity{
+							Name: "Elara", X: mx, Z: mz, Tier: TierRecruit, RevealDist: 5,
+							Scouted:       map[[2]int]bool{},
+							VisibleMeshes:  gearForLevel("Mage", 1),
+							Stats: &CombatStats{
+								HP: 7, MaxHP: 7, AC: 12,
+								STR: 8, DEX: 14, CON: 12, INT: 16, WIS: 14, CHA: 10,
+								Level: 1, ProfBonus: 2, MoveSpeed: 5, Class: "Mage",
+								ClassCharges: 2, MaxClassCharges: 2,
+								HitDice: 1, MaxHitDice: 1, HitDieSize: 6,
+							},
+						})
+						game.SetMessage("[DEBUG] Elara spawned!")
+					}
+				} else {
+					game.SetMessage("[DEBUG] Elara already in party")
+				}
+			}
+		}
+
+		// Gear panel input — blocks all other input when open
+		gearPanelOpen := game.Debug && game.DebugGearPanel && game.SelectedEnt >= 0 &&
+			game.Entities[game.SelectedEnt].VisibleMeshes != nil
+		if gearPanelOpen {
+			ent := game.Entities[game.SelectedEnt]
+			count := len(ent.VisibleMeshes)
+			if rl.IsKeyPressed(rl.KeyUp) {
+				game.GearCursor--
+				if game.GearCursor < 0 {
+					game.GearCursor = count - 1
+				}
+			}
+			if rl.IsKeyPressed(rl.KeyDown) {
+				game.GearCursor++
+				if game.GearCursor >= count {
+					game.GearCursor = 0
+				}
+			}
+			if rl.IsKeyPressed(rl.KeyEnter) || rl.IsKeyPressed(rl.KeySpace) {
+				i := game.GearCursor
+				ent.VisibleMeshes[i] = !ent.VisibleMeshes[i]
+				names := meshNames(ent.Stats.Class)
+				label := fmt.Sprintf("mesh %d", i)
+				if i < len(names) {
+					label = names[i]
+				}
+				state := "OFF"
+				if ent.VisibleMeshes[i] {
+					state = "ON"
+				}
+				game.SetMessage(fmt.Sprintf("[GEAR] %s → %s", label, state))
+			}
+			if rl.IsKeyPressed(rl.KeyEscape) {
+				game.DebugGearPanel = false
+			}
 		}
 
 		// Level-up choice input — blocks ALL other input this frame (only outside combat)
@@ -392,7 +466,7 @@ func main() {
 		}
 
 		// Click in 3D view: select entity or assign move task (continuous mode only)
-		if !levelUpPending {
+		if !levelUpPending && !gearPanelOpen {
 		if game.Combat == nil && game.Alert == nil && game.PendingLevelUpEntity() < 0 && rl.IsMouseButtonPressed(rl.MouseButtonLeft) {
 			ray := rl.GetScreenToWorldRay(rl.GetMousePosition(), camera)
 			if wx, wz, ok := rayHitGround(ray); ok {
@@ -614,7 +688,7 @@ func main() {
 			camTargetZ = pos.Z
 			game.Alert = nil
 		}
-		} // end if !levelUpPending
+		} // end if !levelUpPending && !gearPanelOpen
 
 		// Message timer
 		if game.MessageTimer > 0 {

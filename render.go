@@ -7,6 +7,7 @@ import "C"
 
 import (
 	"fmt"
+	"image/color"
 	"math"
 	"unsafe"
 
@@ -142,6 +143,42 @@ func loadAnimatedModel(path string) *AnimatedModel {
 		m.Index[name] = i
 	}
 	return m
+}
+
+// DrawFiltered draws the model with only visible meshes. If visible is nil, draws all.
+// Replicates DrawModelEx transform: translate * rotate * scale * model.Transform
+func (m *AnimatedModel) DrawFiltered(visible []bool, pos, rotAxis rl.Vector3, rotAngle float32, scale rl.Vector3, tint color.RGBA) {
+	if visible == nil {
+		rl.DrawModelEx(*m.Model, pos, rotAxis, rotAngle, scale, tint)
+		return
+	}
+
+	model := *m.Model
+	transform := rl.MatrixMultiply(
+		rl.MatrixMultiply(
+			rl.MatrixScale(scale.X, scale.Y, scale.Z),
+			rl.MatrixRotate(rotAxis, rotAngle*math.Pi/180),
+		),
+		rl.MatrixTranslate(pos.X, pos.Y, pos.Z),
+	)
+	transform = rl.MatrixMultiply(model.Transform, transform)
+
+	meshes := unsafe.Slice(model.Meshes, model.MeshCount)
+	materials := unsafe.Slice(model.Materials, model.MaterialCount)
+	meshMats := unsafe.Slice(model.MeshMaterial, model.MeshCount)
+
+	for i := int32(0); i < model.MeshCount; i++ {
+		if i < int32(len(visible)) && !visible[i] {
+			continue
+		}
+		matIdx := meshMats[i]
+		mat := materials[matIdx]
+		diffuse := mat.GetMap(rl.MapAlbedo)
+		origColor := diffuse.Color
+		diffuse.Color = tint
+		rl.DrawMesh(meshes[i], mat, transform)
+		diffuse.Color = origColor
+	}
 }
 
 func (m *AnimatedModel) Unload() {
@@ -367,7 +404,7 @@ func drawLocal(
 		}
 		if am, ok := heroModels[class]; ok {
 			am.UpdateAnim(&ent.Anim, dt)
-			rl.DrawModelEx(*am.Model, entPos, rl.Vector3{Y: 1}, ent.FacingAngle, scaleVec, tierColor(ent.Tier))
+			am.DrawFiltered(ent.VisibleMeshes, entPos, rl.Vector3{Y: 1}, ent.FacingAngle, scaleVec, tierColor(ent.Tier))
 		}
 	}
 
@@ -419,6 +456,40 @@ func drawLocal(
 	}
 	if game.Debug {
 		rl.DrawText("DEBUG", 10, 85, 20, rl.Color{R: 255, G: 100, B: 255, A: 255})
+	}
+
+	// Debug gear panel — left side
+	if game.Debug && game.DebugGearPanel && game.SelectedEnt >= 0 && game.SelectedEnt < len(game.Entities) {
+		ent := game.Entities[game.SelectedEnt]
+		if ent.VisibleMeshes != nil && ent.Stats != nil {
+			names := meshNames(ent.Stats.Class)
+			count := len(ent.VisibleMeshes)
+			gpX := int32(10)
+			gpY := int32(110)
+			gpW := int32(240)
+			gpH := int32(30 + int32(count)*18)
+			rl.DrawRectangle(gpX, gpY, gpW, gpH, rl.Color{R: 15, G: 15, B: 25, A: 230})
+			rl.DrawRectangleLines(gpX, gpY, gpW, gpH, rl.Color{R: 255, G: 100, B: 255, A: 255})
+			rl.DrawText(fmt.Sprintf("GEAR [%s]  Up/Down Enter/Space  G:close", ent.Stats.Class), gpX+8, gpY+6, 14, rl.Color{R: 255, G: 100, B: 255, A: 255})
+			for i := 0; i < count; i++ {
+				y := gpY + 24 + int32(i)*18
+				label := fmt.Sprintf("%d", i)
+				if i < len(names) {
+					label = names[i]
+				}
+				state := "[ ]"
+				col := rl.Color{R: 120, G: 120, B: 120, A: 255}
+				if ent.VisibleMeshes[i] {
+					state = "[X]"
+					col = rl.Color{R: 100, G: 255, B: 100, A: 255}
+				}
+				if i == game.GearCursor {
+					rl.DrawRectangle(gpX+2, y-1, gpW-4, 18, rl.Color{R: 255, G: 100, B: 255, A: 40})
+					col.A = 255
+				}
+				rl.DrawText(fmt.Sprintf("%s %s", state, label), gpX+10, y, 14, col)
+			}
+		}
 	}
 
 	// Entity panel — bottom left

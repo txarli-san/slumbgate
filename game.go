@@ -296,18 +296,81 @@ type AnimState struct {
 }
 
 type Entity struct {
-	Name         string
-	X, Z         int
-	PrevX, PrevZ int
-	StepProgress float32
-	Moving       bool
-	FacingAngle  float32
-	Tier         AutoTier
-	RevealDist   int
-	Task         *Task
-	Scouted      map[[2]int]bool
-	Stats        *CombatStats // nil = non-combatant
-	Anim         AnimState
+	Name           string
+	X, Z           int
+	PrevX, PrevZ   int
+	StepProgress   float32
+	Moving         bool
+	FacingAngle    float32
+	Tier           AutoTier
+	RevealDist     int
+	Task           *Task
+	Scouted        map[[2]int]bool
+	Stats          *CombatStats // nil = non-combatant
+	Anim           AnimState
+	VisibleMeshes  []bool // per-mesh visibility filter for gear progression (nil = draw all)
+}
+
+// meshNames returns human-readable labels for each mesh index per class.
+// Derived from GLTF node names in the KayKit models.
+func meshNames(class string) []string {
+	switch class {
+	case "Fighter":
+		return []string{
+			"0:Sword_Offhand", "1:Badge_Shield", "2:Rect_Shield", "3:Round_Shield",
+			"4:Spike_Shield", "5:1H_Sword", "6:2H_Sword", "7:Helmet", "8:Cape",
+			"9:ArmLeft", "10:ArmRight", "11:Body", "12:Head", "13:LegLeft", "14:LegRight",
+		}
+	case "Mage":
+		return []string{
+			"0:Spellbook", "1:Spellbook_Open", "2:1H_Wand", "3:2H_Staff",
+			"4:Hat", "5:Cape",
+			"6:ArmLeft", "7:ArmRight", "8:Body", "9:Head", "10:LegLeft", "11:LegRight",
+		}
+	}
+	return nil
+}
+
+// gearForLevel returns the visible mesh mask for a class at a given level.
+// Knight: 15 meshes (0-8 gear, 9-14 body). Mage: 12 meshes (0-5 gear, 6-11 body).
+func gearForLevel(class string, level int) []bool {
+	switch class {
+	case "Fighter":
+		v := make([]bool, 15)
+		// Body: 9-14 (ArmL, ArmR, Body, Head, LegL, LegR)
+		for i := 9; i <= 14; i++ {
+			v[i] = true
+		}
+		if level >= 2 {
+			v[5] = true // 1H_Sword
+		}
+		if level >= 3 {
+			v[8] = true // Cape
+		}
+		if level >= 4 {
+			v[7] = true // Helmet
+			v[3] = true // Round_Shield
+		}
+		return v
+	case "Mage":
+		v := make([]bool, 12)
+		// Body: 6-11 (ArmL, ArmR, Body, Head, LegL, LegR)
+		for i := 6; i <= 11; i++ {
+			v[i] = true
+		}
+		if level >= 2 {
+			v[2] = true // 1H_Wand
+		}
+		if level >= 3 {
+			v[5] = true // Cape
+		}
+		if level >= 4 {
+			v[4] = true // Hat
+			v[0] = true // Spellbook
+		}
+		return v
+	}
+	return nil // unknown class = draw all
 }
 
 type Alert struct {
@@ -374,8 +437,10 @@ type GameState struct {
 	Floats      []FloatingText
 	MoveRange   map[[2]int]bool
 	AttackRange map[[2]int]bool
-	Debug       bool
-	GameOver    bool // true when all entities are dead
+	Debug          bool
+	DebugGearPanel bool // toggle gear mesh editor
+	GearCursor     int  // selected row in gear panel
+	GameOver       bool // true when all entities are dead
 }
 
 // PendingLevelUpEntity returns the index of the first entity with pending
