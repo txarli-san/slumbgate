@@ -65,6 +65,7 @@ type Threat struct {
 	PrevX, PrevZ int
 	StepProgress float32
 	Moving       bool
+	FacingAngle  float32
 	Type         SkeletonType
 	RoomIdx      int
 	HP, MaxHP    int
@@ -659,6 +660,7 @@ func (w *World) TickLeashingThreats() {
 		dest := path[steps-1]
 		newKey := [2]int{dest[0], dest[1]}
 		threat.PrevX, threat.PrevZ = threat.X, threat.Z
+		threat.FacingAngle = FacingAngleFromDir(dest[0]-threat.X, dest[1]-threat.Z)
 		threat.X, threat.Z = dest[0], dest[1]
 		threat.StepProgress = 0
 		threat.Moving = true

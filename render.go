@@ -398,7 +398,7 @@ func drawLocal(
 				}
 				am.UpdateAnim(&threat.Anim, dt)
 				world.Threats[key] = threat
-				rl.DrawModelEx(*am.Model, tPos, rl.Vector3{Y: 1}, 0, scaleVec, rl.White)
+				rl.DrawModelEx(*am.Model, tPos, rl.Vector3{Y: 1}, threat.FacingAngle, scaleVec, rl.White)
 			}
 		}
 	}

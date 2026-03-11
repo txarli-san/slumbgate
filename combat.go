@@ -525,6 +525,7 @@ func executeShove(g *GameState, w *World, ent *Entity, tx, tz int) {
 		// Move threat to pushed position
 		delete(w.Threats, [2]int{tx, tz})
 		threat.PrevX, threat.PrevZ = tx, tz
+		threat.FacingAngle = FacingAngleFromDir(pushX-tx, pushZ-tz)
 		threat.X, threat.Z = pushX, pushZ
 		threat.StepProgress = 0
 		threat.Moving = true
@@ -1112,6 +1113,8 @@ func (g *GameState) RunEnemyTurn(w *World) {
 		threat.MaxRange > 1 && withinRange(threat.X, threat.Z, target.X, target.Z, threat.MaxRange) &&
 			w.HasLineOfSight(threat.X, threat.Z, target.X, target.Z)
 	if inRange {
+		threat.FacingAngle = FacingAngleFromDir(target.X-threat.X, target.Z-threat.Z)
+		w.Threats[cur.ThreatKey] = threat
 		g.ResolveEnemyAttack(w, threat, target)
 		if g.GameOver || g.Combat == nil {
 			return
@@ -1140,6 +1143,7 @@ func (g *GameState) RunEnemyTurn(w *World) {
 			if steps > 0 {
 				dest := path[steps-1]
 				threat.PrevX, threat.PrevZ = threat.X, threat.Z
+				threat.FacingAngle = FacingAngleFromDir(dest[0]-threat.X, dest[1]-threat.Z)
 				threat.X, threat.Z = dest[0], dest[1]
 				threat.StepProgress = 0
 				threat.Moving = true
@@ -1159,6 +1163,8 @@ func (g *GameState) RunEnemyTurn(w *World) {
 			threat.MaxRange > 1 && withinRange(threat.X, threat.Z, target.X, target.Z, threat.MaxRange) &&
 				w.HasLineOfSight(threat.X, threat.Z, target.X, target.Z)
 		if inRange {
+			threat.FacingAngle = FacingAngleFromDir(target.X-threat.X, target.Z-threat.Z)
+			w.Threats[cur.ThreatKey] = threat
 			g.ResolveEnemyAttack(w, threat, target)
 			attacked = true
 		}
