@@ -48,9 +48,9 @@ func TestMageSpells_Level1_StartingKit(t *testing.T) {
 	}
 }
 
-// --- Learned spells don't appear until Execute is implemented ---
+// --- Learned spells appear in action bar ---
 
-func TestMageSpells_LearnedButUnimplemented_NotShown(t *testing.T) {
+func TestMageSpells_LearnedSpellsAppear(t *testing.T) {
 	g, w := newTestGame()
 	elara := addElara(g, w)
 	elara.Stats.Level = 2
@@ -67,10 +67,15 @@ func TestMageSpells_LearnedButUnimplemented_NotShown(t *testing.T) {
 	g.StartCombat(w, 1, 0)
 	actions := BuildActions(g, elara)
 
+	ids := map[string]bool{}
 	for _, a := range actions {
-		if a.ID == "burning_hands" || a.ID == "ray_of_frost" {
-			t.Errorf("%s should not appear — Execute not implemented", a.ID)
-		}
+		ids[a.ID] = true
+	}
+	if !ids["ray_of_frost"] {
+		t.Error("ray_of_frost should appear after learning")
+	}
+	if !ids["burning_hands"] {
+		t.Error("burning_hands should appear after learning")
 	}
 }
 

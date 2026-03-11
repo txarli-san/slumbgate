@@ -166,17 +166,18 @@ func (g *GameState) StartCombat(w *World, entityIdx int, roomIdx int) {
 // Spells without an Execute function are not yet implemented and won't appear.
 var mageActionDefs = map[string]CombatAction{
 	// Cantrips (no spell slot cost)
+	// Cantrips (no spell slot cost)
 	"ray_of_frost": {
 		ID: "ray_of_frost", Name: "Ray of Frost", Cost: CostStandard,
 		Target: TargetEnemyRange, Range: 7,
-		CanUse: func(g *GameState, e *Entity) bool { return !g.Combat.ActionUsed },
-		// Execute: TODO
+		CanUse:  func(g *GameState, e *Entity) bool { return !g.Combat.ActionUsed },
+		Execute: executeRayOfFrost,
 	},
 	"shocking_grasp": {
 		ID: "shocking_grasp", Name: "Shocking Grasp", Cost: CostStandard,
 		Target: TargetEnemyAdjacent, Range: 1,
-		CanUse: func(g *GameState, e *Entity) bool { return !g.Combat.ActionUsed },
-		// Execute: TODO
+		CanUse:  func(g *GameState, e *Entity) bool { return !g.Combat.ActionUsed },
+		Execute: executeShockingGrasp,
 	},
 	// L1 Spells (cost a spell slot)
 	"burning_hands": {
@@ -185,7 +186,7 @@ var mageActionDefs = map[string]CombatAction{
 		CanUse: func(g *GameState, e *Entity) bool {
 			return !g.Combat.ActionUsed && e.Stats.ClassCharges > 0
 		},
-		// Execute: TODO
+		Execute: executeBurningHands,
 	},
 	"frost_nova": {
 		ID: "frost_nova", Name: "Frost Nova", Cost: CostStandard,
@@ -193,7 +194,7 @@ var mageActionDefs = map[string]CombatAction{
 		CanUse: func(g *GameState, e *Entity) bool {
 			return !g.Combat.ActionUsed && e.Stats.ClassCharges > 0
 		},
-		// Execute: TODO
+		Execute: executeFrostNova,
 	},
 	"mind_spike": {
 		ID: "mind_spike", Name: "Mind Spike", Cost: CostStandard,
@@ -201,15 +202,15 @@ var mageActionDefs = map[string]CombatAction{
 		CanUse: func(g *GameState, e *Entity) bool {
 			return !g.Combat.ActionUsed && e.Stats.ClassCharges > 0
 		},
-		// Execute: TODO
+		Execute: executeMindSpike,
 	},
 	"arcane_blink": {
 		ID: "arcane_blink", Name: "Arcane Blink", Cost: CostStandard,
-		Target: TargetSelf, Range: 5,
+		Target: TargetEnemyRange, Range: 5,
 		CanUse: func(g *GameState, e *Entity) bool {
 			return !g.Combat.ActionUsed && e.Stats.ClassCharges > 0
 		},
-		// Execute: TODO
+		Execute: executeArcaneBlink,
 	},
 	"magic_armor": {
 		ID: "magic_armor", Name: "Magic Armor", Cost: CostStandard,
@@ -217,7 +218,7 @@ var mageActionDefs = map[string]CombatAction{
 		CanUse: func(g *GameState, e *Entity) bool {
 			return !g.Combat.ActionUsed && e.Stats.ClassCharges > 0
 		},
-		// Execute: TODO
+		Execute: executeMagicArmor,
 	},
 	"elemental_strike": {
 		ID: "elemental_strike", Name: "Elemental Strike", Cost: CostStandard,
@@ -225,7 +226,7 @@ var mageActionDefs = map[string]CombatAction{
 		CanUse: func(g *GameState, e *Entity) bool {
 			return !g.Combat.ActionUsed && e.Stats.ClassCharges > 0
 		},
-		// Execute: TODO
+		Execute: executeElementalStrike,
 	},
 	"feather_fall": {
 		ID: "feather_fall", Name: "Feather Fall", Cost: CostStandard,
@@ -233,7 +234,7 @@ var mageActionDefs = map[string]CombatAction{
 		CanUse: func(g *GameState, e *Entity) bool {
 			return !g.Combat.ActionUsed && e.Stats.ClassCharges > 0
 		},
-		// Execute: TODO
+		Execute: executeFeatherFall,
 	},
 	"expeditious_retreat": {
 		ID: "expeditious_retreat", Name: "Expeditious Retreat", Cost: CostStandard,
@@ -241,7 +242,7 @@ var mageActionDefs = map[string]CombatAction{
 		CanUse: func(g *GameState, e *Entity) bool {
 			return !g.Combat.ActionUsed && e.Stats.ClassCharges > 0
 		},
-		// Execute: TODO
+		Execute: executeExpeditiousRetreat,
 	},
 }
 
@@ -686,6 +687,325 @@ func executeMagicMissile(g *GameState, w *World, ent *Entity, tx, tz int) {
 
 	if g.Combat != nil {
 		g.Combat.ActionUsed = true
+	}
+}
+
+// --- Mage learnable spells ---
+
+// spellAttackRoll: d20 + INT mod + proficiency, returns (total, roll, isCrit)
+func spellAttackRoll(stats *CombatStats) (int, int, bool) {
+	roll := rollD20()
+	mod := stats.Mod(stats.INT)
+	total := roll + mod + stats.ProfBonus
+	return total, roll, roll == 20
+}
+
+// spellHitOrMiss handles the common attack roll pattern. Returns true if hit.
+func spellHitOrMiss(g *GameState, ent *Entity, threat Threat, tx, tz int, spellName string) (bool, int, int) {
+	total, roll, _ := spellAttackRoll(ent.Stats)
+	if roll == 1 {
+		g.SetMessage(fmt.Sprintf("%s casts %s — nat 1! Miss!", ent.Name, spellName))
+		g.AddFloat("NAT 1!", tx, tz, 180, 180, 180, 20)
+		return false, roll, total
+	}
+	if roll < 20 && total < threat.AC {
+		g.SetMessage(fmt.Sprintf("%s casts %s — miss! (%d vs AC %d)", ent.Name, spellName, total, threat.AC))
+		g.AddFloat(fmt.Sprintf("MISS (%d)", total), tx, tz, 180, 180, 180, 18)
+		return false, roll, total
+	}
+	return true, roll, total
+}
+
+// applySpellDamage deals damage, handles crit, slain, XP. Returns damage dealt.
+func applySpellDamage(g *GameState, w *World, ent *Entity, tx, tz int, dieSize, numDice, roll int, spellName string, r, gr, b uint8) int {
+	damage := 0
+	for range numDice {
+		damage += rollDice(dieSize)
+	}
+	if roll == 20 { // crit: double dice
+		for range numDice {
+			damage += rollDice(dieSize)
+		}
+	}
+	damage += ent.Stats.Mod(ent.Stats.INT)
+	if damage < 1 {
+		damage = 1
+	}
+
+	threat, ok := w.GetThreat(tx, tz)
+	if !ok {
+		return 0
+	}
+	threat.HP -= damage
+	if threat.HP < 0 {
+		threat.HP = 0
+	}
+	w.Threats[[2]int{tx, tz}] = threat
+
+	if roll == 20 {
+		g.SetMessage(fmt.Sprintf("%s %s CRITS! %d damage!", ent.Name, spellName, damage))
+		g.AddFloat(fmt.Sprintf("CRIT! -%d", damage), tx, tz, r, gr, b, 24)
+	} else {
+		g.SetMessage(fmt.Sprintf("%s %s hits! %d damage", ent.Name, spellName, damage))
+		g.AddFloat(fmt.Sprintf("-%d", damage), tx, tz, r, gr, b, 20)
+	}
+
+	if threat.HP <= 0 {
+		g.awardXP(w, threatXP(threat.Type))
+		w.RemoveThreat(tx, tz)
+		g.removeCombatant(w, tx, tz)
+		g.AddFloat("SLAIN", tx, tz, 255, 60, 60, 22)
+	}
+	return damage
+}
+
+func executeRayOfFrost(g *GameState, w *World, ent *Entity, tx, tz int) {
+	threat, ok := w.GetThreat(tx, tz)
+	if !ok || ent.Stats == nil {
+		return
+	}
+	ent.FacingAngle = FacingAngleFromDir(tx-ent.X, tz-ent.Z)
+
+	hit, roll, _ := spellHitOrMiss(g, ent, threat, tx, tz, "Ray of Frost")
+	if !hit {
+		if g.Combat != nil {
+			g.Combat.ActionUsed = true
+		}
+		return
+	}
+	// 1d8 + INT cold damage (cantrip, no slot cost)
+	applySpellDamage(g, w, ent, tx, tz, 8, 1, roll, "Ray of Frost", 100, 180, 255)
+	if g.Combat != nil {
+		g.Combat.ActionUsed = true
+	}
+}
+
+func executeShockingGrasp(g *GameState, w *World, ent *Entity, tx, tz int) {
+	threat, ok := w.GetThreat(tx, tz)
+	if !ok || ent.Stats == nil {
+		return
+	}
+	ent.FacingAngle = FacingAngleFromDir(tx-ent.X, tz-ent.Z)
+
+	hit, roll, _ := spellHitOrMiss(g, ent, threat, tx, tz, "Shocking Grasp")
+	if !hit {
+		if g.Combat != nil {
+			g.Combat.ActionUsed = true
+		}
+		return
+	}
+	// 1d8 + INT lightning damage (cantrip, melee)
+	applySpellDamage(g, w, ent, tx, tz, 8, 1, roll, "Shocking Grasp", 255, 255, 80)
+	if g.Combat != nil {
+		g.Combat.ActionUsed = true
+	}
+}
+
+func executeBurningHands(g *GameState, w *World, ent *Entity, _, _ int) {
+	if ent.Stats == nil {
+		return
+	}
+	ent.Stats.ClassCharges--
+	// 3d6 fire damage to all adjacent enemies
+	damage := 0
+	for range 3 {
+		damage += rollDice(6)
+	}
+	if damage < 1 {
+		damage = 1
+	}
+
+	hits := 0
+	if g.Combat != nil {
+		for _, cb := range g.Combat.Combatants {
+			if !cb.IsEnemy {
+				continue
+			}
+			threat, ok := w.GetThreat(cb.ThreatKey[0], cb.ThreatKey[1])
+			if !ok {
+				continue
+			}
+			if adjacent(ent.X, ent.Z, threat.X, threat.Z) {
+				threat.HP -= damage
+				if threat.HP < 0 {
+					threat.HP = 0
+				}
+				w.Threats[cb.ThreatKey] = threat
+				g.AddFloat(fmt.Sprintf("-%d", damage), threat.X, threat.Z, 255, 100, 20, 20)
+				hits++
+				if threat.HP <= 0 {
+					g.awardXP(w, threatXP(threat.Type))
+					w.RemoveThreat(threat.X, threat.Z)
+					g.removeCombatant(w, threat.X, threat.Z)
+					g.AddFloat("SLAIN", cb.ThreatKey[0], cb.ThreatKey[1], 255, 60, 60, 22)
+				}
+			}
+		}
+	}
+
+	g.SetMessage(fmt.Sprintf("%s casts Burning Hands! %d fire damage, %d hit!", ent.Name, damage, hits))
+	if g.Combat != nil {
+		g.Combat.ActionUsed = true
+	}
+}
+
+func executeFrostNova(g *GameState, w *World, ent *Entity, _, _ int) {
+	if ent.Stats == nil {
+		return
+	}
+	ent.Stats.ClassCharges--
+	// 2d6 cold damage to all adjacent enemies
+	damage := rollDice(6) + rollDice(6)
+	if damage < 1 {
+		damage = 1
+	}
+
+	hits := 0
+	if g.Combat != nil {
+		for _, cb := range g.Combat.Combatants {
+			if !cb.IsEnemy {
+				continue
+			}
+			threat, ok := w.GetThreat(cb.ThreatKey[0], cb.ThreatKey[1])
+			if !ok {
+				continue
+			}
+			if adjacent(ent.X, ent.Z, threat.X, threat.Z) {
+				threat.HP -= damage
+				if threat.HP < 0 {
+					threat.HP = 0
+				}
+				w.Threats[cb.ThreatKey] = threat
+				g.AddFloat(fmt.Sprintf("-%d", damage), threat.X, threat.Z, 100, 180, 255, 20)
+				hits++
+				if threat.HP <= 0 {
+					g.awardXP(w, threatXP(threat.Type))
+					w.RemoveThreat(threat.X, threat.Z)
+					g.removeCombatant(w, threat.X, threat.Z)
+					g.AddFloat("SLAIN", cb.ThreatKey[0], cb.ThreatKey[1], 255, 60, 60, 22)
+				}
+			}
+		}
+	}
+
+	g.SetMessage(fmt.Sprintf("%s casts Frost Nova! %d cold damage, %d hit!", ent.Name, damage, hits))
+	if g.Combat != nil {
+		g.Combat.ActionUsed = true
+	}
+}
+
+func executeMindSpike(g *GameState, w *World, ent *Entity, tx, tz int) {
+	threat, ok := w.GetThreat(tx, tz)
+	if !ok || ent.Stats == nil {
+		return
+	}
+	ent.FacingAngle = FacingAngleFromDir(tx-ent.X, tz-ent.Z)
+	ent.Stats.ClassCharges--
+
+	hit, roll, _ := spellHitOrMiss(g, ent, threat, tx, tz, "Mind Spike")
+	if !hit {
+		if g.Combat != nil {
+			g.Combat.ActionUsed = true
+		}
+		return
+	}
+	// 2d8 + INT psychic damage
+	applySpellDamage(g, w, ent, tx, tz, 8, 2, roll, "Mind Spike", 200, 100, 255)
+	if g.Combat != nil {
+		g.Combat.ActionUsed = true
+	}
+}
+
+func executeArcaneBlink(g *GameState, w *World, ent *Entity, tx, tz int) {
+	if ent.Stats == nil {
+		return
+	}
+	if !w.IsWalkable(tx, tz) || w.IsThreatAt(tx, tz) {
+		g.SetMessage("Can't blink there!")
+		return
+	}
+	// Check any entity is already there
+	for _, other := range g.Entities {
+		if other.X == tx && other.Z == tz {
+			g.SetMessage("Can't blink there — occupied!")
+			return
+		}
+	}
+
+	ent.Stats.ClassCharges--
+	ent.X, ent.Z = tx, tz
+	if g.Combat != nil {
+		g.Combat.MoveLeft = 0
+	}
+	g.SetMessage(fmt.Sprintf("%s blinks to (%d, %d)!", ent.Name, tx, tz))
+	g.AddFloat("BLINK", tx, tz, 120, 80, 255, 20)
+	if g.Combat != nil {
+		g.Combat.ActionUsed = true
+		g.ComputeMoveRange(w, ent.X, ent.Z, 0)
+	}
+}
+
+func executeMagicArmor(g *GameState, w *World, ent *Entity, _, _ int) {
+	if ent.Stats == nil {
+		return
+	}
+	ent.Stats.ClassCharges--
+	ent.Stats.AC += 2
+	g.SetMessage(fmt.Sprintf("%s casts Magic Armor! +2 AC", ent.Name))
+	g.AddFloat("+2 AC", ent.X, ent.Z, 120, 80, 255, 20)
+	if g.Combat != nil {
+		g.Combat.ActionUsed = true
+	}
+}
+
+func executeElementalStrike(g *GameState, w *World, ent *Entity, tx, tz int) {
+	threat, ok := w.GetThreat(tx, tz)
+	if !ok || ent.Stats == nil {
+		return
+	}
+	ent.FacingAngle = FacingAngleFromDir(tx-ent.X, tz-ent.Z)
+	ent.Stats.ClassCharges--
+
+	hit, roll, _ := spellHitOrMiss(g, ent, threat, tx, tz, "Elemental Strike")
+	if !hit {
+		if g.Combat != nil {
+			g.Combat.ActionUsed = true
+		}
+		return
+	}
+	// 3d8 + INT elemental damage
+	applySpellDamage(g, w, ent, tx, tz, 8, 3, roll, "Elemental Strike", 255, 160, 40)
+	if g.Combat != nil {
+		g.Combat.ActionUsed = true
+	}
+}
+
+func executeFeatherFall(g *GameState, w *World, ent *Entity, _, _ int) {
+	if ent.Stats == nil {
+		return
+	}
+	ent.Stats.ClassCharges--
+	ent.Stats.AC += 1
+	g.SetMessage(fmt.Sprintf("%s casts Feather Fall! +1 AC (evasive)", ent.Name))
+	g.AddFloat("Evasive!", ent.X, ent.Z, 220, 220, 255, 20)
+	if g.Combat != nil {
+		g.Combat.ActionUsed = true
+	}
+}
+
+func executeExpeditiousRetreat(g *GameState, w *World, ent *Entity, _, _ int) {
+	if ent.Stats == nil {
+		return
+	}
+	ent.Stats.ClassCharges--
+	if g.Combat != nil {
+		g.Combat.MoveLeft += 3
+	}
+	g.SetMessage(fmt.Sprintf("%s casts Expeditious Retreat! +3 movement", ent.Name))
+	g.AddFloat("+3 Move", ent.X, ent.Z, 255, 255, 80, 20)
+	if g.Combat != nil {
+		g.Combat.ActionUsed = true
+		g.ComputeMoveRange(w, ent.X, ent.Z, g.Combat.MoveLeft)
 	}
 }
 
