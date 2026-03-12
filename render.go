@@ -108,9 +108,10 @@ func applyShaderToModel(model rl.Model, shader rl.Shader) {
 // AnimatedModel holds a model with its animation set and name→index lookup.
 // The Model pointer is heap-allocated to prevent C pointer invalidation.
 type AnimatedModel struct {
-	Model  *rl.Model
-	Anims  []rl.ModelAnimation
-	Index  map[string]int // animation name → index
+	Model        *rl.Model
+	Anims        []rl.ModelAnimation
+	Index        map[string]int // animation name → index
+	GearBindings []GearBinding  // per-mesh bone + world xform for gear
 }
 
 func loadAnimatedModel(path string) *AnimatedModel {
@@ -145,8 +146,50 @@ func loadAnimatedModel(path string) *AnimatedModel {
 	return m
 }
 
+// GearBinding holds the parent bone index for non-skinned gear meshes.
+// Raylib bakes node world transforms into vertices at GLTF load time,
+// so we only need the bone index to apply the skinning delta at draw time.
+type GearBinding struct {
+	Bone int // parent bone joint index (-1 = skinned body mesh)
+}
+
+// gearBindings returns per-mesh parent bone for gear meshes.
+// Joint indices: 3=chest, 8=handslot.l, 13=handslot.r, 14=head.
+func gearBindings(class string) []GearBinding {
+	none := GearBinding{-1}
+	switch class {
+	case "Fighter":
+		// Meshes 0-8: gear, 9-14: body
+		return []GearBinding{
+			{8},  // 0: Sword_Offhand → handslot.l
+			{8},  // 1: Badge_Shield → handslot.l
+			{8},  // 2: Rect_Shield → handslot.l
+			{8},  // 3: Round_Shield → handslot.l
+			{8},  // 4: Spike_Shield → handslot.l
+			{13}, // 5: 1H_Sword → handslot.r
+			{13}, // 6: 2H_Sword → handslot.r
+			{14}, // 7: Helmet → head
+			{3},  // 8: Cape → chest
+			none, none, none, none, none, none, // 9-14: body
+		}
+	case "Mage":
+		// Meshes 0-5: gear, 6-11: body
+		return []GearBinding{
+			{8},  // 0: Spellbook → handslot.l
+			{8},  // 1: Spellbook_Open → handslot.l
+			{13}, // 2: 1H_Wand → handslot.r
+			{13}, // 3: 2H_Staff → handslot.r
+			{14}, // 4: Hat → head
+			{3},  // 5: Cape → chest
+			none, none, none, none, none, none, // 6-11: body
+		}
+	}
+	return nil
+}
+
 // DrawFiltered draws the model with only visible meshes. If visible is nil, draws all.
-// Replicates DrawModelEx transform: translate * rotate * scale * model.Transform
+// For gear meshes (GearBindings with Bone >= 0), applies the bone's animated transform
+// so gear follows hand/head/chest bones during animation.
 func (m *AnimatedModel) DrawFiltered(visible []bool, pos, rotAxis rl.Vector3, rotAngle float32, scale rl.Vector3, tint color.RGBA) {
 	if visible == nil {
 		rl.DrawModelEx(*m.Model, pos, rotAxis, rotAngle, scale, tint)
@@ -171,12 +214,25 @@ func (m *AnimatedModel) DrawFiltered(visible []bool, pos, rotAxis rl.Vector3, ro
 		if i < int32(len(visible)) && !visible[i] {
 			continue
 		}
+
+		// Gear meshes: apply animated bone transform so they follow the skeleton.
+		// Raylib bakes the node world transform into vertices at load time, so
+		// gear vertices are already in model space (bind pose). We only need
+		// the skinning delta: boneMatrix = animPose * inverse(bindPose).
+		meshXform := transform
+		if int(i) < len(m.GearBindings) && m.GearBindings[i].Bone >= 0 {
+			gb := m.GearBindings[i]
+			boneMats := unsafe.Slice(meshes[i].BoneMatrices, meshes[i].BoneCount)
+			boneMat := boneMats[gb.Bone]
+			meshXform = rl.MatrixMultiply(boneMat, transform)
+		}
+
 		matIdx := meshMats[i]
 		mat := materials[matIdx]
 		diffuse := mat.GetMap(rl.MapAlbedo)
 		origColor := diffuse.Color
 		diffuse.Color = tint
-		rl.DrawMesh(meshes[i], mat, transform)
+		rl.DrawMesh(meshes[i], mat, meshXform)
 		diffuse.Color = origColor
 	}
 }

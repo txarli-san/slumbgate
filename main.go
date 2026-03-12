@@ -65,6 +65,9 @@ func main() {
 	mageAnim := loadAnimatedModel("assets/models/characters/animated/Mage.glb")
 	defer mageAnim.Unload()
 
+	knightAnim.GearBindings = gearBindings("Fighter")
+	mageAnim.GearBindings = gearBindings("Mage")
+
 	heroModels := map[string]*AnimatedModel{
 		"Fighter": knightAnim,
 		"Mage":    mageAnim,
