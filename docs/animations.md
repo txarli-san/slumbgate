@@ -91,18 +91,51 @@ zeroed boneWeights/boneIds for 0-8 via C.calloc to prevent SIGSEGV.
 | 7 | Skeleton_Mage_LegRight | 405 | Body |
 | 8 | Skeleton_Mage_Skull | 450 | Body |
 
+## Gear Bone Bindings
+
+Gear meshes have NO bone weights in the GLTF — they're parented to bone nodes in the scene
+hierarchy, not skinned. Raylib's `UpdateModelAnimation` skips them (zeroed calloc'd weights →
+`boneWeight == 0.0` → continue, `updated` stays false → GPU vertex buffer never overwritten).
+The GPU retains the original vertex data loaded from the GLTF.
+
+**Critical finding:** Raylib bakes node world transforms into mesh vertices at GLTF load time
+(rmodels.c line 5437: `cgltf_node_transform_world` → `Vector3Transform` on every vertex).
+So gear vertices are already in model space (bind pose), NOT in node-local space.
+
+This means gear only needs the **skinning delta** at draw time:
+`boneMatrices[parentBone]` = `animPose * inverse(bindPose)` — moves vertices from bind-pose
+model space to current-animation model space.
+
+### Joint Indices (shared skeleton, 41 bones)
+| Joint | Bone Name | Used For |
+|-------|-----------|----------|
+| 3 | chest | Cape |
+| 8 | handslot.l | Shields, offhand weapons, spellbooks |
+| 13 | handslot.r | Main-hand weapons (sword, wand, staff) |
+| 14 | head | Helmet, hat |
+
+### Per-Mesh Parent Bones
+**Knight:** 0-4→handslot.l(8), 5-6→handslot.r(13), 7→head(14), 8→chest(3), 9-14→body(-1)
+**Mage:** 0-1→handslot.l(8), 2-3→handslot.r(13), 4→head(14), 5→chest(3), 6-11→body(-1)
+
+### DrawFiltered Per-Mesh Transform
+```
+Body meshes (bone == -1): standard model transform (skinning already applied by UpdateModelAnimation)
+Gear meshes (bone >= 0):  modelTransform * boneMatrices[parentBone]  (skinning delta only)
+```
+
 ## Visual Progression Plan (Knight)
-Gear meshes to toggle per tier:
-- **Recruit**: body only (meshes 9-14)
-- **Veteran**: + Cape (8) + 1H_Sword (5)
-- **Lieutenant**: + Helmet (7) + Round_Shield (3)
-- **Captain**: + Spike_Shield (4) or 2H_Sword (6), full gear
+Gear meshes to toggle per level:
+- **L1**: body only (meshes 9-14)
+- **L2**: + 1H_Sword (5)
+- **L3**: + Cape (8)
+- **L4**: + Helmet (7) + Round_Shield (3)
 
 ## Visual Progression Plan (Mage)
-- **Recruit**: body only (meshes 6-11)
-- **Veteran**: + Cape (5) + 1H_Wand (2)
-- **Lieutenant**: + Hat (4) + Spellbook (0)
-- **Captain**: + 2H_Staff (3) + Spellbook_open (1), full gear
+- **L1**: body only (meshes 6-11)
+- **L2**: + 1H_Wand (2)
+- **L3**: + Cape (5)
+- **L4**: + Hat (4) + Spellbook (0)
 
 ## Key Animation Clips (shared by all models)
 - `Idle` — standing, subtle breathing
@@ -131,3 +164,9 @@ Gear meshes to toggle per tier:
 - Animations play at authored speed (~60fps in GLB) via time accumulator, not frame-per-render
 - stepInterval = 0.25s controls both game tick and visual lerp duration
 - Threats have PrevX/PrevZ + StepProgress + Moving for visual interpolation (same as entities)
+
+### Raylib Animation Internals (rmodels.c)
+- `UpdateModelAnimationBones`: computes `boneMatrices[boneId] = animPose * inverse(bindPose)` per mesh per bone. All meshes get boneMatrices allocated (even gear meshes without real bone weights).
+- `UpdateModelAnimation`: zeros `animVertices`, then for each vertex iterates 4 bone influences. If `boneWeight == 0.0f` → skip. For gear meshes (all-zero calloc'd weights), all influences skip, `updated` stays false, `rlUpdateVertexBuffer` is NOT called → GPU retains original vertices.
+- `MatrixMultiply(left, right)` computes `right * left` in standard math (column-major storage).
+- GLTF loader (`cgltf_node_transform_world`) bakes full node hierarchy transform into vertex positions at load time. Gear mesh vertices arrive in model space, not node-local space.
