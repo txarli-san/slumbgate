@@ -5,10 +5,10 @@ import (
 	"testing"
 )
 
-// Wall breaking and pathing tests: supply lines, path preference, breach cost.
+// Wall breaking and pathing tests: return paths, path preference, breach cost.
 
 // After breaching into a room, can Brynn path back to spawn?
-// This validates supply line viability — the path back should use
+// This validates return path viability — the path back should use
 // the doorways she already created.
 func TestWall_SupplyLineBackToSpawn(t *testing.T) {
 	for _, seed := range testSeeds {
@@ -65,7 +65,7 @@ func TestWall_SupplyLineBackToSpawn(t *testing.T) {
 						countWallsInPath(w, pathBreakable))
 				}
 			} else {
-				t.Logf("supply line OK — %d tiles back to spawn from (%d,%d)",
+				t.Logf("return path OK — %d tiles back to spawn from (%d,%d)",
 					len(pathBack), brynn.X, brynn.Z)
 			}
 		})

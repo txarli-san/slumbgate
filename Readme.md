@@ -2,11 +2,11 @@
 
 A d20 tactical survival management game where time is the real enemy.
 
-You manage a company of adventurers pushing inward through a massive, procedurally generated concentric dungeon. Explore, break walls, fight skeletons, and try not to get everyone killed.
+You manage a party of adventurers pushing inward through a massive, procedurally generated concentric dungeon. Explore, break walls, fight skeletons, and try not to get everyone killed.
 
 ## Current Status
 
-Go + Raylib-go 3D game. Two modes: continuous (point-and-click company management) and combat (D&D initiative turns). The dungeon generates from a seed, entities scout autonomously, and combat triggers when threats are encountered.
+Go + Raylib-go 3D game. Two modes: continuous (point-and-click party management) and combat (D&D initiative turns). The dungeon generates from a seed, entities scout autonomously, and combat triggers when threats are encountered.
 
 ### What's working
 - Concentric ring dungeon with noise-warped boundaries, rooms, corridors

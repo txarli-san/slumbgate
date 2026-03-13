@@ -250,7 +250,7 @@ func main() {
 						},
 					})
 					g.Entities[len(g.Entities)-1].RebuildVisibleMeshes()
-					g.SetMessage("Elara the Mage freed! She joins your company!")
+					g.SetMessage("Elara the Mage freed! She joins your party!")
 				},
 			},
 		}
