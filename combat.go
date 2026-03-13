@@ -71,8 +71,8 @@ func (c *Combat) NextTurn(g *GameState, w *World) {
 	next := c.Current()
 	if !next.IsEnemy {
 		ent := g.Entities[next.EntityIdx]
-		if s := ent.Stats; s != nil {
-			c.MoveLeft = s.MoveSpeed
+		if ent.Stats != nil {
+			c.MoveLeft = ent.EffectiveMoveSpeed()
 		}
 		c.Actions = BuildActions(g, ent)
 		g.ComputeMoveRange(w, ent.X, ent.Z, c.MoveLeft)
@@ -136,8 +136,9 @@ func (g *GameState) StartCombat(w *World, entityIdx int, roomIdx int) {
 	first := combatants[0]
 	var actions []*CombatAction
 	if !first.IsEnemy {
-		if s := g.Entities[first.EntityIdx].Stats; s != nil {
-			moveLeft = s.MoveSpeed
+		ent := g.Entities[first.EntityIdx]
+		if ent.Stats != nil {
+			moveLeft = ent.EffectiveMoveSpeed()
 		}
 		actions = BuildActions(g, g.Entities[first.EntityIdx])
 	} else {
@@ -420,16 +421,20 @@ func executeMeleeAttack(g *GameState, w *World, ent *Entity, tx, tz int) {
 
 	ent.FacingAngle = FacingAngleFromDir(tx-ent.X, tz-ent.Z)
 
-	roll := rollD20()
+	roll := rollD20Adv(false, stats.Exhaustion >= 3)
 	atkMod := stats.Mod(stats.STR)
 	hitBonus := ent.GearHit()
 	if stats.CombatTechnique == "Power Attack" {
 		hitBonus -= 2
 	}
 	total := roll + atkMod + stats.ProfBonus + hitBonus
+	exhSuffix := ""
+	if stats.Exhaustion >= 3 {
+		exhSuffix = " (exhausted)"
+	}
 
 	if roll == 1 {
-		g.SetMessage(fmt.Sprintf("%s attacks — nat 1! Miss!", ent.Name))
+		g.SetMessage(fmt.Sprintf("%s attacks — nat 1! Miss!%s", ent.Name, exhSuffix))
 		g.AddFloat("NAT 1!", tx, tz, 180, 180, 180, 20)
 		g.Combat.ActionUsed = true
 		return
@@ -493,20 +498,22 @@ func executeSecondWind(g *GameState, w *World, ent *Entity, _, _ int) {
 		heal = 1
 	}
 	stats.HP += heal
-	if stats.HP > stats.MaxHP {
-		stats.HP = stats.MaxHP
+	maxHP := ent.EffectiveMaxHP()
+	if stats.HP > maxHP {
+		stats.HP = maxHP
 	}
 	stats.ClassCharges--
 	g.Combat.ActionUsed = true
 	g.SetMessage(fmt.Sprintf("%s uses Second Wind! Heals %d (HP: %d/%d)",
-		ent.Name, heal, stats.HP, stats.MaxHP))
+		ent.Name, heal, stats.HP, maxHP))
 	g.AddFloat(fmt.Sprintf("+%d", heal), ent.X, ent.Z, 80, 255, 80, 22)
 }
 
 func executeDash(g *GameState, w *World, ent *Entity, _, _ int) {
-	g.Combat.MoveLeft += ent.Stats.MoveSpeed
+	speed := ent.EffectiveMoveSpeed()
+	g.Combat.MoveLeft += speed
 	g.Combat.ActionUsed = true
-	g.SetMessage(fmt.Sprintf("%s dashes! +%d movement", ent.Name, ent.Stats.MoveSpeed))
+	g.SetMessage(fmt.Sprintf("%s dashes! +%d movement", ent.Name, speed))
 }
 
 func executeShove(g *GameState, w *World, ent *Entity, tx, tz int) {
@@ -557,12 +564,16 @@ func executeQuickStrike(g *GameState, w *World, ent *Entity, tx, tz int) {
 
 	ent.FacingAngle = FacingAngleFromDir(tx-ent.X, tz-ent.Z)
 
-	roll := rollD20()
+	roll := rollD20Adv(false, stats.Exhaustion >= 3)
 	atkMod := stats.Mod(stats.STR)
 	total := roll + atkMod + stats.ProfBonus + ent.GearHit()
 
 	if roll == 1 || (roll < 20 && total < threat.AC) {
-		g.SetMessage(fmt.Sprintf("%s quick strike — miss!", ent.Name))
+		exhStr := ""
+		if stats.Exhaustion >= 3 {
+			exhStr = " (exhausted)"
+		}
+		g.SetMessage(fmt.Sprintf("%s quick strike — miss!%s", ent.Name, exhStr))
 		g.AddFloat("MISS", tx, tz, 180, 180, 180, 16)
 		g.Combat.BonusUsed = true
 		return
@@ -609,12 +620,16 @@ func executeFireBolt(g *GameState, w *World, ent *Entity, tx, tz int) {
 
 	ent.FacingAngle = FacingAngleFromDir(tx-ent.X, tz-ent.Z)
 
-	roll := rollD20()
+	roll := rollD20Adv(false, stats.Exhaustion >= 3)
 	atkMod := stats.Mod(stats.INT)
 	total := roll + atkMod + stats.ProfBonus + ent.GearHit()
+	exhSuffix := ""
+	if stats.Exhaustion >= 3 {
+		exhSuffix = " (exhausted)"
+	}
 
 	if roll == 1 {
-		g.SetMessage(fmt.Sprintf("%s casts Fire Bolt — nat 1! Miss!", ent.Name))
+		g.SetMessage(fmt.Sprintf("%s casts Fire Bolt — nat 1! Miss!%s", ent.Name, exhSuffix))
 		g.AddFloat("NAT 1!", tx, tz, 180, 180, 180, 20)
 		g.Combat.ActionUsed = true
 		return
@@ -704,7 +719,7 @@ func executeMagicMissile(g *GameState, w *World, ent *Entity, tx, tz int) {
 
 // spellAttackRoll: d20 + INT mod + proficiency, returns (total, roll, isCrit)
 func spellAttackRoll(stats *CombatStats) (int, int, bool) {
-	roll := rollD20()
+	roll := rollD20Adv(false, stats.Exhaustion >= 3)
 	mod := stats.Mod(stats.INT)
 	total := roll + mod + stats.ProfBonus
 	return total, roll, roll == 20
@@ -1218,8 +1233,9 @@ func (g *GameState) leashCombatant(w *World) {
 		// Set up the next combatant's turn
 		next := c.Current()
 		if !next.IsEnemy {
-			if s := g.Entities[next.EntityIdx].Stats; s != nil {
-				c.MoveLeft = s.MoveSpeed
+			ent := g.Entities[next.EntityIdx]
+			if ent.Stats != nil {
+				c.MoveLeft = ent.EffectiveMoveSpeed()
 			}
 			c.Actions = BuildActions(g, g.Entities[next.EntityIdx])
 		} else {
@@ -1289,6 +1305,25 @@ func (g *GameState) ResolveEnemyAttack(w *World, threat Threat, target *Entity) 
 			}
 		}
 	}
+}
+
+// rollD20Adv rolls a d20 with advantage/disadvantage.
+// Both cancel out. Advantage: take higher. Disadvantage: take lower.
+func rollD20Adv(advantage, disadvantage bool) int {
+	if advantage == disadvantage {
+		return rand.Intn(20) + 1
+	}
+	a, b := rand.Intn(20)+1, rand.Intn(20)+1
+	if advantage {
+		if a > b {
+			return a
+		}
+		return b
+	}
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func rollD20() int { return rand.Intn(20) + 1 }

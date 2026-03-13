@@ -600,6 +600,20 @@ func drawLocal(
 			rl.DrawText(fmt.Sprintf("Pos: (%d, %d)  Sight: %d", ent.X, ent.Z, ent.RevealDist), panelX+10, panelY+34, 14, rl.LightGray)
 		}
 
+		lineY := panelY + 70
+		// Exhaustion indicator
+		if ent.Stats != nil && ent.Stats.Exhaustion > 0 {
+			exhColor := rl.Color{R: 255, G: 255, B: 80, A: 255} // yellow 1-2
+			if ent.Stats.Exhaustion >= 5 {
+				exhColor = rl.Color{R: 255, G: 60, B: 60, A: 255} // red 5-6
+			} else if ent.Stats.Exhaustion >= 3 {
+				exhColor = rl.Color{R: 255, G: 160, B: 40, A: 255} // orange 3-4
+			}
+			rl.DrawText(fmt.Sprintf("Exhaustion: %d/6", ent.Stats.Exhaustion),
+				panelX+10, lineY, 14, exhColor)
+			lineY += 18
+		}
+
 		taskStr := "Idle"
 		if ent.Task != nil {
 			switch ent.Task.Type {
@@ -613,10 +627,10 @@ func drawLocal(
 				}
 			}
 		}
-		rl.DrawText("Task: "+taskStr, panelX+10, panelY+72, 14, rl.White)
+		rl.DrawText("Task: "+taskStr, panelX+10, lineY, 14, rl.White)
 
-		rl.DrawText("[1] Scout [2] Stop [3] Rest [4] Follow", panelX+10, panelY+92, 14, rl.Gray)
-		rl.DrawText(fmt.Sprintf("< Tab (%d/%d) >", game.SelectedEnt+1, len(game.Entities)), panelX+10, panelY+110, 12, rl.DarkGray)
+		rl.DrawText("[1] Scout [2] Stop [3] Short Rest [4] Follow [5] Long Rest", panelX+10, lineY+20, 14, rl.Gray)
+		rl.DrawText(fmt.Sprintf("< Tab (%d/%d) >", game.SelectedEnt+1, len(game.Entities)), panelX+10, lineY+38, 12, rl.DarkGray)
 	}
 
 	// Combat UI
@@ -676,7 +690,10 @@ func drawLocal(
 
 			// Status line
 			info := fmt.Sprintf("%s | HP: %d/%d | Move: %d",
-				ent.Name, ent.Stats.HP, ent.Stats.MaxHP, c.MoveLeft)
+				ent.Name, ent.Stats.HP, ent.EffectiveMaxHP(), c.MoveLeft)
+			if ent.Stats.Exhaustion > 0 {
+				info += fmt.Sprintf(" [Exh %d]", ent.Stats.Exhaustion)
+			}
 			rl.DrawText(info, 10, barY+4, 16, rl.Yellow)
 
 			// Action buttons

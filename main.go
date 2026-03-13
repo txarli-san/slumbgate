@@ -353,6 +353,19 @@ func main() {
 				game.EquipUIOpen = !game.EquipUIOpen
 				game.EquipCursor = 0
 			}
+			// E cycles exhaustion 0→1→...→6→0
+			if rl.IsKeyPressed(rl.KeyE) && ent.Stats != nil {
+				ent.Stats.Exhaustion++
+				if ent.Stats.Exhaustion > 6 {
+					ent.Stats.Exhaustion = 0
+				}
+				game.SetMessage(fmt.Sprintf("[DEBUG] %s exhaustion → %d/6", ent.Name, ent.Stats.Exhaustion))
+				if ent.Stats.Exhaustion >= 6 {
+					game.KillEntity(world, game.SelectedEnt)
+				} else if ent.Stats.HP > ent.EffectiveMaxHP() {
+					ent.Stats.HP = ent.EffectiveMaxHP()
+				}
+			}
 			// M spawns Elara next to selected entity
 			if rl.IsKeyPressed(rl.KeyM) {
 				hasElara := false
@@ -736,6 +749,10 @@ func main() {
 			if rl.IsKeyPressed(rl.KeyThree) {
 				ent.Task = nil
 				game.TryRest(world, game.SelectedEnt)
+			}
+			if rl.IsKeyPressed(rl.KeyFive) {
+				ent.Task = nil
+				game.TryLongRest(world, game.SelectedEnt)
 			}
 			if rl.IsKeyPressed(rl.KeyFour) {
 				// Toggle: if anyone is already following selected, stop all followers

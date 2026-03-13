@@ -57,6 +57,7 @@ type CombatStats struct {
 	MaxHitDice      int    // = Level; recovered half on long rest
 	HitDieSize      int    // die size: Fighter=10, Mage=6, Cleric/Rogue/Druid=8
 	XP              int    // accumulated experience points
+	Exhaustion      int      // 0-6; 6 = death
 	CombatStyle     string   // Fighter L3: "Gladiator", "Ranger", "Juggernaut"
 	CombatTechnique string   // Fighter L4: "Power Attack", "Defensive Stance", "Quick Strike"
 	KnownSpells     []string // Mage: learned level 1 spells
@@ -306,8 +307,9 @@ type Entity struct {
 	RevealDist     int
 	Task           *Task
 	Scouted        map[[2]int]bool
-	Stats          *CombatStats // nil = non-combatant
-	Anim           AnimState
+	Stats             *CombatStats // nil = non-combatant
+	LastLongRestTick  int          // TimeTicks when last long rest completed; 0 = game start
+	Anim              AnimState
 	VisibleMeshes  []bool // per-mesh visibility filter for gear progression (nil = draw all)
 	Equipment      map[EquipSlot]*GearItem
 }
@@ -719,6 +721,59 @@ func (g *GameState) AnyEntityBusy() bool {
 
 const stepInterval = 0.25
 
+const ExhaustionThresholdTicks = 960 // 16 hours without long rest → first exhaustion gain
+const ExhaustionIntervalTicks = 240  // every 4 hours after threshold, another gain
+
+// EffectiveMaxHP returns MaxHP halved at exhaustion 4+.
+func (e *Entity) EffectiveMaxHP() int {
+	if e.Stats == nil {
+		return 1
+	}
+	if e.Stats.Exhaustion >= 4 {
+		return e.Stats.MaxHP / 2
+	}
+	return e.Stats.MaxHP
+}
+
+// EffectiveMoveSpeed returns MoveSpeed, halved at exhaustion 2+, zero at 5+.
+func (e *Entity) EffectiveMoveSpeed() int {
+	if e.Stats == nil {
+		return 0
+	}
+	if e.Stats.Exhaustion >= 5 {
+		return 0
+	}
+	if e.Stats.Exhaustion >= 2 {
+		return e.Stats.MoveSpeed / 2
+	}
+	return e.Stats.MoveSpeed
+}
+
+// CheckExhaustion gains exhaustion from time awake without long rest.
+func (e *Entity) CheckExhaustion(g *GameState, w *World) {
+	if e.Stats == nil || e.Stats.Exhaustion >= 6 {
+		return
+	}
+	awake := g.TimeTicks - e.LastLongRestTick
+	if awake < ExhaustionThresholdTicks {
+		return
+	}
+	expectedLevel := 1 + (awake-ExhaustionThresholdTicks)/ExhaustionIntervalTicks
+	if e.Stats.Exhaustion < expectedLevel {
+		e.Stats.Exhaustion++
+		g.SetMessage(fmt.Sprintf("%s gains exhaustion! (%d/6)", e.Name, e.Stats.Exhaustion))
+		g.AddFloat(fmt.Sprintf("Exhaustion %d", e.Stats.Exhaustion), e.X, e.Z, 255, 160, 40, 20)
+		if e.Stats.Exhaustion >= 6 {
+			for i, ent := range g.Entities {
+				if ent == e {
+					g.KillEntity(w, i)
+					return
+				}
+			}
+		}
+	}
+}
+
 func FacingAngleFromDir(dx, dz int) float32 {
 	if dx == 0 && dz == 0 {
 		return 0
@@ -731,6 +786,19 @@ func FacingAngleFromDir(dx, dz int) float32 {
 // Called once per player action (move, break wall, wait). Time only moves when someone acts.
 func (g *GameState) WorldStep(w *World) *Alert {
 	g.TimeTicks++
+	// Exhaustion from time awake
+	for _, ent := range g.Entities {
+		ent.CheckExhaustion(g, w)
+	}
+	if g.GameOver {
+		return nil
+	}
+	// HP clamping from exhaustion
+	for _, ent := range g.Entities {
+		if ent.Stats != nil && ent.Stats.HP > ent.EffectiveMaxHP() {
+			ent.Stats.HP = ent.EffectiveMaxHP()
+		}
+	}
 	w.TickLeashingThreats()
 	return g.TickEntities(w)
 }
@@ -739,6 +807,18 @@ func (g *GameState) WorldStep(w *World) *Alert {
 func (g *GameState) TickEntities(w *World) *Alert {
 	for i, ent := range g.Entities {
 		if ent.Task == nil {
+			continue
+		}
+
+		// Exhaustion 5+: can't move
+		if ent.EffectiveMoveSpeed() == 0 {
+			ent.Task = nil
+			g.SetMessage(fmt.Sprintf("%s is too exhausted to move!", ent.Name))
+			continue
+		}
+
+		// Exhaustion 2+: half speed — skip every other tick
+		if ent.Stats != nil && ent.Stats.Exhaustion >= 2 && g.TimeTicks%2 != 0 {
 			continue
 		}
 
@@ -928,19 +1008,20 @@ func (g *GameState) TryShortRest(w *World, entIdx int) {
 	ent := g.Entities[entIdx]
 
 	// Spend a hit die to heal
-	if ent.Stats != nil && ent.Stats.HP < ent.Stats.MaxHP && ent.Stats.HitDice > 0 {
+	maxHP := ent.EffectiveMaxHP()
+	if ent.Stats != nil && ent.Stats.HP < maxHP && ent.Stats.HitDice > 0 {
 		ent.Stats.HitDice--
 		heal := rollDice(ent.Stats.HitDieSize) + ent.Stats.Mod(ent.Stats.CON)
 		if heal < 1 {
 			heal = 1
 		}
 		ent.Stats.HP += heal
-		if ent.Stats.HP > ent.Stats.MaxHP {
-			ent.Stats.HP = ent.Stats.MaxHP
+		if ent.Stats.HP > maxHP {
+			ent.Stats.HP = maxHP
 		}
 		g.SetMessage(fmt.Sprintf("%s rests — heals %d HP (%d/%d) [%d hit dice left]",
-			ent.Name, heal, ent.Stats.HP, ent.Stats.MaxHP, ent.Stats.HitDice))
-	} else if ent.Stats != nil && ent.Stats.HP < ent.Stats.MaxHP {
+			ent.Name, heal, ent.Stats.HP, maxHP, ent.Stats.HitDice))
+	} else if ent.Stats != nil && ent.Stats.HP < maxHP {
 		g.SetMessage(fmt.Sprintf("%s rests — no hit dice left, no healing.", ent.Name))
 	} else {
 		g.SetMessage(fmt.Sprintf("%s rests — already at full health.", ent.Name))
@@ -979,11 +1060,17 @@ func (g *GameState) TryLongRest(w *World, entIdx int) {
 		// Restore class charges
 		ent.Stats.ClassCharges = ent.Stats.MaxClassCharges
 
+		// Reduce exhaustion by 1
+		if ent.Stats.Exhaustion > 0 {
+			ent.Stats.Exhaustion--
+		}
+
 		g.SetMessage(fmt.Sprintf("%s finishes long rest — fully healed! (%d/%d) [%d hit dice]",
 			ent.Name, ent.Stats.HP, ent.Stats.MaxHP, ent.Stats.HitDice))
 	}
 
 	g.TimeTicks += 480
+	ent.LastLongRestTick = g.TimeTicks // reset exhaustion timer from waking up
 }
 
 // KillEntity removes a dead entity from the roster and fixes all references.
