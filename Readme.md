@@ -40,13 +40,20 @@ Go + Raylib-go 3D game. Two modes: continuous (point-and-click party management)
 - Safe entity spawning (no overlaps with threats or other entities)
 - Room boundary wall buffer prevents dungeon boundary breaches
 - 3D rendering with custom GLSL lighting shader
+- Exhaustion system: D&D 5e levels 1-6, time-based gain (16h threshold), long rest recovery
+- Exhaustion effects: speed halved (L2), attack disadvantage (L3), max HP halved (L4), speed 0 (L5), death (L6)
+- Entity death handling (KillEntity removes dead entity, fixes all references)
+- Day counter: starts at 1, increments on long rest, shown in HUD
+- Follow mechanic: hotkey 4 toggles companions following selected entity
+- LOS-based pursuit leash: enemies lose interest faster without line of sight
+- Floating combat text: damage numbers, miss/crit/slain indicators
+- Minimap: top-right, tile-level, shows rooms/corridors/threats/entities
 - Entity info panel: level, class, HP, XP progress, effective AC with gear breakdown
+- Debug mode (--debug): fog disabled, hotkeys for XP/heal/spawn/gear/equipment/exhaustion
 - Camera orbit (right-drag) and zoom (scroll)
 
 ### WIP
 - Click action bar buttons (currently hotkey-only)
-- Entity death handling
-- Exhaustion system
 - Key assignment cleanup
 
 ## Code Structure
@@ -69,6 +76,7 @@ go run .
 ## Assets
 
 - Environment: [KayKit Dungeon Pack](https://kaylousberg.itch.io/kaykit-dungeon)
+- Characters: [KayKit Adventurers](https://kaylousberg.itch.io/kaykit-adventurers)
 - Enemies: [KayKit Skeletons](https://kaylousberg.itch.io/kaykit-skeletons)
 
 ## Legal — Third-Party Content
