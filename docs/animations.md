@@ -124,18 +124,11 @@ Body meshes (bone == -1): standard model transform (skinning already applied by 
 Gear meshes (bone >= 0):  modelTransform * boneMatrices[parentBone]  (skinning delta only)
 ```
 
-## Visual Progression Plan (Knight)
-Gear meshes to toggle per level:
-- **L1**: body only (meshes 9-14)
-- **L2**: + 1H_Sword (5)
-- **L3**: + Cape (8)
-- **L4**: + Helmet (7) + Round_Shield (3)
+## Visual Progression (Equipment-Driven)
+Gear mesh visibility is now driven by the equipment system (`RebuildVisibleMeshes()`).
+Equipping an item shows its mesh; unequipping hides it. No more level-based visual progression.
 
-## Visual Progression Plan (Mage)
-- **L1**: body only (meshes 6-11)
-- **L2**: + 1H_Wand (2)
-- **L3**: + Cape (5)
-- **L4**: + Hat (4) + Spellbook (0)
+See equipment system in game.go: `AllGear` table maps each item to its mesh index.
 
 ## Key Animation Clips (shared by all models)
 - `Idle` — standing, subtle breathing

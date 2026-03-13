@@ -31,16 +31,23 @@ Go + Raylib-go 3D game. Two modes: continuous (point-and-click company managemen
 - Long rest (480 ticks): full HP, half hit dice recovered, all class charges restored
 - Hit dice: class-sized (Fighter d10, Mage d6), spent on short rest
 - XP and leveling: SRD 5.1 thresholds, split among allies, HP/proficiency/ability progression
+- Equipment system: 4 slots (MainHand, OffHand, Head, Back), stat modifiers (AC, Hit, Damage, DamageDie)
+- 15 gear items (9 Fighter, 6 Mage) with 2H weapon conflict handling
+- Gear modifiers integrated into all combat paths (melee, Quick Strike, Fire Bolt, enemy attacks)
+- Equipment UI overlay with item list, cursor navigation, live stat updates
+- Chest world object near spawn — click to open equipment UI per entity
+- Equipment-driven mesh visibility (equip sword → mesh appears on model)
 - Safe entity spawning (no overlaps with threats or other entities)
 - Room boundary wall buffer prevents dungeon boundary breaches
 - 3D rendering with custom GLSL lighting shader
-- Entity info panel: level, class, HP, XP progress
+- Entity info panel: level, class, HP, XP progress, effective AC with gear breakdown
 - Camera orbit (right-drag) and zoom (scroll)
 
 ### WIP
 - Click action bar buttons (currently hotkey-only)
 - Entity death handling
 - Exhaustion system
+- Key assignment cleanup
 
 ## Code Structure
 
