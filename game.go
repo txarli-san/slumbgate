@@ -309,6 +309,7 @@ type Entity struct {
 	Stats          *CombatStats // nil = non-combatant
 	Anim           AnimState
 	VisibleMeshes  []bool // per-mesh visibility filter for gear progression (nil = draw all)
+	Equipment      map[EquipSlot]*GearItem
 }
 
 // meshNames returns human-readable labels for each mesh index per class.
@@ -371,6 +372,160 @@ func gearForLevel(class string, level int) []bool {
 		return v
 	}
 	return nil // unknown class = draw all
+}
+
+// Equipment system
+
+type EquipSlot int
+
+const (
+	SlotMainHand EquipSlot = iota
+	SlotOffHand
+	SlotHead
+	SlotBack
+)
+
+type GearItem struct {
+	Name      string
+	Slot      EquipSlot
+	MeshIdx   int    // which mesh to show
+	Class     string // "Fighter" or "Mage"
+	TwoHanded bool   // blocks OffHand
+	AC        int    // AC bonus
+	Hit       int    // attack roll bonus
+	Damage    int    // damage bonus
+	DamageDie int    // weapon die override (0 = default d8)
+}
+
+// AllGear is the master item table.
+var AllGear = []GearItem{
+	// Fighter
+	{Name: "Longsword", Slot: SlotMainHand, MeshIdx: 5, Class: "Fighter", DamageDie: 8},
+	{Name: "Greatsword", Slot: SlotMainHand, MeshIdx: 6, Class: "Fighter", TwoHanded: true, DamageDie: 12},
+	{Name: "Short Sword", Slot: SlotOffHand, MeshIdx: 0, Class: "Fighter", Damage: 1},
+	{Name: "Buckler", Slot: SlotOffHand, MeshIdx: 1, Class: "Fighter", AC: 1},
+	{Name: "Kite Shield", Slot: SlotOffHand, MeshIdx: 2, Class: "Fighter", AC: 2},
+	{Name: "Round Shield", Slot: SlotOffHand, MeshIdx: 3, Class: "Fighter", AC: 2},
+	{Name: "Spike Shield", Slot: SlotOffHand, MeshIdx: 4, Class: "Fighter", AC: 1, Damage: 1},
+	{Name: "Helmet", Slot: SlotHead, MeshIdx: 7, Class: "Fighter", AC: 1},
+	{Name: "Cloak", Slot: SlotBack, MeshIdx: 8, Class: "Fighter"},
+	// Mage
+	{Name: "Wand", Slot: SlotMainHand, MeshIdx: 2, Class: "Mage", Hit: 1},
+	{Name: "Staff", Slot: SlotMainHand, MeshIdx: 3, Class: "Mage", TwoHanded: true, Hit: 1, Damage: 1},
+	{Name: "Spellbook", Slot: SlotOffHand, MeshIdx: 0, Class: "Mage", Damage: 1},
+	{Name: "Tome of Power", Slot: SlotOffHand, MeshIdx: 1, Class: "Mage", Hit: 1},
+	{Name: "Wizard Hat", Slot: SlotHead, MeshIdx: 4, Class: "Mage", AC: 1},
+	{Name: "Arcane Cloak", Slot: SlotBack, MeshIdx: 5, Class: "Mage"},
+}
+
+// GearForClass returns all items available to a class.
+func GearForClass(class string) []GearItem {
+	var items []GearItem
+	for _, g := range AllGear {
+		if g.Class == class {
+			items = append(items, g)
+		}
+	}
+	return items
+}
+
+// GearAC returns total AC bonus from equipped gear.
+func (e *Entity) GearAC() int {
+	total := 0
+	for _, item := range e.Equipment {
+		total += item.AC
+	}
+	return total
+}
+
+// GearHit returns total attack roll bonus from equipped gear.
+func (e *Entity) GearHit() int {
+	total := 0
+	for _, item := range e.Equipment {
+		total += item.Hit
+	}
+	return total
+}
+
+// GearDamage returns total damage bonus from equipped gear.
+func (e *Entity) GearDamage() int {
+	total := 0
+	for _, item := range e.Equipment {
+		total += item.Damage
+	}
+	return total
+}
+
+// WeaponDie returns the main hand weapon die size, or 8 (longsword default).
+func (e *Entity) WeaponDie() int {
+	if item, ok := e.Equipment[SlotMainHand]; ok && item.DamageDie > 0 {
+		return item.DamageDie
+	}
+	return 8
+}
+
+// EffectiveAC returns base AC + gear bonuses.
+func (e *Entity) EffectiveAC() int {
+	if e.Stats == nil {
+		return 10
+	}
+	return e.Stats.AC + e.GearAC()
+}
+
+// Equip adds an item to the entity's equipment, handling 2H conflicts.
+func (e *Entity) Equip(item *GearItem) {
+	if e.Equipment == nil {
+		e.Equipment = map[EquipSlot]*GearItem{}
+	}
+	// 2H weapon: also clear offhand
+	if item.TwoHanded && item.Slot == SlotMainHand {
+		delete(e.Equipment, SlotOffHand)
+	}
+	// Equipping offhand: clear 2H main hand
+	if item.Slot == SlotOffHand {
+		if mh, ok := e.Equipment[SlotMainHand]; ok && mh.TwoHanded {
+			delete(e.Equipment, SlotMainHand)
+		}
+	}
+	e.Equipment[item.Slot] = item
+	e.RebuildVisibleMeshes()
+}
+
+// Unequip removes an item from the given slot.
+func (e *Entity) Unequip(slot EquipSlot) {
+	delete(e.Equipment, slot)
+	e.RebuildVisibleMeshes()
+}
+
+// RebuildVisibleMeshes updates VisibleMeshes from current equipment.
+func (e *Entity) RebuildVisibleMeshes() {
+	if e.Stats == nil {
+		return
+	}
+	switch e.Stats.Class {
+	case "Fighter":
+		v := make([]bool, 15)
+		for i := 9; i <= 14; i++ {
+			v[i] = true
+		}
+		for _, item := range e.Equipment {
+			if item.MeshIdx < len(v) {
+				v[item.MeshIdx] = true
+			}
+		}
+		e.VisibleMeshes = v
+	case "Mage":
+		v := make([]bool, 12)
+		for i := 6; i <= 11; i++ {
+			v[i] = true
+		}
+		for _, item := range e.Equipment {
+			if item.MeshIdx < len(v) {
+				v[item.MeshIdx] = true
+			}
+		}
+		e.VisibleMeshes = v
+	}
 }
 
 type Alert struct {
@@ -441,6 +596,9 @@ type GameState struct {
 	DebugGearPanel bool // toggle gear mesh editor
 	GearCursor     int  // selected row in gear panel
 	GameOver       bool // true when all entities are dead
+	EquipUIOpen    bool // equipment overlay visible
+	EquipCursor    int  // selected row in equipment item list
+	ChestUsedBy    int  // entity index that last opened chest (-1 = none)
 }
 
 // PendingLevelUpEntity returns the index of the first entity with pending

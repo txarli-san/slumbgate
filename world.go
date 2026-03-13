@@ -103,6 +103,9 @@ type World struct {
 	LeashingThreats  []LeashingThreat
 	PickaxeX         int
 	PickaxeZ         int
+	ChestX           int
+	ChestZ           int
+	ChestOpen        bool // true after entity interacts with it
 }
 
 func NewWorld(seed int64) *World {
@@ -330,6 +333,27 @@ func (w *World) carveCorridor(x1, z1, x2, z2 int) {
 			w.Rooms = append(w.Rooms, Room{X: x2, Z: z, W: 1, H: 1})
 		}
 	}
+}
+
+// PlaceChest places the equipment chest 3-5 tiles from spawn on a walkable tile.
+func (w *World) PlaceChest(spawnX, spawnZ int) {
+	rng := rand.New(rand.NewSource(w.Seed + 1234))
+	for range 500 {
+		tx := spawnX + rng.Intn(11) - 5
+		tz := spawnZ + rng.Intn(11) - 5
+		if w.BaseTileType(tx, tz) != TileGround {
+			continue
+		}
+		dx, dz := tx-spawnX, tz-spawnZ
+		dist := dx*dx + dz*dz
+		if dist < 3*3 || dist > 5*5 {
+			continue
+		}
+		w.ChestX, w.ChestZ = tx, tz
+		return
+	}
+	// Fallback: place 3 tiles east
+	w.ChestX, w.ChestZ = spawnX+3, spawnZ
 }
 
 func (w *World) PlacePickaxe(spawnX, spawnZ int) {

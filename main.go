@@ -20,6 +20,7 @@ func main() {
 
 	rl.InitWindow(screenWidth, screenHeight, "Slumbgate - Infinite Dungeon")
 	defer rl.CloseWindow()
+	rl.SetExitKey(0) // don't quit on Esc — we use it for UI
 	rl.SetTargetFPS(60)
 
 	// Shader
@@ -58,6 +59,14 @@ func main() {
 	pickaxeModel := rl.LoadModel("assets/models/weapons/axe_common.gltf.glb")
 	defer rl.UnloadModel(pickaxeModel)
 	applyShaderToModel(pickaxeModel, shader)
+
+	// Chest models
+	chestModel := rl.LoadModel("assets/models/loot/chest_common.gltf.glb")
+	defer rl.UnloadModel(chestModel)
+	applyShaderToModel(chestModel, shader)
+	chestTopModel := rl.LoadModel("assets/models/loot/chestTop_common.gltf.glb")
+	defer rl.UnloadModel(chestTopModel)
+	applyShaderToModel(chestTopModel, shader)
 
 	// Animated character models
 	knightAnim := loadAnimatedModel("assets/models/characters/animated/Knight.glb")
@@ -167,18 +176,22 @@ func main() {
 		world = NewWorld(seed)
 		spawnX = OuterRadius + DungeonWarpAmp + 5
 		world.PlacePickaxe(spawnX, 0)
-		game = &GameState{SelectedEnt: 0, Debug: *debugMode}
-		game.Entities = []*Entity{
-			{Name: "Brynn", X: spawnX, Z: 0, Tier: TierRecruit, RevealDist: 6, Scouted: map[[2]int]bool{},
-				VisibleMeshes: gearForLevel("Fighter", 1),
-				Stats: &CombatStats{
-					HP: 12, MaxHP: 12, AC: 13,
-					STR: 16, DEX: 12, CON: 14, INT: 10, WIS: 12, CHA: 10,
-					Level: 1, ProfBonus: 2, MoveSpeed: 5, Class: "Fighter",
-					ClassCharges: 1, MaxClassCharges: 1,
-					HitDice: 1, MaxHitDice: 1, HitDieSize: 10,
-				}},
+		world.PlaceChest(spawnX, 0)
+		game = &GameState{SelectedEnt: 0, Debug: *debugMode, ChestUsedBy: -1}
+		brynn := &Entity{
+			Name: "Brynn", X: spawnX, Z: 0, Tier: TierRecruit, RevealDist: 6,
+			Scouted:   map[[2]int]bool{},
+			Equipment: map[EquipSlot]*GearItem{},
+			Stats: &CombatStats{
+				HP: 12, MaxHP: 12, AC: 13,
+				STR: 16, DEX: 12, CON: 14, INT: 10, WIS: 12, CHA: 10,
+				Level: 1, ProfBonus: 2, MoveSpeed: 5, Class: "Fighter",
+				ClassCharges: 1, MaxClassCharges: 1,
+				HitDice: 1, MaxHitDice: 1, HitDieSize: 10,
+			},
 		}
+		brynn.RebuildVisibleMeshes()
+		game.Entities = []*Entity{brynn}
 		for _, ent := range game.Entities {
 			cx, cz := TileToChunk(ent.X, ent.Z)
 			world.EnsureChunksAround(cx, cz)
@@ -227,7 +240,7 @@ func main() {
 					g.Entities = append(g.Entities, &Entity{
 						Name: "Elara", X: mx, Z: mz, Tier: TierRecruit, RevealDist: 5,
 						Scouted: map[[2]int]bool{},
-						VisibleMeshes: gearForLevel("Mage", 1),
+						Equipment: map[EquipSlot]*GearItem{},
 						Stats: &CombatStats{
 							HP: 7, MaxHP: 7, AC: 12,
 							STR: 8, DEX: 14, CON: 12, INT: 16, WIS: 14, CHA: 10,
@@ -236,6 +249,7 @@ func main() {
 							HitDice: 1, MaxHitDice: 1, HitDieSize: 6,
 						},
 					})
+					g.Entities[len(g.Entities)-1].RebuildVisibleMeshes()
 					g.SetMessage("Elara the Mage freed! She joins your company!")
 				},
 			},
@@ -266,7 +280,7 @@ func main() {
 			rl.ClearBackground(rl.Color{R: 10, G: 10, B: 15, A: 255})
 			drawLocal(camera, world, game, dt, tileUnit, floorSurfaceY, knightYOffset, charScale, wallScale,
 				floorVariant, gridToWorld,
-				wallModel, pickaxeModel, heroModels, skeletonModels, game.Entities, game.SelectedEnt)
+				wallModel, pickaxeModel, chestModel, chestTopModel, heroModels, skeletonModels, game.Entities, game.SelectedEnt)
 			rl.EndDrawing()
 			continue
 		}
@@ -334,6 +348,11 @@ func main() {
 				game.DebugGearPanel = !game.DebugGearPanel
 				game.GearCursor = 0
 			}
+			// C opens equipment UI for selected entity
+			if rl.IsKeyPressed(rl.KeyC) {
+				game.EquipUIOpen = !game.EquipUIOpen
+				game.EquipCursor = 0
+			}
 			// M spawns Elara next to selected entity
 			if rl.IsKeyPressed(rl.KeyM) {
 				hasElara := false
@@ -349,7 +368,7 @@ func main() {
 						game.Entities = append(game.Entities, &Entity{
 							Name: "Elara", X: mx, Z: mz, Tier: TierRecruit, RevealDist: 5,
 							Scouted:       map[[2]int]bool{},
-							VisibleMeshes:  gearForLevel("Mage", 1),
+							Equipment: map[EquipSlot]*GearItem{},
 							Stats: &CombatStats{
 								HP: 7, MaxHP: 7, AC: 12,
 								STR: 8, DEX: 14, CON: 12, INT: 16, WIS: 14, CHA: 10,
@@ -358,6 +377,7 @@ func main() {
 								HitDice: 1, MaxHitDice: 1, HitDieSize: 6,
 							},
 						})
+						game.Entities[len(game.Entities)-1].RebuildVisibleMeshes()
 						game.SetMessage("[DEBUG] Elara spawned!")
 					}
 				} else {
@@ -400,6 +420,54 @@ func main() {
 			}
 			if rl.IsKeyPressed(rl.KeyEscape) {
 				game.DebugGearPanel = false
+			}
+		}
+
+		// Equipment UI input — blocks all other input while open
+		if game.EquipUIOpen && game.SelectedEnt >= 0 && game.SelectedEnt < len(game.Entities) {
+			ent := game.Entities[game.SelectedEnt]
+			if ent.Stats != nil {
+				items := GearForClass(ent.Stats.Class)
+				count := len(items)
+				if rl.IsKeyPressed(rl.KeyUp) {
+					game.EquipCursor--
+					if game.EquipCursor < 0 {
+						game.EquipCursor = count - 1
+					}
+				}
+				if rl.IsKeyPressed(rl.KeyDown) {
+					game.EquipCursor++
+					if game.EquipCursor >= count {
+						game.EquipCursor = 0
+					}
+				}
+				if rl.IsKeyPressed(rl.KeyEnter) {
+					if game.EquipCursor < count {
+						item := &AllGear[0]
+						// Find the actual item in AllGear to get a stable pointer
+						idx := 0
+						for i := range AllGear {
+							if AllGear[i].Class == ent.Stats.Class {
+								if idx == game.EquipCursor {
+									item = &AllGear[i]
+									break
+								}
+								idx++
+							}
+						}
+						// Toggle: unequip if already equipped, else equip
+						if eq, ok := ent.Equipment[item.Slot]; ok && eq.Name == item.Name {
+							ent.Unequip(item.Slot)
+							game.SetMessage(fmt.Sprintf("Unequipped %s", item.Name))
+						} else {
+							ent.Equip(item)
+							game.SetMessage(fmt.Sprintf("Equipped %s", item.Name))
+						}
+					}
+				}
+				if rl.IsKeyPressed(rl.KeyEscape) {
+					game.EquipUIOpen = false
+				}
 			}
 		}
 
@@ -469,7 +537,7 @@ func main() {
 		}
 
 		// Click in 3D view: select entity or assign move task (continuous mode only)
-		if !levelUpPending && !gearPanelOpen {
+		if !levelUpPending && !gearPanelOpen && !game.EquipUIOpen {
 		if game.Combat == nil && game.Alert == nil && game.PendingLevelUpEntity() < 0 && rl.IsMouseButtonPressed(rl.MouseButtonLeft) {
 			ray := rl.GetScreenToWorldRay(rl.GetMousePosition(), camera)
 			if wx, wz, ok := rayHitGround(ray); ok {
@@ -528,6 +596,24 @@ func main() {
 					game.SetMessage(alert.Message)
 					break
 				}
+			}
+		}
+
+		// Chest: open equipment UI when selected entity arrives at chest tile
+		if game.Combat == nil && !game.EquipUIOpen && game.SelectedEnt >= 0 && game.SelectedEnt < len(game.Entities) {
+			ent := game.Entities[game.SelectedEnt]
+			onChest := ent.X == world.ChestX && ent.Z == world.ChestZ && ent.Task == nil
+			if onChest && game.ChestUsedBy != game.SelectedEnt {
+				// New entity arrived (or same entity walked away and back)
+				world.ChestOpen = true
+				game.EquipUIOpen = true
+				game.EquipCursor = 0
+				game.ChestUsedBy = game.SelectedEnt
+				game.SetMessage(fmt.Sprintf("%s opens the equipment chest!", ent.Name))
+			}
+			if !onChest && game.ChestUsedBy == game.SelectedEnt {
+				// Entity walked away — reset so they can use it again
+				game.ChestUsedBy = -1
 			}
 		}
 
@@ -732,7 +818,7 @@ func main() {
 
 		drawLocal(camera, world, game, dt, tileUnit, floorSurfaceY, knightYOffset, charScale, wallScale,
 			floorVariant, gridToWorld,
-			wallModel, pickaxeModel, heroModels, skeletonModels, game.Entities, game.SelectedEnt)
+			wallModel, pickaxeModel, chestModel, chestTopModel, heroModels, skeletonModels, game.Entities, game.SelectedEnt)
 
 		rl.EndDrawing()
 	}

@@ -276,6 +276,7 @@ func drawLocal(
 	floorVariant func(int, int) rl.Model,
 	gridToWorld func(int, int) rl.Vector3,
 	wallModel, pickaxeModel rl.Model,
+	chestModel, chestTopModel rl.Model,
 	heroModels map[string]*AnimatedModel, // "Fighter" → Knight, "Mage" → Mage
 	skeletonModels map[SkeletonType]*AnimatedModel,
 	entities []*Entity,
@@ -420,6 +421,26 @@ func drawLocal(
 		rl.DrawModelEx(pickaxeModel, pickPos, rl.Vector3{Y: 1}, 45, pickScale, rl.Color{R: 255, G: 200, B: 80, A: 255})
 	}
 
+	// Equipment chest with pulsing glow
+	{
+		chestPos := gridToWorld(world.ChestX, world.ChestZ)
+		// Pulsing gold glow
+		pulse := float32(math.Sin(float64(rl.GetTime())*3.0))*0.3 + 0.7
+		glowPos := chestPos
+		glowPos.Y = floorSurfaceY + 0.02
+		glowSize := tileUnit * 1.2 * pulse
+		rl.DrawCubeV(glowPos, rl.Vector3{X: glowSize, Y: 0.05, Z: glowSize},
+			rl.Color{R: 255, G: 200, B: 60, A: uint8(50 * pulse)})
+		chestPos.Y = floorSurfaceY
+		chestScale := rl.Vector3{X: wallScale * 2.5, Y: wallScale * 2.5, Z: wallScale * 2.5}
+		chestTint := rl.Color{R: 255, G: 220, B: 120, A: 255}
+		if world.ChestOpen {
+			rl.DrawModelEx(chestTopModel, chestPos, rl.Vector3{Y: 1}, 0, chestScale, chestTint)
+		} else {
+			rl.DrawModelEx(chestModel, chestPos, rl.Vector3{Y: 1}, 0, chestScale, chestTint)
+		}
+	}
+
 	// Entities (update-then-draw: animate shared model, draw, repeat per entity)
 	scaleVec := rl.Vector3{X: charScale, Y: charScale, Z: charScale}
 	for i, ent := range entities {
@@ -561,7 +582,11 @@ func drawLocal(
 		rl.DrawText(fmt.Sprintf("%s  [%s]", ent.Name, tierName(ent.Tier)), panelX+10, panelY+8, 20, tierColor(ent.Tier))
 		if ent.Stats != nil {
 			s := ent.Stats
-			rl.DrawText(fmt.Sprintf("Lv %d %s  HP %d/%d", s.Level, s.Class, s.HP, s.MaxHP),
+			acStr := fmt.Sprintf("AC %d", ent.EffectiveAC())
+			if ent.GearAC() > 0 {
+				acStr = fmt.Sprintf("AC %d (+%d)", ent.EffectiveAC(), ent.GearAC())
+			}
+			rl.DrawText(fmt.Sprintf("Lv %d %s  HP %d/%d  %s", s.Level, s.Class, s.HP, s.MaxHP, acStr),
 				panelX+10, panelY+34, 14, rl.LightGray)
 			nextXP := xpForLevel(s.Level + 1)
 			if nextXP > 0 {
@@ -887,6 +912,117 @@ func drawLocal(
 		restart := "[Space] New Expedition"
 		rw := rl.MeasureText(restart, 20)
 		rl.DrawText(restart, (screenWidth-rw)/2, screenHeight/2+50, 20, rl.Gray)
+	}
+
+	// Equipment UI overlay
+	if game.EquipUIOpen && game.SelectedEnt >= 0 && game.SelectedEnt < len(game.Entities) {
+		ent := game.Entities[game.SelectedEnt]
+		if ent.Stats != nil {
+			items := GearForClass(ent.Stats.Class)
+			boxW := int32(440)
+			boxH := int32(180 + int32(len(items))*20)
+			boxX := (int32(screenWidth) - boxW) / 2
+			boxY := (int32(screenHeight) - boxH) / 2
+
+			rl.DrawRectangle(boxX, boxY, boxW, boxH, rl.Color{R: 15, G: 15, B: 25, A: 240})
+			rl.DrawRectangleLines(boxX, boxY, boxW, boxH, rl.Color{R: 200, G: 170, B: 80, A: 255})
+
+			// Title
+			title := fmt.Sprintf("%s — Equipment", ent.Name)
+			tw := rl.MeasureText(title, 20)
+			rl.DrawText(title, boxX+boxW/2-tw/2, boxY+10, 20, rl.Color{R: 200, G: 170, B: 80, A: 255})
+
+			// Current loadout
+			lineY := boxY + 38
+			slotNames := []string{"MainHand", "OffHand", "Head", "Back"}
+			slots := []EquipSlot{SlotMainHand, SlotOffHand, SlotHead, SlotBack}
+			for i, slot := range slots {
+				itemName := "(empty)"
+				if item, ok := ent.Equipment[slot]; ok {
+					itemName = item.Name
+					if item.TwoHanded {
+						itemName += " (2H)"
+					}
+				}
+				rl.DrawText(fmt.Sprintf("%-10s %s", slotNames[i]+":", itemName),
+					boxX+16, lineY, 14, rl.LightGray)
+				lineY += 18
+			}
+
+			// Gear totals
+			lineY += 4
+			rl.DrawText(fmt.Sprintf("AC: %d (+%d)   Hit: +%d   Dmg: +%d   Die: d%d",
+				ent.EffectiveAC(), ent.GearAC(), ent.GearHit(), ent.GearDamage(), ent.WeaponDie()),
+				boxX+16, lineY, 14, rl.Color{R: 180, G: 200, B: 255, A: 255})
+			lineY += 24
+
+			// Separator
+			rl.DrawLine(boxX+10, lineY, boxX+boxW-10, lineY, rl.Color{R: 80, G: 80, B: 100, A: 255})
+			lineY += 6
+
+			// Item list
+			for i, item := range items {
+				y := lineY + int32(i)*20
+				equipped := false
+				if eq, ok := ent.Equipment[item.Slot]; ok && eq.Name == item.Name {
+					equipped = true
+				}
+
+				col := rl.Color{R: 160, G: 160, B: 160, A: 255}
+				if equipped {
+					col = rl.Color{R: 100, G: 255, B: 100, A: 255}
+				}
+
+				if i == game.EquipCursor {
+					rl.DrawRectangle(boxX+4, y-1, boxW-8, 18, rl.Color{R: 200, G: 170, B: 80, A: 40})
+				}
+
+				label := item.Name
+				if item.TwoHanded {
+					label += " (2H)"
+				}
+
+				// Slot tag
+				slotTag := ""
+				switch item.Slot {
+				case SlotMainHand:
+					slotTag = "[MainHand]"
+				case SlotOffHand:
+					slotTag = "[OffHand]"
+				case SlotHead:
+					slotTag = "[Head]"
+				case SlotBack:
+					slotTag = "[Back]"
+				}
+
+				// Stat summary
+				stats := ""
+				if item.AC > 0 {
+					stats += fmt.Sprintf("AC:+%d ", item.AC)
+				}
+				if item.Hit > 0 {
+					stats += fmt.Sprintf("Hit:+%d ", item.Hit)
+				}
+				if item.Damage > 0 {
+					stats += fmt.Sprintf("Dmg:+%d ", item.Damage)
+				}
+				if item.DamageDie > 0 {
+					stats += fmt.Sprintf("Die:d%d ", item.DamageDie)
+				}
+
+				marker := "  "
+				if equipped {
+					marker = " *"
+				}
+
+				rl.DrawText(fmt.Sprintf("%-18s %-12s %s%s", label, slotTag, stats, marker),
+					boxX+16, y, 14, col)
+			}
+
+			// Controls
+			ctrlY := lineY + int32(len(items))*20 + 8
+			rl.DrawText("Up/Down select   Enter equip/unequip   Esc close", boxX+16, ctrlY, 14, rl.Gray)
+		}
 	}
 
 	rl.DrawFPS(screenWidth-90, screenHeight-25)

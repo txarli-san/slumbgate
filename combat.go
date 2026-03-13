@@ -422,7 +422,7 @@ func executeMeleeAttack(g *GameState, w *World, ent *Entity, tx, tz int) {
 
 	roll := rollD20()
 	atkMod := stats.Mod(stats.STR)
-	hitBonus := 0
+	hitBonus := ent.GearHit()
 	if stats.CombatTechnique == "Power Attack" {
 		hitBonus -= 2
 	}
@@ -443,12 +443,13 @@ func executeMeleeAttack(g *GameState, w *World, ent *Entity, tx, tz int) {
 		return
 	}
 
-	// Hit — 1d8 + STR mod, crit doubles dice
-	damageDice := rollDice(8)
+	// Hit — weapon die + STR mod + gear damage, crit doubles dice
+	weaponDie := ent.WeaponDie()
+	damageDice := rollDice(weaponDie)
 	if roll == 20 {
-		damageDice += rollDice(8)
+		damageDice += rollDice(weaponDie)
 	}
-	damage := damageDice + atkMod
+	damage := damageDice + atkMod + ent.GearDamage()
 	if stats.CombatStyle == "Gladiator" {
 		damage += 2
 	}
@@ -558,7 +559,7 @@ func executeQuickStrike(g *GameState, w *World, ent *Entity, tx, tz int) {
 
 	roll := rollD20()
 	atkMod := stats.Mod(stats.STR)
-	total := roll + atkMod + stats.ProfBonus
+	total := roll + atkMod + stats.ProfBonus + ent.GearHit()
 
 	if roll == 1 || (roll < 20 && total < threat.AC) {
 		g.SetMessage(fmt.Sprintf("%s quick strike — miss!", ent.Name))
@@ -567,12 +568,13 @@ func executeQuickStrike(g *GameState, w *World, ent *Entity, tx, tz int) {
 		return
 	}
 
-	// Half damage: (1d8 + STR) / 2, minimum 1
-	damageDice := rollDice(8)
+	// Half damage: (weapon die + STR + gear) / 2, minimum 1
+	weaponDie := ent.WeaponDie()
+	damageDice := rollDice(weaponDie)
 	if roll == 20 {
-		damageDice += rollDice(8)
+		damageDice += rollDice(weaponDie)
 	}
-	damage := (damageDice + atkMod) / 2
+	damage := (damageDice + atkMod + ent.GearDamage()) / 2
 	if damage < 1 {
 		damage = 1
 	}
@@ -609,7 +611,7 @@ func executeFireBolt(g *GameState, w *World, ent *Entity, tx, tz int) {
 
 	roll := rollD20()
 	atkMod := stats.Mod(stats.INT)
-	total := roll + atkMod + stats.ProfBonus
+	total := roll + atkMod + stats.ProfBonus + ent.GearHit()
 
 	if roll == 1 {
 		g.SetMessage(fmt.Sprintf("%s casts Fire Bolt — nat 1! Miss!", ent.Name))
@@ -620,7 +622,7 @@ func executeFireBolt(g *GameState, w *World, ent *Entity, tx, tz int) {
 
 	if roll < 20 && total < threat.AC {
 		g.SetMessage(fmt.Sprintf("%s casts Fire Bolt (%d+%d=%d vs AC %d) — miss!",
-			ent.Name, roll, atkMod+stats.ProfBonus, total, threat.AC))
+			ent.Name, roll, atkMod+stats.ProfBonus+ent.GearHit(), total, threat.AC))
 		g.AddFloat(fmt.Sprintf("MISS (%d)", total), tx, tz, 180, 180, 180, 18)
 		g.Combat.ActionUsed = true
 		return
@@ -630,7 +632,7 @@ func executeFireBolt(g *GameState, w *World, ent *Entity, tx, tz int) {
 	if roll == 20 {
 		damageDice += rollDice(10)
 	}
-	damage := damageDice + atkMod
+	damage := damageDice + atkMod + ent.GearDamage()
 
 	threat.HP -= damage
 	if threat.HP < 0 {
@@ -1248,9 +1250,10 @@ func (g *GameState) ResolveEnemyAttack(w *World, threat Threat, target *Entity) 
 		return
 	}
 
-	if roll < 20 && total < target.Stats.AC {
+	ac := target.EffectiveAC()
+	if roll < 20 && total < ac {
 		g.SetMessage(fmt.Sprintf("Skeleton attacks %s (%d+%d=%d vs AC %d) — miss!",
-			target.Name, roll, atkMod, total, target.Stats.AC))
+			target.Name, roll, atkMod, total, ac))
 		g.AddFloat(fmt.Sprintf("MISS (%d)", total), target.X, target.Z, 180, 180, 180, 18)
 		return
 	}
