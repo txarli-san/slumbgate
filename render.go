@@ -524,8 +524,8 @@ func drawLocal(
 		rl.DrawText("COMBAT", 10, 10, 24, rl.Color{R: 255, G: 60, B: 60, A: 255})
 		rl.DrawText("Click tile to move | Click enemy to attack | Space end turn", 10, 38, 16, rl.Gray)
 	} else {
-		rl.DrawText(fmt.Sprintf("Time: %d | Chunks: %d",
-			game.TimeTicks, len(world.Chunks)), 10, 10, 20, rl.White)
+		rl.DrawText(fmt.Sprintf("Day %d | Time: %d | Chunks: %d",
+			game.Day, game.TimeTicks, len(world.Chunks)), 10, 10, 20, rl.White)
 		rl.DrawText("Click select/move | Tab cycle | 1 Scout | 2 Stop | Right-drag orbit | Scroll zoom", 10, 35, 16, rl.Gray)
 	}
 	if game.MessageTimer > 0 {

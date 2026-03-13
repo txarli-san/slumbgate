@@ -177,7 +177,7 @@ func main() {
 		spawnX = OuterRadius + DungeonWarpAmp + 5
 		world.PlacePickaxe(spawnX, 0)
 		world.PlaceChest(spawnX, 0)
-		game = &GameState{SelectedEnt: 0, Debug: *debugMode, ChestUsedBy: -1}
+		game = &GameState{SelectedEnt: 0, Day: 1, Debug: *debugMode, ChestUsedBy: -1}
 		brynn := &Entity{
 			Name: "Brynn", X: spawnX, Z: 0, Tier: TierRecruit, RevealDist: 6,
 			Scouted:   map[[2]int]bool{},

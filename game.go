@@ -594,6 +594,7 @@ type GameState struct {
 	Floats      []FloatingText
 	MoveRange   map[[2]int]bool
 	AttackRange map[[2]int]bool
+	Day            int // increments on each long rest; starts at 1
 	Debug          bool
 	DebugGearPanel bool // toggle gear mesh editor
 	GearCursor     int  // selected row in gear panel
@@ -1070,6 +1071,7 @@ func (g *GameState) TryLongRest(w *World, entIdx int) {
 	}
 
 	g.TimeTicks += 480
+	g.Day++
 	ent.LastLongRestTick = g.TimeTicks // reset exhaustion timer from waking up
 }
 
