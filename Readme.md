@@ -65,6 +65,10 @@ Go + Raylib-go 3D game. Two modes: continuous (point-and-click party management)
 - `game.go` — game state, entities, tasks, pathfinding, tick logic
 - `combat.go` — combat state, initiative, turns, dice
 
+### Rendering
+
+Distance-based culling in `render.go`: chunks, entities, and threats beyond the camera's visible radius (3x camera height) are skipped entirely — no draw calls, no animation updates. Future optimization if needed: minimap caching to RenderTexture2D.
+
 ## Build / Run
 
 Requires Go and Raylib dependencies.
