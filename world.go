@@ -47,8 +47,22 @@ type Chunk struct {
 	Explored  bool
 }
 
+type RoomType int
+
+const (
+	RoomCorridor RoomType = iota
+	RoomStorage
+	RoomBarracks
+	RoomLibrary
+	RoomDining
+	RoomCrypt
+	RoomTrap
+	RoomEmpty
+)
+
 type Room struct {
 	X, Z, W, H int
+	Type        RoomType
 }
 
 type SkeletonType int
@@ -285,6 +299,36 @@ func (w *World) generateRooms() {
 		}
 		bx, bz := roomCenter(bestIdx)
 		w.carveCorridor(tx, tz, bx, bz)
+	}
+
+	// Phase 5: Assign room types
+	// Corridors auto-detected by size, real rooms get weighted random type
+	// Storage 20%, Barracks 15%, Library 10%, Dining 15%, Crypt 15%, Trap 5%, Empty 20%
+	type weightedType struct {
+		t RoomType
+		w int // cumulative weight out of 100
+	}
+	weights := []weightedType{
+		{RoomStorage, 20},
+		{RoomBarracks, 35},
+		{RoomLibrary, 45},
+		{RoomDining, 60},
+		{RoomCrypt, 75},
+		{RoomTrap, 80},
+		{RoomEmpty, 100},
+	}
+	for i := range w.Rooms {
+		if w.Rooms[i].W <= 1 || w.Rooms[i].H <= 1 {
+			w.Rooms[i].Type = RoomCorridor
+			continue
+		}
+		roll := rng.Intn(100)
+		for _, wt := range weights {
+			if roll < wt.w {
+				w.Rooms[i].Type = wt.t
+				break
+			}
+		}
 	}
 }
 
