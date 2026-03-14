@@ -17,9 +17,14 @@ func newTestGame() (*GameState, *World) {
 	w.PlacePickaxe(spawnX, 0)
 
 	g := &GameState{SelectedEnt: 0}
+	inv := NewInventory(12)
+	inv.Add(ItemByName("Rations"), 10)
+	inv.Add(ItemByName("Waterskin"), 5)
+	inv.Add(ItemByName("Torch"), 3)
 	g.Entities = []*Entity{
 		{Name: "Brynn", X: spawnX, Z: 0, Tier: TierVeteran, RevealDist: 8,
 			Scouted: map[[2]int]bool{},
+			Inv:     inv,
 			Stats: &CombatStats{
 				HP: 28, MaxHP: 28, AC: 16,
 				STR: 16, DEX: 12, CON: 14, INT: 10, WIS: 12, CHA: 10,
@@ -40,9 +45,13 @@ func newTestGame() (*GameState, *World) {
 // addElara adds the Mage to the roster at a walkable position near Brynn.
 func addElara(g *GameState, w *World) *Entity {
 	brynn := g.Entities[0]
+	elaraInv := NewInventory(12)
+	elaraInv.Add(ItemByName("Rations"), 5)
+	elaraInv.Add(ItemByName("Waterskin"), 3)
 	elara := &Entity{
 		Name: "Elara", X: brynn.X + 1, Z: brynn.Z, Tier: TierSoldier, RevealDist: 5,
 		Scouted: map[[2]int]bool{},
+		Inv:     elaraInv,
 		Stats: &CombatStats{
 			HP: 18, MaxHP: 18, AC: 12,
 			STR: 8, DEX: 14, CON: 12, INT: 16, WIS: 14, CHA: 10,

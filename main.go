@@ -185,6 +185,7 @@ func main() {
 			Name: "Brynn", X: spawnX, Z: 0, Tier: TierRecruit, RevealDist: 6,
 			Scouted:   map[[2]int]bool{},
 			Equipment: map[EquipSlot]*GearItem{},
+			Inv:       NewInventory(12),
 			Stats: &CombatStats{
 				HP: 12, MaxHP: 12, AC: 13,
 				STR: 16, DEX: 12, CON: 14, INT: 10, WIS: 12, CHA: 10,
@@ -193,6 +194,9 @@ func main() {
 				HitDice: 1, MaxHitDice: 1, HitDieSize: 10,
 			},
 		}
+		brynn.Inv.Add(ItemByName("Rations"), 5)
+		brynn.Inv.Add(ItemByName("Waterskin"), 2)
+		brynn.Inv.Add(ItemByName("Torch"), 3)
 		brynn.RebuildVisibleMeshes()
 		game.Entities = []*Entity{brynn}
 		for _, ent := range game.Entities {
@@ -240,10 +244,11 @@ func main() {
 					room := w.Rooms[ctx.RoomIdx]
 					mx, mz := room.X+room.W/2, room.Z+room.H/2
 					mx, mz, _ = nearestClearTile(g, w, mx, mz)
-					g.Entities = append(g.Entities, &Entity{
+					elara := &Entity{
 						Name: "Elara", X: mx, Z: mz, Tier: TierRecruit, RevealDist: 5,
 						Scouted: map[[2]int]bool{},
 						Equipment: map[EquipSlot]*GearItem{},
+						Inv:       NewInventory(12),
 						Stats: &CombatStats{
 							HP: 7, MaxHP: 7, AC: 12,
 							STR: 8, DEX: 14, CON: 12, INT: 16, WIS: 14, CHA: 10,
@@ -251,8 +256,12 @@ func main() {
 							ClassCharges: 2, MaxClassCharges: 2,
 							HitDice: 1, MaxHitDice: 1, HitDieSize: 6,
 						},
-					})
-					g.Entities[len(g.Entities)-1].RebuildVisibleMeshes()
+					}
+					elara.Inv.Add(ItemByName("Rations"), 3)
+					elara.Inv.Add(ItemByName("Waterskin"), 1)
+					elara.Inv.Add(ItemByName("Torch"), 1)
+					g.Entities = append(g.Entities, elara)
+					elara.RebuildVisibleMeshes()
 					g.SetMessage("Elara the Mage freed! She joins your party!")
 				},
 			},
@@ -381,10 +390,11 @@ func main() {
 				if !hasElara {
 					mx, mz, ok := nearestClearTile(game, world, ent.X+1, ent.Z)
 					if ok {
-						game.Entities = append(game.Entities, &Entity{
+						dbgElara := &Entity{
 							Name: "Elara", X: mx, Z: mz, Tier: TierRecruit, RevealDist: 5,
 							Scouted:       map[[2]int]bool{},
 							Equipment: map[EquipSlot]*GearItem{},
+							Inv:       NewInventory(12),
 							Stats: &CombatStats{
 								HP: 7, MaxHP: 7, AC: 12,
 								STR: 8, DEX: 14, CON: 12, INT: 16, WIS: 14, CHA: 10,
@@ -392,8 +402,12 @@ func main() {
 								ClassCharges: 2, MaxClassCharges: 2,
 								HitDice: 1, MaxHitDice: 1, HitDieSize: 6,
 							},
-						})
-						game.Entities[len(game.Entities)-1].RebuildVisibleMeshes()
+						}
+						dbgElara.Inv.Add(ItemByName("Rations"), 3)
+						dbgElara.Inv.Add(ItemByName("Waterskin"), 1)
+						dbgElara.Inv.Add(ItemByName("Torch"), 1)
+						game.Entities = append(game.Entities, dbgElara)
+						dbgElara.RebuildVisibleMeshes()
 						game.SetMessage("[DEBUG] Elara spawned!")
 					}
 				} else {

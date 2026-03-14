@@ -312,6 +312,7 @@ type Entity struct {
 	Anim              AnimState
 	VisibleMeshes  []bool // per-mesh visibility filter for gear progression (nil = draw all)
 	Equipment      map[EquipSlot]*GearItem
+	Inv            *Inventory
 }
 
 // meshNames returns human-readable labels for each mesh index per class.
@@ -528,6 +529,156 @@ func (e *Entity) RebuildVisibleMeshes() {
 		}
 		e.VisibleMeshes = v
 	}
+}
+
+// ---------- Item System ----------
+
+type ItemCategory int
+
+const (
+	ItemSupply     ItemCategory = iota // food, water, torches — stackable, consumed over time
+	ItemMaterial                       // ore, wood, bones — crafting inputs
+	ItemConsumable                     // potions, scrolls — single-use active effect
+	ItemTool                           // pickaxe tiers — ring progression gate
+)
+
+type Item struct {
+	Name     string
+	Category ItemCategory
+	MaxStack int // max per inventory slot (1 = unstackable)
+
+	// Supply fields
+	BurnRate int // ticks per unit consumed (0 = not auto-consumed)
+
+	// Consumable fields
+	HealHP    int // instant HP restore
+	HealDie   int // roll 1d{HealDie} + HealHP (0 = flat heal only)
+	GrantBuff string
+
+	// Tool fields
+	ToolTier int // 0 = none, 1 = stone, 2 = iron, 3 = steel ...
+
+	// Rendering
+	PropModel int // PropBarrel, etc. (-1 = no world model)
+}
+
+var AllItems = []Item{
+	// Supplies
+	{Name: "Rations", Category: ItemSupply, MaxStack: 10, BurnRate: 480},
+	{Name: "Waterskin", Category: ItemSupply, MaxStack: 5, BurnRate: 480},
+	{Name: "Torch", Category: ItemSupply, MaxStack: 5, BurnRate: 60},
+
+	// Materials
+	{Name: "Stone", Category: ItemMaterial, MaxStack: 20},
+	{Name: "Wood", Category: ItemMaterial, MaxStack: 20},
+	{Name: "Iron Ore", Category: ItemMaterial, MaxStack: 10},
+	{Name: "Bone", Category: ItemMaterial, MaxStack: 10},
+	{Name: "Leather Scrap", Category: ItemMaterial, MaxStack: 10},
+
+	// Consumables
+	{Name: "Healing Potion", Category: ItemConsumable, MaxStack: 3, HealHP: 2, HealDie: 4},
+	{Name: "Greater Healing Potion", Category: ItemConsumable, MaxStack: 3, HealHP: 4, HealDie: 4},
+	{Name: "Scroll of Fire Bolt", Category: ItemConsumable, MaxStack: 1},
+	{Name: "Antidote", Category: ItemConsumable, MaxStack: 3},
+
+	// Tools
+	{Name: "Stone Pickaxe", Category: ItemTool, MaxStack: 1, ToolTier: 1},
+	{Name: "Iron Pickaxe", Category: ItemTool, MaxStack: 1, ToolTier: 2},
+	{Name: "Steel Pickaxe", Category: ItemTool, MaxStack: 1, ToolTier: 3},
+}
+
+func ItemByName(name string) *Item {
+	for i := range AllItems {
+		if AllItems[i].Name == name {
+			return &AllItems[i]
+		}
+	}
+	return nil
+}
+
+// InvSlot is one slot in an entity's inventory.
+type InvSlot struct {
+	Item  *Item
+	Count int
+}
+
+type Inventory struct {
+	Slots    []InvSlot
+	Capacity int
+}
+
+func NewInventory(capacity int) *Inventory {
+	return &Inventory{
+		Slots:    make([]InvSlot, 0, capacity),
+		Capacity: capacity,
+	}
+}
+
+func (inv *Inventory) Add(item *Item, count int) int {
+	for i := range inv.Slots {
+		if inv.Slots[i].Item == item && inv.Slots[i].Count < item.MaxStack {
+			room := item.MaxStack - inv.Slots[i].Count
+			if count <= room {
+				inv.Slots[i].Count += count
+				return 0
+			}
+			inv.Slots[i].Count = item.MaxStack
+			count -= room
+		}
+	}
+	for count > 0 && len(inv.Slots) < inv.Capacity {
+		add := count
+		if add > item.MaxStack {
+			add = item.MaxStack
+		}
+		inv.Slots = append(inv.Slots, InvSlot{Item: item, Count: add})
+		count -= add
+	}
+	return count
+}
+
+func (inv *Inventory) Remove(item *Item, count int) int {
+	for i := len(inv.Slots) - 1; i >= 0; i-- {
+		if inv.Slots[i].Item != item {
+			continue
+		}
+		if inv.Slots[i].Count <= count {
+			count -= inv.Slots[i].Count
+			inv.Slots = append(inv.Slots[:i], inv.Slots[i+1:]...)
+		} else {
+			inv.Slots[i].Count -= count
+			return 0
+		}
+	}
+	return count
+}
+
+func (inv *Inventory) Count(item *Item) int {
+	total := 0
+	for _, s := range inv.Slots {
+		if s.Item == item {
+			total += s.Count
+		}
+	}
+	return total
+}
+
+func (inv *Inventory) Has(item *Item, count int) bool {
+	return inv.Count(item) >= count
+}
+
+// Transfer moves items between inventories. Returns leftover count.
+func Transfer(from, to *Inventory, item *Item, count int) int {
+	have := from.Count(item)
+	if have < count {
+		count = have
+	}
+	if count <= 0 {
+		return 0
+	}
+	leftover := to.Add(item, count)
+	from.Remove(item, count-leftover)
+	return leftover
 }
 
 type Alert struct {
@@ -1037,11 +1188,42 @@ func (g *GameState) TryShortRest(w *World, entIdx int) {
 }
 
 // TryLongRest: 8 hours. Full HP, recover half hit dice (min 1),
-// restore class charges. Applies to entire party.
+// restore class charges. Applies to entire party. Requires 1 ration + 1 water.
 func (g *GameState) TryLongRest(w *World, entIdx int) {
+	// Supply check
+	rations := ItemByName("Rations")
+	water := ItemByName("Waterskin")
+	rationSrc, waterSrc := -1, -1
+	for i, e := range g.Entities {
+		if e.Inv == nil {
+			continue
+		}
+		if rationSrc < 0 && e.Inv.Has(rations, 1) {
+			rationSrc = i
+		}
+		if waterSrc < 0 && e.Inv.Has(water, 1) {
+			waterSrc = i
+		}
+	}
+	if rationSrc < 0 || waterSrc < 0 {
+		missing := ""
+		if rationSrc < 0 && waterSrc < 0 {
+			missing = "rations and water"
+		} else if rationSrc < 0 {
+			missing = "rations"
+		} else {
+			missing = "water"
+		}
+		g.SetMessage(fmt.Sprintf("Can't rest — no %s!", missing))
+		return
+	}
+
 	if g.tryRestAmbush(w, entIdx) {
 		return
 	}
+
+	g.Entities[rationSrc].Inv.Remove(rations, 1)
+	g.Entities[waterSrc].Inv.Remove(water, 1)
 
 	g.TimeTicks += 480
 	g.Day++

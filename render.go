@@ -699,9 +699,9 @@ func drawLocal(
 	if game.SelectedEnt >= 0 && game.SelectedEnt < len(game.Entities) {
 		ent := game.Entities[game.SelectedEnt]
 		panelX := int32(10)
-		panelY := int32(screenHeight - 140)
+		panelY := int32(screenHeight - 160)
 		panelW := int32(260)
-		panelH := int32(130)
+		panelH := int32(150)
 		rl.DrawRectangle(panelX, panelY, panelW, panelH, rl.Color{R: 20, G: 20, B: 30, A: 210})
 		rl.DrawRectangleLines(panelX, panelY, panelW, panelH, tierColor(ent.Tier))
 
@@ -737,6 +737,16 @@ func drawLocal(
 			}
 			rl.DrawText(fmt.Sprintf("Exhaustion: %d/6", ent.Stats.Exhaustion),
 				panelX+10, lineY, 14, exhColor)
+			lineY += 18
+		}
+
+		// Inventory summary
+		if ent.Inv != nil {
+			rations := ent.Inv.Count(ItemByName("Rations"))
+			water := ent.Inv.Count(ItemByName("Waterskin"))
+			torches := ent.Inv.Count(ItemByName("Torch"))
+			rl.DrawText(fmt.Sprintf("Supplies: %d food  %d water  %d torch", rations, water, torches),
+				panelX+10, lineY, 14, rl.Color{R: 180, G: 200, B: 160, A: 255})
 			lineY += 18
 		}
 
