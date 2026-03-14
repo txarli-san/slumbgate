@@ -110,6 +110,10 @@ func main() {
 	charScale := (tileUnit * 0.6) / (charBBox.Max.X - charBBox.Min.X)
 	knightYOffset := floorSurfaceY - charBBox.Min.Y*charScale
 
+	// Prop models (loaded after wallScale is known)
+	propModels := LoadPropModels(shader, wallScale)
+	defer propModels.Unload()
+
 	// Floor variant by position
 	floorVariant := func(x, z int) rl.Model {
 		h := (x*7 + z*13 + x*z*3) % 10
@@ -280,7 +284,7 @@ func main() {
 			rl.ClearBackground(rl.Color{R: 10, G: 10, B: 15, A: 255})
 			drawLocal(camera, world, game, dt, tileUnit, floorSurfaceY, knightYOffset, charScale, wallScale,
 				floorVariant, gridToWorld,
-				wallModel, pickaxeModel, chestModel, chestTopModel, heroModels, skeletonModels, game.Entities, game.SelectedEnt)
+				wallModel, pickaxeModel, chestModel, chestTopModel, heroModels, skeletonModels, propModels, game.Entities, game.SelectedEnt)
 			rl.EndDrawing()
 			continue
 		}
@@ -835,7 +839,7 @@ func main() {
 
 		drawLocal(camera, world, game, dt, tileUnit, floorSurfaceY, knightYOffset, charScale, wallScale,
 			floorVariant, gridToWorld,
-			wallModel, pickaxeModel, chestModel, chestTopModel, heroModels, skeletonModels, game.Entities, game.SelectedEnt)
+			wallModel, pickaxeModel, chestModel, chestTopModel, heroModels, skeletonModels, propModels, game.Entities, game.SelectedEnt)
 
 		rl.EndDrawing()
 	}
