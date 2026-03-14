@@ -461,6 +461,12 @@ func drawLocal(
 	// Entities (update-then-draw: animate shared model, draw, repeat per entity)
 	scaleVec := rl.Vector3{X: charScale, Y: charScale, Z: charScale}
 	for i, ent := range entities {
+		// Distance cull
+		ewp := gridToWorld(ent.X, ent.Z)
+		edx, edz := ewp.X-camera.Target.X, ewp.Z-camera.Target.Z
+		if edx*edx+edz*edz > maxVisR*maxVisR {
+			continue
+		}
 		var entPos rl.Vector3
 		if ent.Moving {
 			from := gridToWorld(ent.PrevX, ent.PrevZ)
@@ -504,6 +510,12 @@ func drawLocal(
 
 	// Threats (skeleton models — same update-then-draw pattern)
 	for key, threat := range world.Threats {
+		// Distance cull
+		twp := gridToWorld(threat.X, threat.Z)
+		tdx, tdz := twp.X-camera.Target.X, twp.Z-camera.Target.Z
+		if tdx*tdx+tdz*tdz > maxVisR*maxVisR {
+			continue
+		}
 		if world.IsRevealed(threat.X, threat.Z) || game.Debug {
 			var tPos rl.Vector3
 			if threat.Moving {
