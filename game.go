@@ -1037,18 +1037,21 @@ func (g *GameState) TryShortRest(w *World, entIdx int) {
 }
 
 // TryLongRest: 8 hours. Full HP, recover half hit dice (min 1),
-// restore class charges. Higher ambush chance inside dungeon (future).
+// restore class charges. Applies to entire party.
 func (g *GameState) TryLongRest(w *World, entIdx int) {
 	if g.tryRestAmbush(w, entIdx) {
 		return
 	}
-	ent := g.Entities[entIdx]
 
-	// Full HP recovery
-	if ent.Stats != nil {
+	g.TimeTicks += 480
+	g.Day++
+
+	for _, ent := range g.Entities {
+		if ent.Stats == nil {
+			continue
+		}
 		ent.Stats.HP = ent.Stats.MaxHP
 
-		// Recover half hit dice (min 1)
 		recover := ent.Stats.MaxHitDice / 2
 		if recover < 1 {
 			recover = 1
@@ -1058,21 +1061,16 @@ func (g *GameState) TryLongRest(w *World, entIdx int) {
 			ent.Stats.HitDice = ent.Stats.MaxHitDice
 		}
 
-		// Restore class charges
 		ent.Stats.ClassCharges = ent.Stats.MaxClassCharges
 
-		// Reduce exhaustion by 1
 		if ent.Stats.Exhaustion > 0 {
 			ent.Stats.Exhaustion--
 		}
 
-		g.SetMessage(fmt.Sprintf("%s finishes long rest — fully healed! (%d/%d) [%d hit dice]",
-			ent.Name, ent.Stats.HP, ent.Stats.MaxHP, ent.Stats.HitDice))
+		ent.LastLongRestTick = g.TimeTicks
 	}
 
-	g.TimeTicks += 480
-	g.Day++
-	ent.LastLongRestTick = g.TimeTicks // reset exhaustion timer from waking up
+	g.SetMessage(fmt.Sprintf("Party finishes long rest — Day %d", g.Day))
 }
 
 // KillEntity removes a dead entity from the roster and fixes all references.
