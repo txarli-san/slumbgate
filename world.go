@@ -109,11 +109,54 @@ type LeashingThreat struct {
 	SpawnPos  [2]int
 }
 
+// Prop model IDs — indexes into PropModels.Models slice
+const (
+	PropBarrel = iota
+	PropBarrelDark
+	PropCrate
+	PropCrateDark
+	PropBucket
+	PropPots
+	PropWeaponRack
+	PropBench
+	PropTableMedium
+	PropStool
+	PropBanner
+	PropBookcaseFilled
+	PropBookcaseWideFilled
+	PropTableSmall
+	PropBookA
+	PropBookOpenA
+	PropSpellBook
+	PropTableLarge
+	PropChair
+	PropMug
+	PropPlate
+	PropPlateFull
+	PropPillar
+	PropPillarBroken
+	PropBricks
+	PropFloorDecoShattered
+	PropTileSpikes
+	PropTileSpikesLarge
+	PropTorchWall
+	PropFloorDecoTiles
+	PropCount // total number of prop models
+)
+
+type Prop struct {
+	Model    int     // PropBarrel, PropCrate, etc.
+	Rotation float32 // Y-axis degrees
+	Wall     int     // -1=center, 0=N, 1=S, 2=W, 3=E wall placement
+	Blocking bool    // true = blocks movement
+}
+
 type World struct {
 	Seed             int64
 	Chunks           map[ChunkCoord]*Chunk
 	Rooms            []Room
 	Threats          map[[2]int]Threat
+	Props            map[[2]int]Prop
 	LeashingThreats  []LeashingThreat
 	PickaxeX         int
 	PickaxeZ         int
@@ -127,9 +170,11 @@ func NewWorld(seed int64) *World {
 		Seed:    seed,
 		Chunks:  make(map[ChunkCoord]*Chunk),
 		Threats: make(map[[2]int]Threat),
+		Props:   make(map[[2]int]Prop),
 	}
 	w.generateRooms()
 	w.placeThreats()
+	w.generateProps()
 	return w
 }
 
@@ -624,7 +669,13 @@ func (w *World) IsWalkable(tx, tz int) bool {
 	if !ok {
 		return false
 	}
-	return t == TileGround || t == TileFloor || t == TileDoorway
+	if t != TileGround && t != TileFloor && t != TileDoorway {
+		return false
+	}
+	if p, ok := w.Props[[2]int{tx, tz}]; ok && p.Blocking {
+		return false
+	}
+	return true
 }
 
 func (w *World) rollSkeletonType(rng *rand.Rand) SkeletonType {
@@ -688,6 +739,153 @@ func (w *World) placeThreats() {
 				t.MoveSpeed, t.AttackDice, t.MaxRange = 4, 8, 5
 			}
 			w.Threats[key] = t
+		}
+	}
+}
+
+func (w *World) generateProps() {
+	rng := rand.New(rand.NewSource(w.Seed + 555))
+
+	type propPalette struct {
+		wallProps   []int // blocking, wall-adjacent
+		centerProps []int // non-blocking, center
+		wallChance  float64
+		centerChance float64
+	}
+
+	palettes := map[RoomType]propPalette{
+		RoomStorage: {
+			wallProps:    []int{PropBarrel, PropBarrelDark, PropCrate, PropCrateDark},
+			centerProps:  []int{PropBucket, PropPots},
+			wallChance:   0.55,
+			centerChance: 0.35,
+		},
+		RoomBarracks: {
+			wallProps:    []int{PropWeaponRack, PropBench, PropTableMedium},
+			centerProps:  []int{PropStool, PropBanner},
+			wallChance:   0.55,
+			centerChance: 0.30,
+		},
+		RoomLibrary: {
+			wallProps:    []int{PropBookcaseFilled, PropBookcaseWideFilled, PropTableSmall},
+			centerProps:  []int{PropBookA, PropBookOpenA, PropSpellBook},
+			wallChance:   0.55,
+			centerChance: 0.35,
+		},
+		RoomDining: {
+			wallProps:    []int{PropTableLarge, PropTableMedium, PropChair},
+			centerProps:  []int{PropMug, PropPlate, PropPlateFull},
+			wallChance:   0.55,
+			centerChance: 0.35,
+		},
+		RoomCrypt: {
+			wallProps:    []int{PropPillar, PropPillarBroken},
+			centerProps:  []int{PropBanner, PropBricks, PropFloorDecoTiles},
+			wallChance:   0.50,
+			centerChance: 0.30,
+		},
+		RoomTrap: {
+			wallProps:    []int{PropTileSpikes, PropTileSpikesLarge},
+			centerProps:  []int{PropFloorDecoTiles},
+			wallChance:   0.50,
+			centerChance: 0.20,
+		},
+		RoomEmpty: {
+			wallProps:    []int{PropPillarBroken},
+			centerProps:  []int{PropBricks, PropFloorDecoShattered},
+			wallChance:   0.05,
+			centerChance: 0.10,
+		},
+	}
+
+	// Check if tile has a solid cardinal neighbor
+	hasWall := func(tx, tz int) (bool, int) {
+		dirs := [][2]int{{0, -1}, {0, 1}, {-1, 0}, {1, 0}} // N,S,W,E → 0,1,2,3
+		for i, d := range dirs {
+			if w.BaseTileType(tx+d[0], tz+d[1]) == TileSolid {
+				return true, i
+			}
+		}
+		return false, -1
+	}
+
+	// Rotation facing away from wall
+	wallRotation := func(wallDir int) float32 {
+		switch wallDir {
+		case 0: return 180 // N wall → face south
+		case 1: return 0   // S wall → face north
+		case 2: return 90  // W wall → face east
+		case 3: return -90 // E wall → face west
+		}
+		return 0
+	}
+
+	for _, r := range w.Rooms {
+		if r.Type == RoomCorridor {
+			// Corridor torches: every 5-6 tiles on whichever wall exists
+			tileCount := 0
+			interval := 5 + rng.Intn(2) // 5 or 6
+			for tz := r.Z; tz < r.Z+r.H; tz++ {
+				for tx := r.X; tx < r.X+r.W; tx++ {
+					tileCount++
+					if tileCount%interval != 0 {
+						continue
+					}
+					key := [2]int{tx, tz}
+					if _, taken := w.Threats[key]; taken {
+						continue
+					}
+					if adj, dir := hasWall(tx, tz); adj {
+						w.Props[key] = Prop{
+							Model:    PropTorchWall,
+							Rotation: wallRotation(dir),
+							Wall:     dir,
+							Blocking: false,
+						}
+					}
+				}
+			}
+			continue
+		}
+
+		pal, ok := palettes[r.Type]
+		if !ok {
+			continue
+		}
+
+		for tz := r.Z; tz < r.Z+r.H; tz++ {
+			for tx := r.X; tx < r.X+r.W; tx++ {
+				key := [2]int{tx, tz}
+				// Skip occupied tiles
+				if _, taken := w.Threats[key]; taken {
+					continue
+				}
+				if tx == w.PickaxeX && tz == w.PickaxeZ {
+					continue
+				}
+				if tx == w.ChestX && tz == w.ChestZ {
+					continue
+				}
+
+				adj, dir := hasWall(tx, tz)
+				if adj && len(pal.wallProps) > 0 && rng.Float64() < pal.wallChance {
+					model := pal.wallProps[rng.Intn(len(pal.wallProps))]
+					w.Props[key] = Prop{
+						Model:    model,
+						Rotation: wallRotation(dir),
+						Wall:     dir,
+						Blocking: true,
+					}
+				} else if len(pal.centerProps) > 0 && rng.Float64() < pal.centerChance {
+					model := pal.centerProps[rng.Intn(len(pal.centerProps))]
+					w.Props[key] = Prop{
+						Model:    model,
+						Rotation: float32(rng.Intn(4)) * 90,
+						Wall:     -1,
+						Blocking: false,
+					}
+				}
+			}
 		}
 	}
 }
