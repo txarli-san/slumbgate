@@ -287,8 +287,25 @@ func drawLocal(
 	ones := rl.Vector3{X: 1, Y: 1, Z: 1}
 	wallScaleVec := rl.Vector3{X: wallScale, Y: wallScale, Z: wallScale}
 
+	// Distance-based chunk culling: skip chunks too far from camera target
+	camHeight := camera.Position.Y
+	maxVisR := camHeight * 3.0 // generous visible radius based on camera height
+	chunkHalfWorld := float32(ChunkSize) * tileUnit * 0.5
+	chunkDiag := chunkHalfWorld * 1.42 // sqrt(2) ≈ 1.42
+
 	for _, chunk := range world.Chunks {
 		ox, oz := ChunkOrigin(chunk.CX, chunk.CZ)
+
+		// Chunk center in world space
+		chunkCX := (float32(ox) + float32(ChunkSize)*0.5) * tileUnit
+		chunkCZ := (float32(oz) + float32(ChunkSize)*0.5) * tileUnit
+		dx := chunkCX - camera.Target.X
+		dz := chunkCZ - camera.Target.Z
+		distSq := dx*dx + dz*dz
+		cullR := maxVisR + chunkDiag
+		if distSq > cullR*cullR {
+			continue
+		}
 		for lz := 0; lz < ChunkSize; lz++ {
 			for lx := 0; lx < ChunkSize; lx++ {
 				tx, tz := ox+lx, oz+lz
