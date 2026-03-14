@@ -98,6 +98,83 @@ func tierColor(t AutoTier) rl.Color {
 	return rl.White
 }
 
+// PropModels holds all loaded prop models and per-model scales.
+type PropModels struct {
+	Models []rl.Model
+	Scales []rl.Vector3
+}
+
+var propModelPaths = [PropCount]string{
+	PropBarrel:             "props/barrel.gltf.glb",
+	PropBarrelDark:         "props/barrelDark.gltf.glb",
+	PropCrate:              "props/crate.gltf.glb",
+	PropCrateDark:          "props/crateDark.gltf.glb",
+	PropBucket:             "props/bucket.gltf.glb",
+	PropPots:               "props/pots.gltf.glb",
+	PropWeaponRack:         "props/weaponRack.gltf.glb",
+	PropBench:              "props/bench.gltf.glb",
+	PropTableMedium:        "props/tableMedium.gltf.glb",
+	PropStool:              "props/stool.gltf.glb",
+	PropBanner:             "props/banner.gltf.glb",
+	PropBookcaseFilled:     "props/bookcaseFilled.gltf.glb",
+	PropBookcaseWideFilled: "props/bookcaseWideFilled.gltf.glb",
+	PropTableSmall:         "props/tableSmall.gltf.glb",
+	PropBookA:              "props/bookA.gltf.glb",
+	PropBookOpenA:          "props/bookOpenA.gltf.glb",
+	PropSpellBook:          "props/spellBook.gltf.glb",
+	PropTableLarge:         "props/tableLarge.gltf.glb",
+	PropChair:              "props/chair.gltf.glb",
+	PropMug:                "props/mug.gltf.glb",
+	PropPlate:              "props/plate.gltf.glb",
+	PropPlateFull:          "props/plateFull.gltf.glb",
+	PropPillar:             "walls/pillar.gltf.glb",
+	PropPillarBroken:       "walls/pillar_broken.gltf.glb",
+	PropBricks:             "props/bricks.gltf.glb",
+	PropFloorDecoShattered: "props/floorDecoration_shatteredBricks.gltf.glb",
+	PropTileSpikes:         "hazards/tileSpikes.gltf.glb",
+	PropTileSpikesLarge:    "hazards/tileSpikes_large.gltf.glb",
+	PropTorchWall:          "hazards/torchWall.gltf.glb",
+	PropFloorDecoTiles:     "props/floorDecoration_tilesSmall.gltf.glb",
+}
+
+var propScaleFactors = [PropCount]float32{
+	PropBarrel: 1.0, PropBarrelDark: 1.0,
+	PropCrate: 1.0, PropCrateDark: 1.0,
+	PropBucket: 1.0, PropPots: 1.0,
+	PropWeaponRack: 1.2, PropBench: 1.0,
+	PropTableMedium: 1.0, PropStool: 1.0,
+	PropBanner: 1.2, PropBookcaseFilled: 1.5,
+	PropBookcaseWideFilled: 1.5, PropTableSmall: 1.0,
+	PropBookA: 0.8, PropBookOpenA: 0.8, PropSpellBook: 0.8,
+	PropTableLarge: 1.2, PropChair: 1.0,
+	PropMug: 0.8, PropPlate: 0.8, PropPlateFull: 0.8,
+	PropPillar: 1.0, PropPillarBroken: 1.0,
+	PropBricks: 1.0, PropFloorDecoShattered: 1.0,
+	PropTileSpikes: 1.0, PropTileSpikesLarge: 1.0,
+	PropTorchWall: 1.0, PropFloorDecoTiles: 1.0,
+}
+
+func LoadPropModels(shader rl.Shader, wallScale float32) *PropModels {
+	pm := &PropModels{
+		Models: make([]rl.Model, PropCount),
+		Scales: make([]rl.Vector3, PropCount),
+	}
+	for i := 0; i < PropCount; i++ {
+		path := "assets/models/dungeon/" + propModelPaths[i]
+		pm.Models[i] = rl.LoadModel(path)
+		applyShaderToModel(pm.Models[i], shader)
+		s := wallScale * propScaleFactors[i]
+		pm.Scales[i] = rl.Vector3{X: s, Y: s, Z: s}
+	}
+	return pm
+}
+
+func (pm *PropModels) Unload() {
+	for i := range pm.Models {
+		rl.UnloadModel(pm.Models[i])
+	}
+}
+
 func applyShaderToModel(model rl.Model, shader rl.Shader) {
 	materials := unsafe.Slice(model.Materials, model.MaterialCount)
 	for i := range materials {
@@ -279,6 +356,7 @@ func drawLocal(
 	chestModel, chestTopModel rl.Model,
 	heroModels map[string]*AnimatedModel, // "Fighter" → Knight, "Mage" → Mage
 	skeletonModels map[SkeletonType]*AnimatedModel,
+	propModels *PropModels,
 	entities []*Entity,
 	selectedEnt int,
 ) {
@@ -286,6 +364,23 @@ func drawLocal(
 
 	ones := rl.Vector3{X: 1, Y: 1, Z: 1}
 	wallScaleVec := rl.Vector3{X: wallScale, Y: wallScale, Z: wallScale}
+	halfTileOff := tileUnit * 0.35
+
+	drawProp := func(tx, tz int, pos rl.Vector3) {
+		prop, ok := world.Props[[2]int{tx, tz}]
+		if !ok {
+			return
+		}
+		propPos := pos
+		propPos.Y = floorSurfaceY
+		switch prop.Wall {
+		case 0: propPos.Z -= halfTileOff // N
+		case 1: propPos.Z += halfTileOff // S
+		case 2: propPos.X -= halfTileOff // W
+		case 3: propPos.X += halfTileOff // E
+		}
+		rl.DrawModelEx(propModels.Models[prop.Model], propPos, rl.Vector3{Y: 1}, prop.Rotation, propModels.Scales[prop.Model], rl.White)
+	}
 
 	// Distance-based chunk culling: skip chunks too far from camera target
 	camHeight := camera.Position.Y
@@ -357,6 +452,7 @@ func drawLocal(
 					}
 					fm := floorVariant(tx, tz)
 					rl.DrawModelEx(fm, pos, rl.Vector3{Y: 1}, 0, ones, rl.White)
+					drawProp(tx, tz, pos)
 
 					// Walls on edges facing non-dungeon tiles
 					needsWall := func(nx, nz int) bool {
@@ -382,6 +478,7 @@ func drawLocal(
 					}
 					fm := floorVariant(tx, tz)
 					rl.DrawModelEx(fm, pos, rl.Vector3{Y: 1}, 0, ones, rl.White)
+					drawProp(tx, tz, pos)
 
 					// Walls on edges facing non-dungeon tiles
 					needsDoorWall := func(nx, nz int) bool {

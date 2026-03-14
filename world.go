@@ -757,52 +757,53 @@ func (w *World) generateProps() {
 		RoomStorage: {
 			wallProps:    []int{PropBarrel, PropBarrelDark, PropCrate, PropCrateDark},
 			centerProps:  []int{PropBucket, PropPots},
-			wallChance:   0.55,
-			centerChance: 0.35,
+			wallChance:   0.40,
+			centerChance: 0.15,
 		},
 		RoomBarracks: {
 			wallProps:    []int{PropWeaponRack, PropBench, PropTableMedium},
 			centerProps:  []int{PropStool, PropBanner},
-			wallChance:   0.55,
-			centerChance: 0.30,
+			wallChance:   0.40,
+			centerChance: 0.15,
 		},
 		RoomLibrary: {
 			wallProps:    []int{PropBookcaseFilled, PropBookcaseWideFilled, PropTableSmall},
 			centerProps:  []int{PropBookA, PropBookOpenA, PropSpellBook},
-			wallChance:   0.55,
-			centerChance: 0.35,
+			wallChance:   0.40,
+			centerChance: 0.15,
 		},
 		RoomDining: {
 			wallProps:    []int{PropTableLarge, PropTableMedium, PropChair},
 			centerProps:  []int{PropMug, PropPlate, PropPlateFull},
-			wallChance:   0.55,
-			centerChance: 0.35,
+			wallChance:   0.40,
+			centerChance: 0.15,
 		},
 		RoomCrypt: {
 			wallProps:    []int{PropPillar, PropPillarBroken},
 			centerProps:  []int{PropBanner, PropBricks, PropFloorDecoTiles},
-			wallChance:   0.50,
-			centerChance: 0.30,
+			wallChance:   0.35,
+			centerChance: 0.15,
 		},
 		RoomTrap: {
 			wallProps:    []int{PropTileSpikes, PropTileSpikesLarge},
 			centerProps:  []int{PropFloorDecoTiles},
-			wallChance:   0.50,
-			centerChance: 0.20,
+			wallChance:   0.35,
+			centerChance: 0.10,
 		},
 		RoomEmpty: {
 			wallProps:    []int{PropPillarBroken},
 			centerProps:  []int{PropBricks, PropFloorDecoShattered},
 			wallChance:   0.05,
-			centerChance: 0.10,
+			centerChance: 0.08,
 		},
 	}
 
-	// Check if tile has a solid cardinal neighbor
+	// Check if tile has an actual solid wall neighbor (not carved into a room)
 	hasWall := func(tx, tz int) (bool, int) {
 		dirs := [][2]int{{0, -1}, {0, 1}, {-1, 0}, {1, 0}} // N,S,W,E → 0,1,2,3
 		for i, d := range dirs {
-			if w.BaseTileType(tx+d[0], tz+d[1]) == TileSolid {
+			nx, nz := tx+d[0], tz+d[1]
+			if w.BaseTileType(nx, nz) == TileSolid && !w.isRoom(nx, nz) {
 				return true, i
 			}
 		}
@@ -822,26 +823,16 @@ func (w *World) generateProps() {
 
 	for _, r := range w.Rooms {
 		if r.Type == RoomCorridor {
-			// Corridor torches: every 5-6 tiles on whichever wall exists
-			tileCount := 0
-			interval := 5 + rng.Intn(2) // 5 or 6
-			for tz := r.Z; tz < r.Z+r.H; tz++ {
-				for tx := r.X; tx < r.X+r.W; tx++ {
-					tileCount++
-					if tileCount%interval != 0 {
-						continue
-					}
-					key := [2]int{tx, tz}
-					if _, taken := w.Threats[key]; taken {
-						continue
-					}
-					if adj, dir := hasWall(tx, tz); adj {
-						w.Props[key] = Prop{
-							Model:    PropTorchWall,
-							Rotation: wallRotation(dir),
-							Wall:     dir,
-							Blocking: false,
-						}
+			// Corridor torches: ~1 in 6 chance per corridor tile
+			tx, tz := r.X, r.Z
+			key := [2]int{tx, tz}
+			if _, taken := w.Threats[key]; !taken && rng.Intn(6) == 0 {
+				if adj, dir := hasWall(tx, tz); adj {
+					w.Props[key] = Prop{
+						Model:    PropTorchWall,
+						Rotation: wallRotation(dir),
+						Wall:     dir,
+						Blocking: false,
 					}
 				}
 			}
